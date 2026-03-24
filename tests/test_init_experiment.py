@@ -44,19 +44,6 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
 
-
-def test_with_azure_scaffold_imports_adapter(tmp_path: Path) -> None:
-    """Azure-enabled scaffolds should import the Azure adapter package."""
-    target_dir = create_experiment_scaffold(
-        "azure-demo",
-        root_dir=str(tmp_path),
-        with_azure=True,
-    )
-    bootstrap_module = (target_dir / "src" / "bootstrap.py").read_text()
-
-    assert "import dl_mobai_azure" in bootstrap_module
-
-
 def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> None:
     """Omitting --name should initialize the provided directory in place."""
     target_dir = tmp_path / "custom_test"

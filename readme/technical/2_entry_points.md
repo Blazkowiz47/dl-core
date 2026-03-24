@@ -36,7 +36,8 @@ Important arguments:
 - `--name` (optional)
 - `--root-dir`
 - `--package-name`
-- `--with-azure`
+- dynamically added extension flags such as `--with-azure` when the relevant
+  extra package is installed
 
 ## `dl-run`
 

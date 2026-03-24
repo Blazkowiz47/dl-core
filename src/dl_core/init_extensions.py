@@ -104,39 +104,9 @@ class InitExtension:
         raise NotImplementedError
 
 
-class LegacyAzureInitExtension(InitExtension):
-    """Transitional Azure scaffold behavior hosted in dl-core."""
-
-    name = "azure"
-
-    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        """Register the legacy Azure scaffold flag."""
-        parser.add_argument(
-            "--with-azure",
-            action="store_true",
-            help="Include Azure scaffold wiring in the generated project.",
-        )
-
-    def is_enabled(
-        self,
-        args: argparse.Namespace,
-        discovered_extensions: dict[str, InitExtension],
-    ) -> bool:
-        """Enable Azure wiring when explicitly requested."""
-        return bool(getattr(args, "with_azure", False))
-
-    def apply(self, context: ScaffoldContext) -> None:
-        """Apply the legacy Azure scaffold mutations."""
-        context.add_dependency("dl-mobai-azure>=0.1.0")
-        context.append_bootstrap_import("import dl_mobai_azure  # noqa: F401")
-        context.append_readme_note(
-            "This scaffold includes `dl-mobai-azure` as a dependency."
-        )
-
-
 def _builtin_init_extensions() -> dict[str, InitExtension]:
     """Return bundled init extensions."""
-    return {LegacyAzureInitExtension.name: LegacyAzureInitExtension()}
+    return {}
 
 
 def _iter_entry_points(group: str) -> list[EntryPoint]:
@@ -191,4 +161,3 @@ def resolve_enabled_extensions(
         if extension.is_enabled(args, discovered_extensions):
             enabled.add(name)
     return enabled
-

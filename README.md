@@ -3,9 +3,9 @@
 Reusable deep learning framework core.
 
 `dl-core` contains the vendor-neutral training framework that can be reused
-across many experiment repositories. It is intended to be the public or
-generally reusable package, while company-specific cloud integrations live in
-separate adapters such as `dl-mobai-azure`.
+across many experiment repositories. It is intended to be the public base
+package, while optional integrations such as Azure are layered on through
+extras and companion extension packages.
 
 ## Install
 
@@ -13,6 +13,12 @@ Install from PyPI:
 
 ```bash
 pip install dl-core
+```
+
+Install with Azure support:
+
+```bash
+pip install "dl-core[azure]"
 ```
 
 Install from TestPyPI with `pip`:
@@ -47,7 +53,9 @@ package. With `uv`'s default `first-index` strategy, that can pull unrelated
 dependency names from TestPyPI instead of PyPI.
 
 `dl-core` intentionally ships with the full public runtime dependencies,
-including `torch`, `torchvision`, and `opencv-python`.
+including `torch`, `torchvision`, and `opencv-python`. The Azure extra pulls in
+`dl-azure`, which pins the Azure package versions used by the current
+`pad_candidates` environment.
 
 ## Scope
 
@@ -61,7 +69,7 @@ including `torch`, `torchvision`, and `opencv-python`.
 
 ## Out Of Scope
 
-- Company-specific Azure ML wiring
+- Azure ML wiring unless the Azure extra is installed
 - Workspace or datastore conventions
 - Experiment-specific datasets, models, and trainers
 - User-owned configs and private data
@@ -87,6 +95,9 @@ uv run dl-run --config configs/base.yaml
 uv run dl-sweep --sweep experiments/lr_sweep.yaml
 uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
 ```
+
+If Azure support is installed, `dl-init-experiment --with-azure` will also
+scaffold Azure-ready config placeholders and `azure-config.json`.
 
 To add a new local component scaffold inside the experiment repo:
 

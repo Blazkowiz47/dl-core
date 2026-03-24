@@ -46,6 +46,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+azure = [
+    "dl-azure>=0.1.0,<0.2",
+]
 dev = [
     "pytest",
 ]
@@ -63,6 +66,9 @@ dl-analyze-sweep = "dl_core.analysis.sweep_analyzer:main"
 dl-run = "dl_core.single_run:main"
 dl-sweep = "dl_core.sweep.runner:main"
 dl-train-worker = "dl_core.worker:main"
+
+[tool.uv.sources]
+dl-azure = { path = "../dl-azure", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dl_core"]

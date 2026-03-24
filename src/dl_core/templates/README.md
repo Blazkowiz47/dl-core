@@ -9,4 +9,4 @@ They are intentionally generic:
 - resnet baseline
 - local executor defaults
 
-Azure-specific execution should be layered on top through `dl-mobai-azure`.
+Azure-specific execution should be layered on top through `dl-azure`.

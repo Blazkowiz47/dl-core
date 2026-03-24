@@ -67,11 +67,18 @@ class FakeWandbExtension(InitExtension):
         context.append_readme_note("This scaffold includes test W&B wiring.")
 
 
-def test_discover_init_extensions_includes_legacy_azure() -> None:
-    """Bundled init extensions should still be discoverable."""
-    discovered = discover_init_extensions()
+def test_discover_init_extensions_returns_empty_without_entry_points(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Plain dl-core should not ship vendor-specific init extensions."""
+    monkeypatch.setattr(
+        "dl_core.init_extensions.entry_points",
+        lambda: FakeEntryPoints([]),
+    )
 
-    assert "azure" in discovered
+    discovered = discover_init_extensions(include_builtin=False)
+
+    assert discovered == {}
 
 
 def test_discover_init_extensions_loads_entry_points(

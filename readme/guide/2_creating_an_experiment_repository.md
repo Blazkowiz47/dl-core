@@ -15,7 +15,7 @@ To initialize the current directory itself:
 uv run dl-init-experiment --root-dir .
 ```
 
-Optional Azure dependency wiring:
+Optional Azure dependency wiring, available when `dl-core[azure]` is installed:
 
 ```bash
 uv run dl-init-experiment --name my-exp --root-dir . --with-azure
