@@ -9,6 +9,12 @@ The experiment repository is the user-facing workspace built on top of
 uv run dl-init-experiment --name my-exp --root-dir .
 ```
 
+To initialize the current directory itself:
+
+```bash
+uv run dl-init-experiment --root-dir .
+```
+
 Optional Azure dependency wiring:
 
 ```bash

@@ -37,6 +37,12 @@ uv run --extra dev pytest
 uv run dl-init-experiment --name my-exp --root-dir .
 ```
 
+To initialize the current directory in place:
+
+```bash
+uv run dl-init-experiment --root-dir .
+```
+
 The generated repository becomes your working area for experiments. That is
 where you edit configs, add local wrappers, and run training jobs.
 

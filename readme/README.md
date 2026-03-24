@@ -47,6 +47,12 @@ uv run dl-run --show-registry
 uv run dl-init-experiment --name my-exp --root-dir .
 ```
 
+To scaffold the current directory in place:
+
+```bash
+uv run dl-init-experiment --root-dir .
+```
+
 ### Run a local training job
 
 ```bash

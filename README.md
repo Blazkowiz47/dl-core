@@ -72,6 +72,12 @@ dl-run --show-registry
 dl-init-experiment --name my-exp --root-dir .
 ```
 
+To initialize the current directory in place, omit `--name`:
+
+```bash
+dl-init-experiment --root-dir .
+```
+
 The generated experiment repository is the normal consumer entry point. Install
 that repository in editable mode, then run:
 

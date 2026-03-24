@@ -14,6 +14,12 @@ uv run dl-init-experiment --name my-exp --root-dir .
 cd my-exp
 ```
 
+Or, if you are already inside the empty target directory:
+
+```bash
+uv run dl-init-experiment --root-dir .
+```
+
 ## 2. Install the Experiment Repository
 
 For local development against a sibling checkout of `dl-core`:

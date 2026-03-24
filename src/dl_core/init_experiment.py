@@ -232,25 +232,61 @@ class {class_name}(StandardTrainer):
 """
 
 
+def _resolve_project_name(name: str | None, root_dir: Path) -> str:
+    """Resolve the project name from explicit input or the target directory."""
+    if name is not None:
+        return name
+
+    project_name = root_dir.name
+    if not project_name:
+        raise ValueError("Could not infer a project name from the target directory")
+    return project_name
+
+
+def _resolve_target_dir(name: str | None, root_dir: Path) -> Path:
+    """Resolve the scaffold target directory."""
+    if name is None:
+        return root_dir
+    return root_dir / _slugify(name)
+
+
+def _validate_target_dir(target_dir: Path, initialize_in_place: bool) -> None:
+    """Validate that the scaffold target directory is safe to create."""
+    if target_dir.exists() and not target_dir.is_dir():
+        raise FileExistsError(f"Target path is not a directory: {target_dir}")
+
+    if not target_dir.exists():
+        return
+
+    if not initialize_in_place:
+        raise FileExistsError(f"Target directory already exists: {target_dir}")
+
+    if any(target_dir.iterdir()):
+        raise FileExistsError(
+            "Target directory already exists and is not empty: "
+            f"{target_dir}"
+        )
+
+
 def create_experiment_scaffold(
-    name: str,
+    name: str | None = None,
     root_dir: str = ".",
     package_name: str | None = None,
     with_azure: bool = False,
 ) -> Path:
     """Create a new experiment repository scaffold."""
-    project_slug = _slugify(name)
-    package_name = package_name or _to_package_name(name)
+    root_path = Path(root_dir).resolve()
+    project_name = _resolve_project_name(name, root_path)
+    project_slug = _slugify(project_name)
+    package_name = package_name or _to_package_name(project_name)
     dataset_name = package_name
     trainer_name = package_name
     dataset_class_name = f"{_to_class_name(package_name)}Dataset"
     model_name = "resnet_example"
     model_class_name = "ResNetExample"
     trainer_class_name = f"{_to_class_name(package_name)}Trainer"
-    target_dir = Path(root_dir).resolve() / project_slug
-
-    if target_dir.exists():
-        raise FileExistsError(f"Target directory already exists: {target_dir}")
+    target_dir = _resolve_target_dir(name, root_path)
+    _validate_target_dir(target_dir, initialize_in_place=name is None)
 
     templates_dir = _templates_dir()
 
@@ -340,20 +376,26 @@ def create_experiment_scaffold(
     return target_dir
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
         description="Initialize a standalone experiment repository scaffold.",
     )
     parser.add_argument(
         "--name",
-        required=True,
-        help="Experiment repository name. The output directory will use a slugified form.",
+        help=(
+            "Optional experiment repository name. If omitted, dl-init-experiment "
+            "uses the target directory name and initializes that directory in place."
+        ),
     )
     parser.add_argument(
         "--root-dir",
         default=".",
-        help="Directory where the new experiment repository should be created.",
+        help=(
+            "Target directory for the scaffold. If --name is provided, a new "
+            "slugified subdirectory is created under this path. If --name is "
+            "omitted, this directory itself is initialized."
+        ),
     )
     parser.add_argument(
         "--package-name",
@@ -364,7 +406,7 @@ def main() -> int:
         action="store_true",
         help="Include dl-mobai-azure as a dependency in the generated project.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     target_dir = create_experiment_scaffold(
         name=args.name,

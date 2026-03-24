@@ -24,9 +24,16 @@ Creates a standalone experiment repository scaffold.
 uv run dl-init-experiment --name my-exp --root-dir .
 ```
 
+To initialize the target directory itself instead of creating a nested
+subdirectory, omit `--name`:
+
+```bash
+uv run dl-init-experiment --root-dir .
+```
+
 Important arguments:
 
-- `--name`
+- `--name` (optional)
 - `--root-dir`
 - `--package-name`
 - `--with-azure`
