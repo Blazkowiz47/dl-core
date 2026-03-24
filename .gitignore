@@ -6,6 +6,7 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+.tmp-ci-venv/
 
 # Test and coverage artifacts
 .pytest_cache/
