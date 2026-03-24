@@ -42,13 +42,6 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     add_parser.add_argument(
-        "--package-name",
-        help=(
-            "Explicit local package name to use when the project has multiple "
-            "src packages."
-        ),
-    )
-    add_parser.add_argument(
         "--force",
         action="store_true",
         help="Overwrite an existing component scaffold if it already exists.",
@@ -62,7 +55,6 @@ def main(argv: list[str] | None = None) -> int:
         component_type=args.component_type,
         name=args.name,
         root_dir=args.root_dir,
-        package_name=args.package_name,
         force=args.force,
     )
     print(f"Created component scaffold: {component_path}")

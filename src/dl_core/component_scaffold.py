@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import re
 from pathlib import Path
 
-from dl_core.project import find_local_package_dir, find_project_root
+from dl_core.project import find_local_component_root_dir, find_project_root
 
 
 @dataclass(frozen=True)
@@ -130,7 +130,6 @@ def create_component_scaffold(
     component_type: str,
     name: str,
     root_dir: str = ".",
-    package_name: str | None = None,
     force: bool = False,
 ) -> Path:
     """Create a new local component scaffold inside an experiment repository."""
@@ -146,8 +145,8 @@ def create_component_scaffold(
             "--root-dir."
         )
 
-    package_dir = find_local_package_dir(project_root, package_name=package_name)
-    package_component_dir = package_dir / spec.package_dir
+    component_root_dir = find_local_component_root_dir(project_root)
+    package_component_dir = component_root_dir / spec.package_dir
     package_component_dir.mkdir(parents=True, exist_ok=True)
 
     init_path = package_component_dir / "__init__.py"

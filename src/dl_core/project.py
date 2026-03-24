@@ -1,4 +1,4 @@
-"""Utilities for discovering local experiment repositories and packages."""
+"""Utilities for discovering local experiment repositories."""
 
 from __future__ import annotations
 
@@ -32,22 +32,12 @@ def find_project_root(start_path: Path) -> Path | None:
     return None
 
 
-def iter_local_package_dirs(project_root: Path) -> list[Path]:
-    """Return importable local packages contained in ``project_root/src``."""
+def find_local_component_root_dir(project_root: Path) -> Path:
+    """Resolve the directory where local components should be created."""
     src_dir = project_root / "src"
     if not src_dir.is_dir():
-        return []
-
-    package_dirs: list[Path] = []
-    for package_dir in sorted(src_dir.iterdir()):
-        if not package_dir.is_dir():
-            continue
-        if package_dir.name.startswith(".") or package_dir.name == "dl_core":
-            continue
-        if not (package_dir / "__init__.py").exists():
-            continue
-        package_dirs.append(package_dir)
-    return package_dirs
+        raise FileNotFoundError(f"No src directory found under {project_root}")
+    return src_dir
 
 
 def add_src_to_path(project_root: Path) -> None:
@@ -56,32 +46,3 @@ def add_src_to_path(project_root: Path) -> None:
     src_dir_str = str(src_dir)
     if src_dir.is_dir() and src_dir_str not in sys.path:
         sys.path.insert(0, src_dir_str)
-
-
-def find_local_package_dir(
-    project_root: Path,
-    package_name: str | None = None,
-) -> Path:
-    """Resolve the local experiment package directory within a project."""
-    package_dirs = iter_local_package_dirs(project_root)
-    if not package_dirs:
-        raise FileNotFoundError(
-            f"No importable local package found under {project_root / 'src'}"
-        )
-
-    if package_name:
-        for package_dir in package_dirs:
-            if package_dir.name == package_name:
-                return package_dir
-        raise FileNotFoundError(
-            f"Package '{package_name}' was not found under {project_root / 'src'}"
-        )
-
-    if len(package_dirs) == 1:
-        return package_dirs[0]
-
-    available = ", ".join(package_dir.name for package_dir in package_dirs)
-    raise ValueError(
-        "Multiple local packages found. "
-        f"Use --package-name to choose one of: {available}"
-    )

@@ -17,9 +17,11 @@ def test_load_local_components_registers_scaffolded_components(
     config_path = target_dir / "configs" / "base.yaml"
 
     load_builtin_components()
-    imported_packages = load_local_components(config_path)
+    imported_modules = load_local_components(config_path)
 
-    assert "registry_demo" in imported_packages
+    assert "datasets" in imported_modules
+    assert "models" in imported_modules
+    assert "trainers" in imported_modules
     assert DATASET_REGISTRY.get_class("registry_demo").__name__ == "RegistryDemoDataset"
     assert MODEL_REGISTRY.get_class("resnet_example").__name__ == "ResNetExample"
     assert TRAINER_REGISTRY.get_class("registry_demo").__name__ == "RegistryDemoTrainer"

@@ -25,22 +25,16 @@ def test_cli_add_augmentation_registers_component(tmp_path: Path) -> None:
     )
 
     assert exit_code == 0
-    component_path = (
-        target_dir
-        / "src"
-        / "component_demo"
-        / "augmentations"
-        / "custom1.py"
-    )
+    component_path = target_dir / "src" / "augmentations" / "custom1.py"
     assert component_path.exists()
     assert '@register_augmentation(["custom1", "Custom1"])' in (
         component_path.read_text()
     )
 
     load_builtin_components()
-    imported_packages = load_local_components(target_dir / "configs" / "base.yaml")
+    imported_modules = load_local_components(target_dir / "configs" / "base.yaml")
 
-    assert "component_demo" in imported_packages
+    assert "augmentations" in imported_modules
     assert AUGMENTATION_REGISTRY.get_class("custom1").__name__ == (
         "Custom1Augmentation"
     )
@@ -66,7 +60,7 @@ def test_cli_add_sampler_from_nested_path_creates_importable_package(
     )
 
     assert exit_code == 0
-    sampler_dir = target_dir / "src" / "sampler_demo" / "samplers"
+    sampler_dir = target_dir / "src" / "samplers"
     assert (sampler_dir / "__init__.py").exists()
     assert (sampler_dir / "passthrough1.py").exists()
 
