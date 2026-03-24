@@ -35,7 +35,8 @@ The scaffold gives you:
 
 - `configs/base.yaml`
 - `configs/base_sweep.yaml`
-- `configs/sweeps/example_sweep.yaml`
+- `configs/presets.yaml`
+- `experiments/example_sweep.yaml`
 - `src/datasets/my_exp.py`
 - `src/trainers/my_exp.py`
 - `src/models/resnet_example.py`
@@ -45,7 +46,7 @@ The scaffold gives you:
 
 ```bash
 uv run dl-run --config configs/base.yaml
-uv run dl-sweep --sweep configs/sweeps/example_sweep.yaml
+uv run dl-sweep --sweep experiments/example_sweep.yaml
 ```
 
 Before running, set `dataset.rdir` to a real dataset or replace the local

@@ -36,7 +36,7 @@ seeds: [2025]
 The normal user file extends the base template:
 
 ```yaml
-extends_template: "../base_sweep.yaml"
+extends_template: "../configs/base_sweep.yaml"
 description: "Basic learning rate sweep"
 
 grid:
@@ -51,7 +51,7 @@ When you run a sweep, `dl-core`:
 2. resolves presets
 3. applies fixed parameters
 4. expands the grid across seeds
-5. writes concrete configs under `configs/sweeps/<sweep_name>/`
+5. writes concrete configs next to the sweep file under `experiments/<sweep_name>/`
 6. sets `runtime.name` per generated run
 
 That last step is important because it prevents artifact collisions between run

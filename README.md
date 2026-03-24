@@ -83,7 +83,7 @@ that repository in editable mode, then run:
 
 ```bash
 uv run dl-run --config configs/base.yaml
-uv run dl-sweep --sweep configs/sweeps/example_sweep.yaml
+uv run dl-sweep --sweep experiments/example_sweep.yaml
 ```
 
 To add a new local component scaffold inside the experiment repo:

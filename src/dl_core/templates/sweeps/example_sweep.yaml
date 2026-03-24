@@ -1,6 +1,6 @@
 # Example Sweep
 
-extends_template: "../base_sweep.yaml"
+extends_template: "../configs/base_sweep.yaml"
 description: "Basic learning rate sweep"
 
 grid:

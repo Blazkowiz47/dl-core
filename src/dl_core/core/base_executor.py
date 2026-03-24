@@ -391,8 +391,8 @@ class BaseExecutor(ABC):
             Path to the config directory
 
         Example:
-            If sweep_file = "configs/sweeps/lr_sweep.yaml"
-            Returns: "configs/sweeps/lr_sweep/"
+            If sweep_file = "experiments/lr_sweep.yaml"
+            Returns: "experiments/lr_sweep/"
         """
         sweep_file = self.sweep_config.get("sweep_file", "")
         if sweep_file:

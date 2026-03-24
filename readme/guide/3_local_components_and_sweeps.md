@@ -19,7 +19,7 @@ Those classes extend the built-in `StandardWrapper`, `StandardTrainer`, and
 
 1. it imports built-in package modules so core registries populate
 2. it finds the nearest project root containing `pyproject.toml` and `src/`
-3. it imports top-level packages under `src/`
+3. it imports `bootstrap.py` plus known component packages under `src/`
 
 That means your experiment package is loaded automatically when you run
 `dl-run` or `dl-sweep` from inside the experiment repository.
@@ -50,7 +50,7 @@ Supported component types:
 - `sampler`
 - `trainer`
 
-The command creates the right package on demand under `src/<package>/` and
+The command creates the right component package on demand under `src/` and
 normalizes the module name for you. Generated components register under the
 normalized name and also keep the original provided name as an alias when it
 differs.
@@ -64,13 +64,13 @@ uv run dl-run --config configs/base.yaml
 ## Sweeps
 
 ```bash
-uv run dl-sweep --sweep configs/sweeps/example_sweep.yaml
+uv run dl-sweep --sweep experiments/example_sweep.yaml
 ```
 
 Generated sweep configs are saved under:
 
 ```text
-configs/sweeps/<sweep_name>/
+experiments/<sweep_name>/
 ```
 
 Each generated config gets its own `runtime.name`, so artifact directories do

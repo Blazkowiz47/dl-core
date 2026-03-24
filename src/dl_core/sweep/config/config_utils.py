@@ -229,6 +229,16 @@ def _find_parent_preset_files(sweep_path: Path) -> List[Path]:
     return preset_files
 
 
+def _find_project_root_from_sweep(sweep_path: Path) -> Optional[Path]:
+    """Find the nearest project root for a sweep file."""
+    current = sweep_path if sweep_path.is_dir() else sweep_path.parent
+    current = current.resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").exists() and (candidate / "src").is_dir():
+            return candidate
+    return None
+
+
 def load_global_presets() -> Dict[str, Any]:
     """
     Load bundled preset configurations shipped with dl-core, if available.
@@ -303,6 +313,17 @@ def load_experiment_presets(sweep_path: Optional[str] = None) -> Dict[str, Any]:
     sweep_path = Path(sweep_path)
 
     try:
+        project_root = _find_project_root_from_sweep(sweep_path)
+        if project_root is not None:
+            config_presets_file = project_root / "configs" / "presets.yaml"
+            if config_presets_file.exists():
+                with open(config_presets_file, "r", encoding="utf-8") as f:
+                    presets = yaml.safe_load(f) or {}
+                    logger.debug(
+                        f"Loaded experiment presets from {config_presets_file}"
+                    )
+                    return presets
+
         preset_files = _find_parent_preset_files(sweep_path)
         if preset_files:
             exp_presets_file = preset_files[0]
