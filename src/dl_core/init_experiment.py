@@ -62,9 +62,37 @@ def _template_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _project_pyproject(project_name: str) -> str:
+def _extract_tool_uv_blocks(pyproject_text: str) -> str:
+    """Extract raw ``tool.uv`` TOML blocks from an existing pyproject."""
+    lines = pyproject_text.splitlines()
+    captured_blocks: list[str] = []
+    current_block: list[str] = []
+    capturing = False
+
+    for line in lines:
+        stripped = line.strip()
+        is_header = stripped.startswith("[") and stripped.endswith("]")
+        if is_header:
+            if capturing and current_block:
+                captured_blocks.append("\n".join(current_block).rstrip())
+                current_block = []
+            capturing = stripped.startswith("[tool.uv") or stripped.startswith(
+                "[[tool.uv"
+            )
+        if capturing:
+            current_block.append(line)
+
+    if capturing and current_block:
+        captured_blocks.append("\n".join(current_block).rstrip())
+
+    if not captured_blocks:
+        return ""
+    return "\n\n".join(captured_blocks) + "\n"
+
+
+def _project_pyproject(project_name: str, preserved_uv_blocks: str = "") -> str:
     """Render the generated experiment project's pyproject.toml."""
-    return f"""[build-system]
+    content = f"""[build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
@@ -82,6 +110,9 @@ dependencies = [
 only-include = ["src"]
 sources = ["src"]
 """
+    if preserved_uv_blocks:
+        content = f"{content.rstrip()}\n\n{preserved_uv_blocks}"
+    return content
 
 
 def _project_readme(project_name: str) -> str:
@@ -260,6 +291,7 @@ def _build_project_names(project_name: str) -> ProjectNames:
 def _base_scaffold_files(
     templates_dir: Path,
     project: ProjectNames,
+    preserved_uv_blocks: str = "",
 ) -> dict[Path, str]:
     """Render the base scaffold files before extensions are applied."""
     replacements = {
@@ -302,7 +334,10 @@ def _base_scaffold_files(
         Path("configs") / "presets.yaml": _config_presets(),
         Path("experiments") / "lr_sweep.yaml": lr_sweep_yaml,
         Path("experiments") / "experiments.log": _experiments_log(),
-        Path("pyproject.toml"): _project_pyproject(project.project_slug),
+        Path("pyproject.toml"): _project_pyproject(
+            project.project_slug,
+            preserved_uv_blocks=preserved_uv_blocks,
+        ),
         Path("README.md"): _project_readme(project.project_slug),
         Path(".gitignore"): _gitignore(),
         Path("src") / "bootstrap.py": _bootstrap_module(),
@@ -404,6 +439,12 @@ def create_experiment_scaffold(
     project = _build_project_names(project_name)
     target_dir = _resolve_target_dir(name, root_path)
     _validate_target_dir(target_dir, initialize_in_place=name is None)
+    preserved_uv_blocks = ""
+    existing_pyproject = target_dir / "pyproject.toml"
+    if name is None and existing_pyproject.exists():
+        preserved_uv_blocks = _extract_tool_uv_blocks(
+            existing_pyproject.read_text(encoding="utf-8")
+        )
     if name is None and target_dir.exists():
         _cleanup_in_place_target_dir(target_dir)
 
@@ -421,7 +462,11 @@ def create_experiment_scaffold(
         target_dir=target_dir,
         templates_dir=templates_dir,
         project=project,
-        files=_base_scaffold_files(templates_dir, project),
+        files=_base_scaffold_files(
+            templates_dir,
+            project,
+            preserved_uv_blocks=preserved_uv_blocks,
+        ),
         enabled_extensions=set(selected_extensions),
     )
     for extension_name in sorted(selected_extensions):

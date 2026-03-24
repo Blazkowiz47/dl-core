@@ -92,6 +92,39 @@ def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
     assert (created_dir / "README.md").exists()
 
 
+def test_scaffold_preserves_existing_tool_uv_config(tmp_path: Path) -> None:
+    """In-place init should keep existing uv index and source settings."""
+    target_dir = tmp_path / "consumer_repo"
+    target_dir.mkdir()
+    (target_dir / "pyproject.toml").write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "consumer-repo"',
+                'version = "0.1.0"',
+                "",
+                "[tool.uv.sources]",
+                'dl-core = { index = "testpypi" }',
+                "",
+                "[[tool.uv.index]]",
+                'name = "testpypi"',
+                'url = "https://test.pypi.org/simple/"',
+                "explicit = true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    created_dir = create_experiment_scaffold(root_dir=str(target_dir))
+    pyproject_text = (created_dir / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert '[tool.uv.sources]' in pyproject_text
+    assert 'dl-core = { index = "testpypi" }' in pyproject_text
+    assert '[[tool.uv.index]]' in pyproject_text
+    assert 'url = "https://test.pypi.org/simple/"' in pyproject_text
+
+
 def test_scaffold_rejects_unexpected_existing_files(tmp_path: Path) -> None:
     """In-place init should still reject directories with unrelated files."""
     target_dir = tmp_path / "custom_test"
