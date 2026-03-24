@@ -15,7 +15,7 @@ Install from PyPI:
 pip install dl-core
 ```
 
-Install the pre-release build from TestPyPI:
+Install from TestPyPI with `pip`:
 
 ```bash
 pip install \
@@ -23,6 +23,28 @@ pip install \
   --extra-index-url https://pypi.org/simple/ \
   dl-core
 ```
+
+Install from TestPyPI in a `uv` project:
+
+```toml
+[tool.uv.sources]
+dl-core = { index = "testpypi" }
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+```
+
+Then run:
+
+```bash
+uv add dl-core
+```
+
+Do not use `uv add --index https://test.pypi.org/simple/ dl-core` for this
+package. With `uv`'s default `first-index` strategy, that can pull unrelated
+dependency names from TestPyPI instead of PyPI.
 
 `dl-core` intentionally ships with the full public runtime dependencies,
 including `torch`, `torchvision`, and `opencv-python`.
@@ -72,6 +94,8 @@ uv run dl-core add augmentation Custom1
   than long-lived API tokens.
 - The publish action may upload digital attestations alongside the package.
   That is expected behavior from `pypa/gh-action-pypi-publish`.
+- Package metadata keeps runtime dependencies unpinned, so the consuming
+  environment resolves the latest compatible public releases.
 
 ## Documentation
 
