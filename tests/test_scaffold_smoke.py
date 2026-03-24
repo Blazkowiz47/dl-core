@@ -37,7 +37,7 @@ def _run_entrypoint(
     *args: str,
     cwd: Path,
     timeout_seconds: int = 180,
-) -> None:
+) -> str:
     """Run a dl-core console entrypoint and fail with captured output."""
     result = subprocess.run(
         [str(_entrypoint_path(entrypoint)), *args],
@@ -54,6 +54,7 @@ def _run_entrypoint(
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )
+    return result.stdout
 
 
 def _write_dummy_dataset_wrapper(repo_dir: Path, dataset_name: str) -> None:
@@ -203,11 +204,33 @@ def test_scaffold_smoke_repo_runs_dl_run_and_dl_sweep() -> None:
             "experiments/lr_sweep.yaml",
             cwd=repo_dir,
         )
+        analyzer_output = _run_entrypoint(
+            "dl-analyze-sweep",
+            "--sweep",
+            "experiments/lr_sweep.yaml",
+            cwd=repo_dir,
+        )
 
         generated_sweep_dir = repo_dir / "experiments" / "lr_sweep"
         generated_configs = sorted(generated_sweep_dir.glob("*.yaml"))
         assert generated_configs, "Sweep should generate at least one concrete config"
+        assert "Tracked runs: 1" in analyzer_output
+        assert "status=completed" in analyzer_output
 
         artifacts_dir = repo_dir / "artifacts"
         assert artifacts_dir.exists(), "Smoke run should create local artifacts"
         assert any(artifacts_dir.rglob("*")), "Artifacts directory should not be empty"
+
+        tracker_path = generated_sweep_dir / "sweep_tracking.json"
+        tracker_data = yaml.safe_load(tracker_path.read_text(encoding="utf-8"))
+        tracked_run = tracker_data["runs"]["0"]
+        assert tracked_run["artifact_dir"]
+        assert tracked_run["metrics_summary_path"]
+        assert tracked_run["metrics_history_path"]
+
+        summary_path = Path(tracked_run["metrics_summary_path"])
+        history_path = Path(tracked_run["metrics_history_path"])
+        run_info_path = Path(tracked_run["artifact_dir"]) / "run_info.json"
+        assert summary_path.exists()
+        assert history_path.exists()
+        assert run_info_path.exists()

@@ -1,6 +1,6 @@
 # Technical: 2. Entry Points
 
-`dl-core` exposes five console entrypoints.
+`dl-core` exposes six console entrypoints.
 
 ## `dl-core`
 
@@ -69,6 +69,19 @@ Useful flags:
 - `--max-workers`
 - `--compute`
 - `--environment`
+
+## `dl-analyze-sweep`
+
+Reads local sweep tracking plus per-run metric summaries and prints a compact
+ranking/report.
+
+```bash
+uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
+```
+
+Useful flags:
+
+- `--json`
 
 ## `dl-train-worker`
 

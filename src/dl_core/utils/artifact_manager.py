@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime
 from logging import getLogger
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import yaml
 
@@ -141,7 +141,7 @@ class ArtifactManager:
 
         self.logger.debug(f"Created artifact tree at {self.run_dir}")
 
-    def save_config(self, config: Dict[str, Any]) -> None:
+    def save_config(self, config: dict[str, Any]) -> None:
         """
         Save run configuration.
 
@@ -167,8 +167,28 @@ class ArtifactManager:
 
         self.logger.info(f"Saved config to {config_path}")
 
+    def save_json(self, relative_path: str | Path, data: dict[str, Any]) -> Path:
+        """
+        Save JSON data relative to the run directory.
+
+        Args:
+            relative_path: Relative path inside the run directory
+            data: JSON-serializable dictionary
+
+        Returns:
+            Path to the written JSON file
+        """
+        file_path = self.run_dir / relative_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+        self.logger.debug(f"Saved JSON artifact to {file_path}")
+        return file_path
+
     def save_metrics(
-        self, metrics: Dict[str, Any], filename: str = "metrics.json"
+        self, metrics: dict[str, Any], filename: str = "metrics.json"
     ) -> None:
         """
         Save metrics to JSON file.
@@ -177,15 +197,10 @@ class ArtifactManager:
             metrics: Metrics dictionary
             filename: Output filename
         """
-        metrics_path = self.run_dir / "metrics" / filename
-
-        with open(metrics_path, "w") as f:
-            json.dump(metrics, f, indent=2)
-
-        self.logger.debug(f"Saved metrics to {metrics_path}")
+        self.save_json(Path("metrics") / filename, metrics)
 
     def save_raw_scores(
-        self, scores: Dict[str, Any], filename: str = "raw_scores.json"
+        self, scores: dict[str, Any], filename: str = "raw_scores.json"
     ) -> None:
         """
         Save raw prediction scores.
@@ -194,12 +209,7 @@ class ArtifactManager:
             scores: Raw scores dictionary
             filename: Output filename
         """
-        raw_path = self.run_dir / "raw" / filename
-
-        with open(raw_path, "w") as f:
-            json.dump(scores, f, indent=2)
-
-        self.logger.debug(f"Saved raw scores to {raw_path}")
+        self.save_json(Path("raw") / filename, scores)
 
     def save_plot(self, plot_path: str, category: str = "") -> str:
         """
@@ -263,29 +273,45 @@ class ArtifactManager:
         """Get the logs directory."""
         return self.run_dir / "logs"
 
-    def write_eval_summary(self, summary: Dict[str, Any]) -> None:
+    def get_run_info_path(self) -> Path:
+        """Get the run metadata JSON path."""
+        return self.run_dir / "run_info.json"
+
+    def get_metrics_summary_path(self) -> Path:
+        """Get the metrics summary JSON path."""
+        return self.run_dir / "metrics" / "summary.json"
+
+    def get_metrics_history_path(self) -> Path:
+        """Get the metrics history JSON path."""
+        return self.run_dir / "metrics" / "history.json"
+
+    def save_run_info(self, run_info: dict[str, Any]) -> None:
+        """
+        Save run metadata to the artifact directory.
+
+        Args:
+            run_info: Run metadata dictionary
+        """
+        self.save_json("run_info.json", run_info)
+
+    def write_eval_summary(self, summary: dict[str, Any]) -> None:
         """
         Write evaluation summary to eval directory.
 
         Args:
             summary: Evaluation summary data
         """
-        eval_dir = self.get_eval_dir()
-        summary_path = eval_dir / "summary.json"
-
-        with open(summary_path, "w") as f:
-            json.dump(summary, f, indent=2)
-
+        summary_path = self.save_json(Path("eval") / "summary.json", summary)
         self.logger.info(f"Saved evaluation summary to {summary_path}")
 
-    def list_artifacts(self) -> Dict[str, list]:
+    def list_artifacts(self) -> dict[str, list[str]]:
         """
         List all artifacts in this run.
 
         Returns:
             Dictionary mapping artifact type to list of files
         """
-        artifacts = {}
+        artifacts: dict[str, list[str]] = {}
 
         for subdir in ["logs", "checkpoints", "metrics", "plots", "raw", "eval"]:
             subdir_path = self.run_dir / subdir

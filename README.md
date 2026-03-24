@@ -56,6 +56,7 @@ including `torch`, `torchvision`, and `opencv-python`.
 - The standard trainer and standard dataset flow
 - Built-in augmentations
 - Local execution and sweep orchestration
+- Local sweep analysis from saved artifact summaries
 - Experiment repository scaffolding via `dl-init-experiment`
 
 ## Out Of Scope
@@ -84,6 +85,7 @@ that repository in editable mode, then run:
 ```bash
 uv run dl-run --config configs/base.yaml
 uv run dl-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
 ```
 
 To add a new local component scaffold inside the experiment repo:
@@ -111,6 +113,8 @@ uv run dl-core add augmentation Custom1
 - [Guide: Getting Started](https://github.com/Blazkowiz47/dl-core/blob/main/readme/guide/1_getting_started.md)
 - [Guide: Local Components and Sweeps](https://github.com/Blazkowiz47/dl-core/blob/main/readme/guide/3_local_components_and_sweeps.md)
 - [Technical: Configuration](https://github.com/Blazkowiz47/dl-core/blob/main/readme/technical/1_configuration.md)
+- [Technical: Entry Points](https://github.com/Blazkowiz47/dl-core/blob/main/readme/technical/2_entry_points.md)
+- [Technical: Sweep System](https://github.com/Blazkowiz47/dl-core/blob/main/readme/technical/3_sweep_system.md)
 
 ## Development Validation
 

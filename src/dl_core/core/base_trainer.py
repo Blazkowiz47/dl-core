@@ -222,6 +222,8 @@ class BaseTrainer(ABC):
         """
         Main training loop entry point.
         """
+        run_status = "completed"
+        error_message: str | None = None
         try:
             self.setup()
             self.logger.info("Setup complete, starting training")
@@ -251,6 +253,8 @@ class BaseTrainer(ABC):
             else:
                 self.perform_training()
         except Exception as e:
+            run_status = "failed"
+            error_message = str(e)
             self.logger.error(f"Training failed: {e}")
             traceback.print_exc()
             self._checkpoint_dir_cleanup()
@@ -259,10 +263,22 @@ class BaseTrainer(ABC):
         finally:
             self.accelerator.wait_for_everyone("before on_training_end callbacks")
             try:
+                self.persist_run_analysis(
+                    status=run_status,
+                    error_message=error_message,
+                )
+            except Exception as analysis_error:
+                self.logger.warning(
+                    f"Failed to persist run analysis artifacts: {analysis_error}"
+                )
+            try:
                 final_logs = {
                     "final_epoch": self.current_epoch,
                     "total_epochs": self.epochs,
+                    "status": run_status,
                 }
+                if error_message is not None:
+                    final_logs["error_message"] = error_message
                 self.callbacks.on_training_end(final_logs)
             except Exception as upload_error:
                 self.logger.error(
@@ -1227,16 +1243,231 @@ class BaseTrainer(ABC):
             Flattened dict like {"train/loss": 0.5, "validation/acc": 0.9, "epoch": 10}
             Only returns data on rank 0; empty dict on other processes.
         """
+        return self._compile_epoch_logs_for_epoch(self.current_epoch)
+
+    def _compile_epoch_logs_for_epoch(self, epoch: int) -> dict[str, float]:
+        """
+        Compile flattened metrics for a specific epoch.
+
+        Args:
+            epoch: Epoch to flatten
+
+        Returns:
+            Flattened metrics for the requested epoch.
+        """
         if not self.accelerator.is_main_process():
             return {}
-        # Build flattened logs for checkpoint callback
-        checkpoint_logs: dict[str, float] = {"epoch": self.current_epoch}
+
+        checkpoint_logs: dict[str, float] = {"epoch": float(epoch)}
         for split, metrics in self.metrics_history.items():
-            epoch_metrics = metrics.get(self.current_epoch, {})
+            epoch_metrics = metrics.get(epoch, {})
             for k, v in epoch_metrics.items():
-                checkpoint_logs[f"{split}/{k}"] = v
+                checkpoint_logs[f"{split}/{k}"] = float(v)
 
         return checkpoint_logs
+
+    def _get_selection_metric_config(self) -> tuple[str | None, str | None]:
+        """
+        Resolve the default metric used to rank runs.
+
+        Returns:
+            Tuple of metric key and optimization mode.
+        """
+        callbacks_config = self.config.get("callbacks", {})
+        if not isinstance(callbacks_config, dict):
+            return None, None
+
+        checkpoint_config = callbacks_config.get("checkpoint")
+        if not isinstance(checkpoint_config, dict):
+            return None, None
+
+        monitor = checkpoint_config.get("monitor")
+        mode = checkpoint_config.get("mode", "min")
+        if not isinstance(monitor, str):
+            return None, None
+        if mode not in {"min", "max"}:
+            mode = "min"
+
+        return monitor, mode
+
+    def _get_recorded_epochs(self) -> list[int]:
+        """Return sorted epochs that contain any recorded metrics."""
+        recorded_epochs: set[int] = set()
+        for split_metrics in self.metrics_history.values():
+            recorded_epochs.update(split_metrics.keys())
+        return sorted(recorded_epochs)
+
+    def _select_best_epoch(
+        self,
+        selection_metric: str | None,
+        selection_mode: str | None,
+        recorded_epochs: list[int],
+    ) -> tuple[int | None, float | None]:
+        """
+        Resolve the best epoch for the configured selection metric.
+
+        Args:
+            selection_metric: Metric key to evaluate
+            selection_mode: Optimization direction, either ``min`` or ``max``
+            recorded_epochs: Epochs with recorded metrics
+
+        Returns:
+            Tuple of best epoch and best metric value.
+        """
+        if not recorded_epochs:
+            return None, None
+
+        if selection_metric is None or selection_mode is None:
+            return recorded_epochs[-1], None
+
+        best_epoch: int | None = None
+        best_value: float | None = None
+        for epoch in recorded_epochs:
+            epoch_logs = self._compile_epoch_logs_for_epoch(epoch)
+            if selection_metric not in epoch_logs:
+                continue
+
+            metric_value = float(epoch_logs[selection_metric])
+            if best_value is None:
+                best_epoch = epoch
+                best_value = metric_value
+                continue
+
+            is_better = (
+                metric_value < best_value
+                if selection_mode == "min"
+                else metric_value > best_value
+            )
+            if is_better:
+                best_epoch = epoch
+                best_value = metric_value
+
+        if best_epoch is None:
+            return recorded_epochs[-1], None
+
+        return best_epoch, best_value
+
+    def _serialize_metrics_history(
+        self,
+    ) -> dict[str, dict[str, dict[str, float]]]:
+        """
+        Convert metrics history into a JSON-serializable structure.
+
+        Returns:
+            Metrics history with stringified epoch keys.
+        """
+        history: dict[str, dict[str, dict[str, float]]] = {}
+        for split, split_metrics in self.metrics_history.items():
+            history[split] = {
+                str(epoch): {
+                    metric_name: float(metric_value)
+                    for metric_name, metric_value in epoch_metrics.items()
+                }
+                for epoch, epoch_metrics in sorted(split_metrics.items())
+            }
+        return history
+
+    def _build_run_summary(
+        self,
+        status: str,
+        error_message: str | None,
+    ) -> dict[str, Any]:
+        """
+        Build the normalized run summary used by local sweep analysis.
+
+        Args:
+            status: Final run status
+            error_message: Optional failure message
+
+        Returns:
+            Run summary dictionary.
+        """
+        selection_metric, selection_mode = self._get_selection_metric_config()
+        recorded_epochs = self._get_recorded_epochs()
+        best_epoch, selection_value = self._select_best_epoch(
+            selection_metric,
+            selection_mode,
+            recorded_epochs,
+        )
+
+        final_epoch = recorded_epochs[-1] if recorded_epochs else self.current_epoch
+        final_metrics = self._compile_epoch_logs_for_epoch(final_epoch)
+        best_metrics = (
+            self._compile_epoch_logs_for_epoch(best_epoch)
+            if best_epoch is not None
+            else {}
+        )
+
+        return {
+            "status": status,
+            "error_message": error_message,
+            "run_name": self.artifact_manager.run_name,
+            "experiment_name": self.artifact_manager.experiment_name,
+            "sweep_name": self.artifact_manager.sweep_name,
+            "artifact_dir": str(self.artifact_manager.run_dir),
+            "recorded_epochs": recorded_epochs,
+            "final_epoch": final_epoch,
+            "total_epochs": self.epochs,
+            "best_epoch": best_epoch,
+            "selection_metric": selection_metric,
+            "selection_mode": selection_mode,
+            "selection_value": selection_value,
+            "final_metrics": final_metrics,
+            "best_metrics": best_metrics,
+        }
+
+    def _persist_run_analysis(
+        self,
+        status: str,
+        error_message: str | None = None,
+    ) -> None:
+        """
+        Persist normalized run artifacts used by local analysis tools.
+
+        Args:
+            status: Final run status
+            error_message: Optional failure message
+        """
+        if not self.accelerator.is_main_process():
+            return
+
+        summary = self._build_run_summary(status, error_message)
+        history = self._serialize_metrics_history()
+        run_info = {
+            "status": status,
+            "error_message": error_message,
+            "run_name": self.artifact_manager.run_name,
+            "experiment_name": self.artifact_manager.experiment_name,
+            "sweep_name": self.artifact_manager.sweep_name,
+            "artifact_dir": str(self.artifact_manager.run_dir),
+            "config_path": str(self.artifact_manager.run_dir / "config.yaml"),
+            "metrics_summary_path": str(
+                self.artifact_manager.get_metrics_summary_path()
+            ),
+            "metrics_history_path": str(
+                self.artifact_manager.get_metrics_history_path()
+            ),
+            "current_epoch": self.current_epoch,
+            "total_epochs": self.epochs,
+        }
+
+        self.artifact_manager.save_metrics(summary, filename="summary.json")
+        self.artifact_manager.save_metrics(history, filename="history.json")
+        self.artifact_manager.save_run_info(run_info)
+
+    def persist_run_analysis(
+        self,
+        status: str = "completed",
+        error_message: str | None = None,
+    ) -> None:
+        """
+        Persist normalized run artifacts used by analysis tools.
+
+        Args:
+            status: Final run status
+            error_message: Optional failure message
+        """
+        self._persist_run_analysis(status=status, error_message=error_message)
 
     def _log_metrics(self, epoch: int) -> None:
         """

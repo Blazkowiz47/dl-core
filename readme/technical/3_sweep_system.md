@@ -57,6 +57,15 @@ When you run a sweep, `dl-core`:
 That last step is important because it prevents artifact collisions between run
 directories.
 
+During execution, the local sweep path also writes:
+
+- `experiments/<sweep_name>/sweep_tracking.json`
+- `artifacts/<experiment>/<sweep>/<run>/metrics/summary.json`
+- `artifacts/<experiment>/<sweep>/<run>/metrics/history.json`
+- `artifacts/<experiment>/<sweep>/<run>/run_info.json`
+
+That local artifact contract is what powers `dl-analyze-sweep`.
+
 ## Tracking Metadata
 
 Sweep templates support a `tracking` block used for:
@@ -68,3 +77,18 @@ Sweep templates support a `tracking` block used for:
 
 The tracking block is deliberately backend-neutral in `dl-core`. Backend
 adapters can consume it however they need.
+
+## Local Analysis
+
+For local runs, `dl-core` does not depend on MLflow or W&B to analyze a sweep.
+Instead, each run writes normalized summary and history files into its artifact
+directory, and the sweep tracker records where those files live.
+
+That means local analysis is always:
+
+```bash
+uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
+```
+
+Cloud-specific adapters can override how metrics are fetched later, but the
+default analyzer stays file-based and local-first.

@@ -8,12 +8,9 @@ import yaml
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple
 
 from dl_core.utils.sweep_tracker import SweepTracker
-
-if TYPE_CHECKING:
-    pass
 
 
 class BaseExecutor(ABC):
@@ -125,6 +122,7 @@ class BaseExecutor(ABC):
         )
 
         # Execute runs in parallel using ProcessPoolExecutor
+        run_index_to_path = dict(run_descriptors)
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all runs
             future_to_index = {
@@ -137,43 +135,39 @@ class BaseExecutor(ABC):
             # Process completed runs
             for future in as_completed(future_to_index):
                 run_index = future_to_index[future]
+                config_path = run_index_to_path[run_index]
                 try:
                     result = future.result()
                     success = result.get("success", False)
-                    tracking_run_id = result.get("tracking_run_id")
-                    tracking_run_name = result.get("tracking_run_name")
 
                     if success:
                         self.completed_runs.append(run_index)
-                        # Update tracker: completed
-                        if self.tracker and not self.dry_run:
-                            self.tracker.update_run_status(
-                                run_index,
-                                "completed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=tracking_run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "completed",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.info(
                             f"Run {run_index + 1}/{total_runs} completed successfully"
                         )
                     else:
                         self.failed_runs.append(run_index)
-                        # Update tracker: failed
-                        if self.tracker and not self.dry_run:
-                            self.tracker.update_run_status(
-                                run_index,
-                                "failed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=tracking_run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "failed",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.error(f"Run {run_index + 1}/{total_runs} failed")
                 except Exception as e:
                     self.failed_runs.append(run_index)
-                    # Update tracker: failed with error
-                    if self.tracker and not self.dry_run:
-                        self.tracker.update_run_status(
-                            run_index, "failed", error_message=str(e)
-                        )
+                    self._update_tracker(
+                        run_index,
+                        "failed",
+                        config_path,
+                        error_message=str(e),
+                    )
                     self.logger.error(
                         f"Run {run_index + 1}/{total_runs} failed with exception: {e}"
                     )
@@ -195,10 +189,48 @@ class BaseExecutor(ABC):
         """
         # Update tracker: running (thread-safe)
         if self.tracker and not self.dry_run:
-            self.tracker.update_run_status(run_index, "running")
+            self.tracker.update_run_status(
+                run_index,
+                "running",
+                config_path=str(config_path.resolve()),
+            )
 
         # Call execute_run with the config path
         return self.execute_run(run_index, config_path)
+
+    def _update_tracker(
+        self,
+        run_index: int,
+        status: str,
+        config_path: Path,
+        result: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """
+        Persist run status and local artifact metadata to the sweep tracker.
+
+        Args:
+            run_index: Sweep run index
+            status: Run status
+            config_path: Concrete run configuration path
+            result: Optional executor result payload
+            error_message: Optional failure message
+        """
+        if self.tracker is None or self.dry_run:
+            return
+
+        result = result or {}
+        self.tracker.update_run_status(
+            run_index,
+            status,
+            tracking_run_id=result.get("tracking_run_id"),
+            tracking_run_name=result.get("tracking_run_name"),
+            error_message=error_message,
+            config_path=str(config_path.resolve()),
+            artifact_dir=result.get("artifact_dir"),
+            metrics_summary_path=result.get("metrics_summary_path"),
+            metrics_history_path=result.get("metrics_history_path"),
+        )
 
     @abstractmethod
     def teardown(self) -> None:
@@ -272,34 +304,27 @@ class BaseExecutor(ABC):
             else:
                 # Sequential execution
                 for run_index, config_path in run_descriptors:
-                    if self.tracker and not self.dry_run:
-                        self.tracker.update_run_status(run_index, "running")
+                    self._update_tracker(run_index, "running", config_path)
 
                     result = self.execute_run(run_index, config_path)
                     success = result.get("success", False)
-                    tracking_run_id = result.get("tracking_run_id")
-                    tracking_run_name = result.get("tracking_run_name")
 
                     if success:
                         self.completed_runs.append(run_index)
-                        # Update tracker: completed
-                        if self.tracker and not self.dry_run:
-                            self.tracker.update_run_status(
-                                run_index,
-                                "completed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=tracking_run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "completed",
+                            config_path,
+                            result=result,
+                        )
                     else:
                         self.failed_runs.append(run_index)
-                        # Update tracker: failed
-                        if self.tracker and not self.dry_run:
-                            self.tracker.update_run_status(
-                                run_index,
-                                "failed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=tracking_run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "failed",
+                            config_path,
+                            result=result,
+                        )
 
             # Teardown
             self.teardown()

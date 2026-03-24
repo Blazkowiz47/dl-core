@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dl_core.core import BaseExecutor, register_executor
+from dl_core.utils.artifact_manager import get_run_artifact_dir
 
 
 @register_executor("local")
@@ -85,6 +86,23 @@ class LocalExecutor(BaseExecutor):
             yaml.dump(run_config, f, sort_keys=False)
 
         # Get launch command based on accelerator config
+        runtime_config = run_config.get("runtime", {})
+        experiment_config = run_config.get("experiment", {})
+        run_name = runtime_config.get("name", config_path.stem)
+        output_dir = runtime_config.get("output_dir", "artifacts")
+        sweep_name = None
+        sweep_file = run_config.get("sweep_file")
+        if sweep_file:
+            sweep_name = Path(sweep_file).stem
+
+        artifact_dir = Path(
+            get_run_artifact_dir(
+                run_name=run_name,
+                output_dir=output_dir,
+                experiment_name=experiment_config.get("name"),
+                sweep_name=sweep_name,
+            )
+        ).resolve()
         cmd = self.build_command(str(config_path), run_config)
         cmd_str = " ".join(cmd)
 
@@ -93,7 +111,13 @@ class LocalExecutor(BaseExecutor):
 
         if self.dry_run:
             self.logger.info(f"[DRY RUN] Would execute run {run_index + 1}")
-            return {"success": True}  # Simulate success
+            return {
+                "success": True,
+                "tracking_run_name": run_name,
+                "artifact_dir": str(artifact_dir),
+                "metrics_summary_path": str(artifact_dir / "metrics" / "summary.json"),
+                "metrics_history_path": str(artifact_dir / "metrics" / "history.json"),
+            }
 
         result = subprocess.run(cmd, check=False)
 
@@ -105,7 +129,13 @@ class LocalExecutor(BaseExecutor):
                 f"Run {run_index + 1} failed with code {result.returncode}"
             )
 
-        return {"success": success}
+        return {
+            "success": success,
+            "tracking_run_name": run_name,
+            "artifact_dir": str(artifact_dir),
+            "metrics_summary_path": str(artifact_dir / "metrics" / "summary.json"),
+            "metrics_history_path": str(artifact_dir / "metrics" / "history.json"),
+        }
 
     def _inject_sweep_metadata(self, config: Dict[str, Any]) -> None:
         """Inject sweep metadata into config for artifact directory structure."""

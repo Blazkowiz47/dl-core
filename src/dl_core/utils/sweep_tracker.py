@@ -94,6 +94,10 @@ class SweepTracker:
                 sweep_data["runs"][str(i)] = {
                     "tracking_run_id": None,
                     "tracking_run_name": None,
+                    "config_path": None,
+                    "artifact_dir": None,
+                    "metrics_summary_path": None,
+                    "metrics_history_path": None,
                     "status": "pending",
                     "updated_at": datetime.now().isoformat(),
                 }
@@ -110,6 +114,10 @@ class SweepTracker:
         tracking_run_id: Optional[str] = None,
         tracking_run_name: Optional[str] = None,
         error_message: Optional[str] = None,
+        config_path: Optional[str] = None,
+        artifact_dir: Optional[str] = None,
+        metrics_summary_path: Optional[str] = None,
+        metrics_history_path: Optional[str] = None,
     ) -> None:
         """
         Update status of a specific run (thread-safe).
@@ -120,6 +128,10 @@ class SweepTracker:
             tracking_run_id: External tracker run ID, if available
             tracking_run_name: External tracker run name, if available
             error_message: Error message (for failed runs)
+            config_path: Path to the concrete run config file
+            artifact_dir: Path to the run artifact directory
+            metrics_summary_path: Path to the local metrics summary file
+            metrics_history_path: Path to the local metrics history file
         """
         with self._lock:
             # Load current data
@@ -148,6 +160,18 @@ class SweepTracker:
 
             if error_message:
                 run_data["error_message"] = error_message
+
+            if config_path:
+                run_data["config_path"] = config_path
+
+            if artifact_dir:
+                run_data["artifact_dir"] = artifact_dir
+
+            if metrics_summary_path:
+                run_data["metrics_summary_path"] = metrics_summary_path
+
+            if metrics_history_path:
+                run_data["metrics_history_path"] = metrics_history_path
 
             # Update last_update timestamp
             sweep_data["last_update"] = datetime.now().isoformat()
