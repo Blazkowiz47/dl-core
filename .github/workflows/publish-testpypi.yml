@@ -1,0 +1,68 @@
+name: Publish TestPyPI
+# TestPyPI setup required before first use:
+# 1. Create the `dl-core` project on TestPyPI.
+# 2. Add a Trusted Publisher for:
+#    - owner: Blazkowiz47
+#    - repository: dl-core
+#    - workflow: publish-testpypi.yml
+#    - environment: testpypi
+# 3. Create the `testpypi` GitHub environment if you want approval gates.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Distribution
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Run tests
+        run: uv run --extra dev pytest
+
+      - name: Build distribution artifacts
+        run: uv build --no-sources
+
+      - name: Check distribution metadata
+        run: uv run --with twine twine check dist/*
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions-testpypi
+          path: dist/
+
+  publish:
+    name: Publish To TestPyPI
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    permissions:
+      id-token: write
+
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/dl-core
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions-testpypi
+          path: dist/
+
+      - name: Publish distribution to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
