@@ -48,7 +48,7 @@ jobs:
           uv pip install --python .venv/bin/python --no-deps --editable .
 
       - name: Run tests
-        run: .venv/bin/python -m pytest
+        run: VIRTUAL_ENV=.venv PATH=".venv/bin:$PATH" .venv/bin/python -m pytest
 
       - name: Compile package
         run: .venv/bin/python -m compileall src/dl_core
