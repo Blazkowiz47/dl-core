@@ -27,7 +27,7 @@ _BUILTIN_COMPONENT_MODULES = (
     "trainers",
 )
 
-__version__ = "0.1.7"
+__version__ = "0.0.1"
 
 
 def load_builtin_components() -> None:

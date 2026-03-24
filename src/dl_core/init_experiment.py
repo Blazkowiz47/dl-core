@@ -75,7 +75,7 @@ description = "Experiment repository for {project_name}."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "dl-core>=0.1.7",
+    "dl-core",
 ]
 
 [tool.hatch.build.targets.wheel]
