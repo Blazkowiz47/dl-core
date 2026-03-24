@@ -250,6 +250,37 @@ def _resolve_target_dir(name: str | None, root_dir: Path) -> Path:
     return root_dir / _slugify(name)
 
 
+_IN_PLACE_ALLOWED_ENTRIES = {
+    ".git",
+    ".gitignore",
+    ".python-version",
+    ".venv",
+    "README.md",
+    "main.py",
+    "pyproject.toml",
+    "uv.lock",
+}
+
+_IN_PLACE_REPLACED_FILES = {
+    ".gitignore",
+    "README.md",
+    "pyproject.toml",
+}
+
+_IN_PLACE_REMOVED_FILES = {
+    "main.py",
+    "uv.lock",
+}
+
+
+def _cleanup_in_place_target_dir(target_dir: Path) -> None:
+    """Remove transient bootstrap files before writing the scaffold."""
+    for relative_name in _IN_PLACE_REPLACED_FILES | _IN_PLACE_REMOVED_FILES:
+        path = target_dir / relative_name
+        if path.exists() and path.is_file():
+            path.unlink()
+
+
 def _validate_target_dir(target_dir: Path, initialize_in_place: bool) -> None:
     """Validate that the scaffold target directory is safe to create."""
     if target_dir.exists() and not target_dir.is_dir():
@@ -261,10 +292,15 @@ def _validate_target_dir(target_dir: Path, initialize_in_place: bool) -> None:
     if not initialize_in_place:
         raise FileExistsError(f"Target directory already exists: {target_dir}")
 
-    if any(target_dir.iterdir()):
+    existing_names = {path.name for path in target_dir.iterdir()}
+    if not existing_names:
+        return
+
+    unsupported_entries = sorted(existing_names - _IN_PLACE_ALLOWED_ENTRIES)
+    if unsupported_entries:
         raise FileExistsError(
-            "Target directory already exists and is not empty: "
-            f"{target_dir}"
+            "Target directory already exists and contains unsupported files: "
+            f"{unsupported_entries}. Directory: {target_dir}"
         )
 
 
@@ -287,6 +323,8 @@ def create_experiment_scaffold(
     trainer_class_name = f"{_to_class_name(package_name)}Trainer"
     target_dir = _resolve_target_dir(name, root_path)
     _validate_target_dir(target_dir, initialize_in_place=name is None)
+    if name is None and target_dir.exists():
+        _cleanup_in_place_target_dir(target_dir)
 
     templates_dir = _templates_dir()
 

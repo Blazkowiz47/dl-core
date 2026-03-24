@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from dl_core.init_experiment import create_experiment_scaffold, main as init_main
@@ -75,3 +76,33 @@ def test_cli_allows_missing_name_with_root_dir(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert (target_dir / "pyproject.toml").exists()
+
+
+def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
+    """In-place init should accept and replace a fresh uv-init bootstrap."""
+    target_dir = tmp_path / "custom_test"
+    target_dir.mkdir()
+    (target_dir / ".gitignore").write_text(".venv/\n", encoding="utf-8")
+    (target_dir / ".python-version").write_text("3.11\n", encoding="utf-8")
+    (target_dir / "README.md").write_text("# temp\n", encoding="utf-8")
+    (target_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (target_dir / "pyproject.toml").write_text("[project]\nname='temp'\n", encoding="utf-8")
+    (target_dir / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    created_dir = create_experiment_scaffold(root_dir=str(target_dir))
+
+    assert created_dir == target_dir.resolve()
+    assert not (created_dir / "main.py").exists()
+    assert not (created_dir / "uv.lock").exists()
+    assert (created_dir / "pyproject.toml").exists()
+    assert (created_dir / "README.md").exists()
+
+
+def test_scaffold_rejects_unexpected_existing_files(tmp_path: Path) -> None:
+    """In-place init should still reject directories with unrelated files."""
+    target_dir = tmp_path / "custom_test"
+    target_dir.mkdir()
+    (target_dir / "notes.txt").write_text("keep me\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        create_experiment_scaffold(root_dir=str(target_dir))
