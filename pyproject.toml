@@ -8,6 +8,31 @@ version = "0.1.0"
 description = "Reusable deep learning framework core."
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "blazkowiz47", email = "sushrutpatwardhan@gmail.com" },
+]
+maintainers = [
+    { name = "blazkowiz47", email = "sushrutpatwardhan@gmail.com" },
+]
+keywords = [
+    "deep-learning",
+    "machine-learning",
+    "pytorch",
+    "training",
+    "sweeps",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "albumentations>=2.0.0",
     "numpy>=1.26.0",
@@ -24,6 +49,12 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Blazkowiz47/dl-core"
+Documentation = "https://github.com/Blazkowiz47/dl-core/tree/main/readme"
+Repository = "https://github.com/Blazkowiz47/dl-core"
+Issues = "https://github.com/Blazkowiz47/dl-core/issues"
 
 [project.scripts]
 dl-core = "dl_core.cli:main"

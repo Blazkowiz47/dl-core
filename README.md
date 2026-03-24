@@ -42,12 +42,12 @@ uv run dl-sweep --sweep configs/sweeps/example_sweep.yaml
 
 ## Documentation
 
-- [Documentation Index](./readme/README.md)
-- [TLDR: Install and Verify](./readme/tldr/1_install_and_verify.md)
-- [TLDR: Create and Run an Experiment](./readme/tldr/2_create_and_run_an_experiment.md)
-- [Guide: Getting Started](./readme/guide/1_getting_started.md)
-- [Guide: Local Components and Sweeps](./readme/guide/3_local_components_and_sweeps.md)
-- [Technical: Configuration](./readme/technical/1_configuration.md)
+- [Documentation Index](https://github.com/Blazkowiz47/dl-core/blob/main/readme/README.md)
+- [TLDR: Install and Verify](https://github.com/Blazkowiz47/dl-core/blob/main/readme/tldr/1_install_and_verify.md)
+- [TLDR: Create and Run an Experiment](https://github.com/Blazkowiz47/dl-core/blob/main/readme/tldr/2_create_and_run_an_experiment.md)
+- [Guide: Getting Started](https://github.com/Blazkowiz47/dl-core/blob/main/readme/guide/1_getting_started.md)
+- [Guide: Local Components and Sweeps](https://github.com/Blazkowiz47/dl-core/blob/main/readme/guide/3_local_components_and_sweeps.md)
+- [Technical: Configuration](https://github.com/Blazkowiz47/dl-core/blob/main/readme/technical/1_configuration.md)
 
 ## Development Validation
 
