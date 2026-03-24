@@ -11,7 +11,6 @@ This dataset loads data from local filesystem with:
 from typing import Any
 
 import cv2
-import numpy as np
 import os
 import torch
 
@@ -51,11 +50,6 @@ class StandardWrapper(BaseWrapper):
         super().__init__(config, **kwargs)
         self.height = self.config.get("height", 224)
         self.width = self.config.get("width", 224)
-        synthetic_config = self.config.get("synthetic", {})
-        self.synthetic_enabled = bool(synthetic_config.get("enabled", False))
-        self.synthetic_num_samples = int(synthetic_config.get("num_samples", 1000))
-
-        # Initialize parent (handles file loading from classes config)
 
     @property
     def file_extensions(self) -> list[str]:
@@ -73,9 +67,6 @@ class StandardWrapper(BaseWrapper):
             - path: str (file path)
             - label: str (class label)
         """
-        if self.synthetic_enabled:
-            return self._get_synthetic_file_list(split)
-
         if self.rdir is None:
             raise ValueError("Root directory (rdir) is not set.")
         split_dirs_first = False
@@ -109,26 +100,6 @@ class StandardWrapper(BaseWrapper):
 
         return data
 
-    def _get_synthetic_file_list(self, split: str) -> list[dict]:
-        """Generate synthetic sample metadata for smoke tests and scaffolds."""
-        if split != "train":
-            return []
-
-        classes = self.classes or [str(idx) for idx in range(self.num_classes or 2)]
-        num_classes = len(classes)
-        if num_classes == 0:
-            raise ValueError("Synthetic dataset requires at least one class label")
-
-        return [
-            {
-                "index": idx,
-                "label": classes[idx % num_classes],
-                "path": f"synthetic://{split}/{classes[idx % num_classes]}/{idx}",
-                "synthetic": True,
-            }
-            for idx in range(self.synthetic_num_samples)
-        ]
-
     def transform(self, file_dict: dict, split: str) -> dict[str, Any]:
         """
         Load and preprocess a single image from filesystem.
@@ -146,22 +117,6 @@ class StandardWrapper(BaseWrapper):
         path = file_dict["path"]
         label = file_dict["label"]
         class_label = self.classes.index(label)
-
-        if file_dict.get("synthetic", False):
-            image = self._generate_synthetic_image(file_dict["index"])
-            if self.augmentation:
-                image_tensor = self.augmentation.apply(image, split)
-            else:
-                image_tensor = (
-                    torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
-                )
-
-            return {
-                "image": image_tensor.float(),
-                "label": class_label,
-                "class": label,
-                "path": str(path),
-            }
 
         # Load image
         image = cv2.imread(str(path))
@@ -193,13 +148,3 @@ class StandardWrapper(BaseWrapper):
             "class": label,
             "path": str(path),
         }
-
-    def _generate_synthetic_image(self, index: int) -> np.ndarray:
-        """Create a deterministic synthetic RGB image for a given sample index."""
-        rng = np.random.default_rng(self.seed + index)
-        return rng.integers(
-            0,
-            256,
-            size=(self.height, self.width, 3),
-            dtype=np.uint8,
-        )

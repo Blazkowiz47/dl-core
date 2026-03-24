@@ -28,9 +28,6 @@ dataset:
   classes: [class0, class1]
   num_classes: 2
   rdir: null
-  synthetic:
-    enabled: true
-    num_samples: 1000
   height: 64
   width: 64
   batch_size: 64

@@ -28,6 +28,7 @@ uv run dl-run --config configs/base.yaml
 uv run dl-sweep --sweep configs/sweeps/example_sweep.yaml
 ```
 
-The generated scaffold defaults to synthetic data so these smoke tests can run
-without a concrete dataset while you validate wiring, registration, and sweep
-generation.
+These smoke tests assume you have either:
+
+- pointed `dataset.rdir` at a real dataset
+- or implemented a local dataset wrapper that provides dummy data for testing

@@ -33,8 +33,8 @@ my-exp/
     presets.yaml
     sweeps/
       example_sweep.yaml
-  src/my_exp/
-    __init__.py
+  src/
+    bootstrap.py
     datasets/
       my_exp.py
     models/

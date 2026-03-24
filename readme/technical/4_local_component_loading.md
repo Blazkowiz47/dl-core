@@ -30,14 +30,14 @@ registrations:
 If it finds that project root, it:
 
 1. adds `src/` to `sys.path`
-2. imports each top-level package in `src/`
-3. skips `dl_core`
+2. imports `bootstrap.py` when present
+3. imports each known component package in `src/`
 
-That is why the experiment package wrappers in `src/my_exp/` register
-automatically when you run `dl-run` or `dl-sweep` from inside the experiment
-repository.
+That is why local wrappers in `src/datasets/`, `src/models/`, `src/trainers/`,
+and other component folders register automatically when you run `dl-run` or
+`dl-sweep` from inside the experiment repository.
 
 ## Practical Implication
 
-The scaffolded experiment package is the registration boundary. Keep
-project-specific components there, not inside `dl-core`.
+The scaffolded `src/` tree is the registration boundary. Keep project-specific
+components there, not inside `dl-core`.

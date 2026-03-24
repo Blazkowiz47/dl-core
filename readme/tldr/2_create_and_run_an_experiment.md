@@ -36,9 +36,10 @@ The scaffold gives you:
 - `configs/base.yaml`
 - `configs/base_sweep.yaml`
 - `configs/sweeps/example_sweep.yaml`
-- `src/my_exp/datasets/my_exp.py`
-- `src/my_exp/trainers/my_exp.py`
-- `src/my_exp/models/resnet_example.py`
+- `src/datasets/my_exp.py`
+- `src/trainers/my_exp.py`
+- `src/models/resnet_example.py`
+- `src/bootstrap.py`
 
 ## 4. Run Locally
 
@@ -47,5 +48,5 @@ uv run dl-run --config configs/base.yaml
 uv run dl-sweep --sweep configs/sweeps/example_sweep.yaml
 ```
 
-The generated base config defaults to a synthetic dataset path so the scaffold
-can run without a real dataset while you validate the pipeline.
+Before running, set `dataset.rdir` to a real dataset or replace the local
+dataset wrapper with a dummy-data implementation for smoke testing.

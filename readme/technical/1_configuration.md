@@ -44,7 +44,6 @@ The built-in standard dataset uses:
 - `dataset.name`
 - `dataset.classes`
 - `dataset.rdir`
-- `dataset.synthetic`
 - `dataset.augmentation`
 
 Example:
@@ -54,9 +53,6 @@ dataset:
   name: my_exp
   classes: [class0, class1]
   rdir: null
-  synthetic:
-    enabled: true
-    num_samples: 1000
   height: 64
   width: 64
   batch_size: 64
@@ -71,9 +67,10 @@ dataset:
 Notes:
 
 - `rdir` is the root directory for the standard dataset path
-- synthetic mode exists so the scaffold can run without a concrete dataset
 - generated repos default to a project-named dataset wrapper that extends the
   built-in standard dataset
+- if you need dummy or synthetic data, implement it in your local dataset
+  wrapper instead of relying on the built-in standard dataset
 
 ## Optimizer
 
