@@ -26,7 +26,6 @@ uv run dl-init-experiment --name my-exp --root-dir . --with-azure
 ```text
 my-exp/
   pyproject.toml
-  presets.yaml
   configs/
     base.yaml
     base_sweep.yaml

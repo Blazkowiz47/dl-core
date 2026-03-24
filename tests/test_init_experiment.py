@@ -18,6 +18,8 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert (target_dir / "src" / "datasets" / "named_demo.py").exists()
     assert (target_dir / "src" / "models" / "resnet_example.py").exists()
     assert (target_dir / "src" / "trainers" / "named_demo.py").exists()
+    assert not (target_dir / "presets.yaml").exists()
+    assert (target_dir / "configs" / "presets.yaml").exists()
 
     config = yaml.safe_load((target_dir / "configs" / "base.yaml").read_text())
     assert list(config["models"].keys()) == ["resnet_example"]
