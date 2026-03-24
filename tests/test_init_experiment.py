@@ -21,7 +21,8 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert not (target_dir / "presets.yaml").exists()
     assert (target_dir / "configs" / "presets.yaml").exists()
     assert (target_dir / "configs" / "base_sweep.yaml").exists()
-    assert (target_dir / "experiments" / "example_sweep.yaml").exists()
+    assert (target_dir / "experiments" / "lr_sweep.yaml").exists()
+    assert (target_dir / "experiments" / "experiments.log").exists()
     assert not (target_dir / "configs" / "sweeps").exists()
 
     config = yaml.safe_load((target_dir / "configs" / "base.yaml").read_text())
@@ -37,8 +38,11 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert list(sweep_config["fixed"]["trainer"].keys()) == [component_name]
     assert sweep_config["fixed"]["trainer"][component_name]["name"] == component_name
 
-    example_sweep = (target_dir / "experiments" / "example_sweep.yaml").read_text()
-    assert 'extends_template: "../configs/base_sweep.yaml"' in example_sweep
+    lr_sweep = (target_dir / "experiments" / "lr_sweep.yaml").read_text()
+    experiments_log = (target_dir / "experiments" / "experiments.log").read_text()
+    assert 'extends_template: "../configs/base_sweep.yaml"' in lr_sweep
+    assert "sweep=experiments/lr_sweep.yaml" in experiments_log
+    assert "kind=new" in experiments_log
 
 
 def test_with_azure_scaffold_imports_adapter(tmp_path: Path) -> None:

@@ -64,7 +64,7 @@ uv run dl-run --config configs/base.yaml
 ## Sweeps
 
 ```bash
-uv run dl-sweep --sweep experiments/example_sweep.yaml
+uv run dl-sweep --sweep experiments/lr_sweep.yaml
 ```
 
 Generated sweep configs are saved under:

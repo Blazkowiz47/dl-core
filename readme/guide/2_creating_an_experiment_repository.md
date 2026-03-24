@@ -31,7 +31,8 @@ my-exp/
     base_sweep.yaml
     presets.yaml
   experiments/
-    example_sweep.yaml
+    lr_sweep.yaml
+    experiments.log
   src/
     bootstrap.py
     datasets/
@@ -61,6 +62,7 @@ By default:
 - `configs/base.yaml`
 - `configs/base_sweep.yaml`
 - `configs/presets.yaml`
-- `experiments/example_sweep.yaml`
+- `experiments/lr_sweep.yaml`
+- `experiments/experiments.log`
 
 Start there before editing the wrapper classes.

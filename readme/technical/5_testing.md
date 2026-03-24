@@ -25,7 +25,7 @@ From a generated experiment repository:
 
 ```bash
 uv run dl-run --config configs/base.yaml
-uv run dl-sweep --sweep experiments/example_sweep.yaml
+uv run dl-sweep --sweep experiments/lr_sweep.yaml
 ```
 
 These smoke tests assume you have either:
