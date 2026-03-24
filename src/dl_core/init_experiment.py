@@ -59,7 +59,7 @@ def _replace_template_tokens(path: Path, replacements: dict[str, str]) -> None:
 
 def _project_pyproject(project_name: str, with_azure: bool) -> str:
     """Render the generated experiment project's pyproject.toml."""
-    dependencies = ['    "dl-core>=0.1.6",']
+    dependencies = ['    "dl-core>=0.1.7",']
     if with_azure:
         dependencies.append('    "dl-mobai-azure>=0.1.0",')
 
