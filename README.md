@@ -7,6 +7,26 @@ across many experiment repositories. It is intended to be the public or
 generally reusable package, while company-specific cloud integrations live in
 separate adapters such as `dl-mobai-azure`.
 
+## Install
+
+Install from PyPI:
+
+```bash
+pip install dl-core
+```
+
+Install the pre-release build from TestPyPI:
+
+```bash
+pip install \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ \
+  dl-core
+```
+
+`dl-core` intentionally ships with the full public runtime dependencies,
+including `torch`, `torchvision`, and `opencv-python`.
+
 ## Scope
 
 - Base abstractions and registries
@@ -26,10 +46,8 @@ separate adapters such as `dl-mobai-azure`.
 ## Quick Start
 
 ```bash
-uv sync
-uv run dl-run --show-registry
-uv run dl-init-experiment --name my-exp --root-dir .
-uv run dl-core add augmentation Custom1
+dl-run --show-registry
+dl-init-experiment --name my-exp --root-dir .
 ```
 
 The generated experiment repository is the normal consumer entry point. Install
@@ -39,6 +57,21 @@ that repository in editable mode, then run:
 uv run dl-run --config configs/base.yaml
 uv run dl-sweep --sweep configs/sweeps/example_sweep.yaml
 ```
+
+To add a new local component scaffold inside the experiment repo:
+
+```bash
+uv run dl-core add augmentation Custom1
+```
+
+## Releases
+
+- `Publish TestPyPI` is the manual validation workflow for TestPyPI.
+- `Publish` is the production workflow for PyPI.
+- Trusted publishing is configured through GitHub Actions environments rather
+  than long-lived API tokens.
+- The publish action may upload digital attestations alongside the package.
+  That is expected behavior from `pypa/gh-action-pypi-publish`.
 
 ## Documentation
 
