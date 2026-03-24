@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dl-core"
+version = "0.1.0"
+description = "Reusable deep learning framework core."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "albumentations>=2.0.0",
+    "numpy>=1.26.0",
+    "opencv-python>=4.10.0",
+    "psutil>=5.9.0",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.4.0",
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+dl-core = "dl_core.cli:main"
+dl-init-experiment = "dl_core.init_experiment:main"
+dl-run = "dl_core.single_run:main"
+dl-sweep = "dl_core.sweep.runner:main"
+dl-train-worker = "dl_core.worker:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dl_core"]
+include = [
+    "src/dl_core/templates/**/*.yaml",
+    "src/dl_core/templates/**/*.md",
+]

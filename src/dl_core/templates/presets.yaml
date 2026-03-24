@@ -1,0 +1,78 @@
+# Bundled dl-core presets
+#
+# These are generic defaults that can be reused across experiment repositories.
+
+optimizers:
+  conservative:
+    optimizers.name: adamw
+    optimizers.lr: 1.0e-5
+    optimizers.weight_decay: 0.01
+
+  standard:
+    optimizers.name: adamw
+    optimizers.lr: 1.0e-4
+    optimizers.weight_decay: 0.01
+
+  aggressive:
+    optimizers.name: adamw
+    optimizers.lr: 5.0e-4
+    optimizers.weight_decay: 0.001
+
+  sgd_standard:
+    optimizers.name: sgd
+    optimizers.lr: 1.0e-2
+    optimizers.momentum: 0.9
+    optimizers.weight_decay: 1.0e-4
+
+schedulers:
+  cosine:
+    schedulers.name: cosine
+    schedulers.T_max: 50
+    schedulers.eta_min: 1.0e-6
+
+  step_decay:
+    schedulers.name: step
+    schedulers.step_size: 10
+    schedulers.gamma: 0.1
+
+training:
+  quick:
+    trainer.standard.epochs: 5
+
+  standard:
+    trainer.standard.epochs: 50
+
+  long:
+    trainer.standard.epochs: 100
+
+batching:
+  small:
+    dataset.batch_size: 16
+    dataset.num_workers: 4
+
+  medium:
+    dataset.batch_size: 32
+    dataset.num_workers: 8
+
+  large:
+    dataset.batch_size: 64
+    dataset.num_workers: 12
+
+accelerators:
+  single_gpu:
+    accelerator.type: single_gpu
+    accelerator.gradient_accumulation_steps: 1
+
+  multi_gpu_ddp:
+    accelerator.type: multi_gpu
+    accelerator.devices: [0, 1, 2, 3]
+    accelerator.strategy: ddp
+    accelerator.gradient_accumulation_steps: 1
+
+  cpu:
+    accelerator.type: cpu
+    accelerator.gradient_accumulation_steps: 1
+
+executors:
+  local:
+    executor.name: local

@@ -1,0 +1,82 @@
+# Base Training Configuration Template
+# This template is intentionally generic and should work with dl-core alone.
+
+seed: 2025
+
+runtime:
+  name: my_run  # TODO: Set a run identifier
+  output_dir: artifacts
+  log_level: INFO
+  tags: []
+
+experiment:
+  name: my_experiment  # TODO: Set an experiment name
+  description: "Standard classification baseline"
+
+accelerator:
+  type: cpu
+
+models:
+  resnet:
+    name: resnet
+    variant: resnet18
+    pretrained: false
+    num_classes: 2
+
+dataset:
+  name: standard
+  classes: [class0, class1]
+  num_classes: 2
+  rdir: null
+  synthetic:
+    enabled: true
+    num_samples: 1000
+  height: 64
+  width: 64
+  batch_size: 64
+  num_workers: 0
+  prefetch_factor: null
+  augmentation:
+    standard:
+      height: 64
+      width: 64
+
+optimizers:
+  name: adamw
+  lr: 0.0001
+  weight_decay: 0.01
+
+# schedulers:
+#   name: cosine
+#   T_max: 50
+#   eta_min: 1e-6
+
+trainer:
+  standard:
+    name: standard
+    epochs: 3
+
+criterions:
+  crossentropy:
+    name: crossentropy
+
+metric_managers:
+  standard:
+    name: standard
+    num_classes: 2
+    best_metric_key: accuracy
+
+callbacks:
+  checkpoint:
+    monitor: validation_accuracy
+    mode: max
+    save_best_only: true
+
+  early_stopping:
+    monitor: validation_accuracy
+    mode: max
+    patience: 10
+    min_delta: 0.001
+
+  metric_logger:
+    log_frequency: 1

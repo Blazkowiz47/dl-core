@@ -1,0 +1,124 @@
+"""Simple local executor."""
+
+import subprocess
+import yaml
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from dl_core.core import BaseExecutor, register_executor
+
+
+@register_executor("local")
+class LocalExecutor(BaseExecutor):
+    """
+    Simple local executor.
+
+    - No external tracking backend integration
+    - Supports parallel execution with ProcessPoolExecutor (via base class)
+    - Logs to stdout/files only
+    """
+
+    def __init__(
+        self,
+        sweep_config: Dict[str, Any],
+        experiment_name: str,
+        sweep_id: str,
+        dry_run: bool = False,
+        tracking_context: Optional[str] = None,
+        resume: bool = False,
+        **kwargs,
+    ):
+        """Initialize local executor.
+
+        Args:
+            sweep_config: Sweep configuration
+            experiment_name: Name of experiment
+            sweep_id: Unique sweep identifier
+            dry_run: If True, print commands without executing
+            tracking_context: Not used by LocalExecutor
+            resume: Not used by LocalExecutor (for compatibility)
+            max_workers: Maximum number of parallel workers (default: 1, sequential)
+        """
+        super().__init__(
+            sweep_config,
+            experiment_name,
+            sweep_id,
+            dry_run=dry_run,
+            tracking_context=tracking_context,
+            resume=resume,
+        )
+        self.max_workers = kwargs.get("max_workers", 1)
+
+    def setup(self, total_runs: int) -> None:
+        """Setup local executor."""
+        self.logger.info(f"LocalExecutor: Starting sweep with {total_runs} runs")
+        mode = "parallel" if self.max_workers > 1 else "sequential"
+        self.logger.info(
+            f"Mode: Simple local execution ({mode}, max_workers={self.max_workers})"
+        )
+
+    def execute_run(
+        self,
+        run_index: int,
+        config_path: Path,
+    ) -> Dict[str, Any]:
+        """
+        Execute run as subprocess.
+
+        Args:
+            run_index: Run index
+            config_path: Path to the saved config file
+
+        Returns:
+            Dictionary with execution results:
+            - "success" (bool): True if run succeeded, False otherwise
+        """
+        # Read config from path at the start as suggested
+        with open(config_path, "r") as f:
+            run_config = yaml.safe_load(f)
+
+        # Inject sweep metadata
+        self._inject_sweep_metadata(run_config)
+
+        # Save the modified config back to the same file
+        with open(config_path, "w") as f:
+            yaml.dump(run_config, f, sort_keys=False)
+
+        # Get launch command based on accelerator config
+        cmd = self.build_command(str(config_path), run_config)
+        cmd_str = " ".join(cmd)
+
+        # Run training
+        self.logger.info(f"[{run_index + 1}] Command: {cmd_str}")
+
+        if self.dry_run:
+            self.logger.info(f"[DRY RUN] Would execute run {run_index + 1}")
+            return {"success": True}  # Simulate success
+
+        result = subprocess.run(cmd, check=False)
+
+        success = result.returncode == 0
+        if success:
+            self.logger.info(f"Run {run_index + 1} completed successfully")
+        else:
+            self.logger.error(
+                f"Run {run_index + 1} failed with code {result.returncode}"
+            )
+
+        return {"success": success}
+
+    def _inject_sweep_metadata(self, config: Dict[str, Any]) -> None:
+        """Inject sweep metadata into config for artifact directory structure."""
+        # Inject sweep_file for artifact directory structure
+        if "sweep_file" in self.sweep_config:
+            config["sweep_file"] = self.sweep_config["sweep_file"]
+
+        # Enable auto-resume for local executor
+        config["auto_resume_local"] = True
+
+    def teardown(self) -> None:
+        """Print final stats."""
+        total = len(self.completed_runs) + len(self.failed_runs)
+        self.logger.info(
+            f"Sweep complete: {len(self.completed_runs)}/{total} succeeded"
+        )

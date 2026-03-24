@@ -1,0 +1,31 @@
+# Base Sweep Template
+
+template_name: my_experiment_sweep
+description: "Generic sweep template"
+version: "1.0"
+base_config: "./base.yaml"
+
+fixed:
+  accelerator: preset:accelerators.cpu
+  executor: preset:executors.local
+  runtime:
+    log_level: INFO
+  trainer:
+    standard:
+      name: standard
+      epochs: 1
+
+default_grid:
+  optimizers.lr: [1e-4, 5e-4]
+
+tracking:
+  group: my_experiment
+  run_name_template: "lr_{optimizers.lr}"
+  description_template: "learning_rate={optimizers.lr}"
+  auto_tags:
+    optimizer: "from:optimizers.name"
+    learning_rate: "from:optimizers.lr"
+
+seeds: [2025]
+
+preset_configs: {}

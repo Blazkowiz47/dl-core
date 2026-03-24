@@ -1,0 +1,10 @@
+# Example Sweep
+
+extends_template: "../base_sweep.yaml"
+description: "Basic learning rate sweep"
+
+grid:
+  optimizers.lr: [0.001, 0.0001]
+
+custom_tags:
+  sweep_type: basic_lr
