@@ -97,6 +97,15 @@ used by the validated Azure packaging stack. The MLflow extra pulls in
 The extension packages stay separate so the base package remains reusable and
 vendor-neutral.
 
+You can also install the companion packages directly when you want a specific
+integration without using extras:
+
+```bash
+pip install deep-learning-azure
+pip install deep-learning-mlflow
+pip install deep-learning-wandb
+```
+
 ## Scope
 
 - Base abstractions and registries
