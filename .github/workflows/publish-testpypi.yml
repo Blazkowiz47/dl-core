@@ -1,12 +1,12 @@
 name: Publish TestPyPI
 # TestPyPI setup required before first use:
-# 1. Create the `dl-core` project on TestPyPI.
+# 1. Create the `deep-learning-core` project on TestPyPI.
 # 2. Add a Trusted Publisher for:
 #    - owner: Blazkowiz47
 #    - repository: dl-core
 #    - workflow: publish-testpypi.yml
-#    - environment: testpypi
-# 3. Create the `testpypi` GitHub environment if you want approval gates.
+#    - environment: dl-core
+# 3. Create the `dl-core` GitHub environment if you want approval gates.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -75,8 +75,8 @@ jobs:
       id-token: write
 
     environment:
-      name: testpypi
-      url: https://test.pypi.org/p/dl-core
+      name: dl-core
+      url: https://test.pypi.org/p/deep-learning-core
 
     steps:
       - name: Download distribution artifacts

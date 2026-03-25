@@ -124,7 +124,7 @@ def test_scaffold_preserves_existing_tool_uv_config(tmp_path: Path) -> None:
                 'version = "0.1.0"',
                 "",
                 "[tool.uv.sources]",
-                'dl-core = { index = "testpypi" }',
+                '"deep-learning-core" = { index = "testpypi" }',
                 "",
                 "[[tool.uv.index]]",
                 'name = "testpypi"',
@@ -140,7 +140,7 @@ def test_scaffold_preserves_existing_tool_uv_config(tmp_path: Path) -> None:
     pyproject_text = (created_dir / "pyproject.toml").read_text(encoding="utf-8")
 
     assert '[tool.uv.sources]' in pyproject_text
-    assert 'dl-core = { index = "testpypi" }' in pyproject_text
+    assert '"deep-learning-core" = { index = "testpypi" }' in pyproject_text
     assert '[[tool.uv.index]]' in pyproject_text
     assert 'url = "https://test.pypi.org/simple/"' in pyproject_text
 

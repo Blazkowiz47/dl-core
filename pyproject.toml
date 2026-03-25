@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dl-core"
-version = "1.0.0"
+name = "deep-learning-core"
+version = "0.0.1"
 description = "Reusable deep learning framework core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,13 +49,13 @@ dependencies = [
 
 [project.optional-dependencies]
 azure = [
-    "dl-azure",
+    "deep-learning-azure",
 ]
 mlflow = [
-    "dl-mlflow",
+    "deep-learning-mlflow",
 ]
 wandb = [
-    "dl-wandb",
+    "deep-learning-wandb",
 ]
 dev = [
     "pytest",
@@ -76,9 +76,9 @@ dl-sweep = "dl_core.sweep.runner:main"
 dl-train-worker = "dl_core.worker:main"
 
 [tool.uv.sources]
-dl-azure = { path = "../dl-azure", editable = true }
-dl-mlflow = { path = "../dl-mlflow", editable = true }
-dl-wandb = { path = "../dl-wandb", editable = true }
+"deep-learning-azure" = { path = "../dl-azure", editable = true }
+"deep-learning-mlflow" = { path = "../dl-mlflow", editable = true }
+"deep-learning-wandb" = { path = "../dl-wandb", editable = true }
 
 [tool.hatch.build.targets.sdist]
 exclude = [

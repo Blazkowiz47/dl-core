@@ -1,12 +1,12 @@
 name: Publish
 # PyPI setup required before first use:
-# 1. Create the `dl-core` project on PyPI.
+# 1. Create the `deep-learning-core` project on PyPI.
 # 2. Add a Trusted Publisher for:
 #    - owner: Blazkowiz47
 #    - repository: dl-core
 #    - workflow: publish.yml
-#    - environment: pypi
-# 3. Create the `pypi` GitHub environment if you want approval gates.
+#    - environment: dl-core
+# 3. Create the `dl-core` GitHub environment if you want approval gates.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -75,8 +75,8 @@ jobs:
       id-token: write
 
     environment:
-      name: pypi
-      url: https://pypi.org/p/dl-core
+      name: dl-core
+      url: https://pypi.org/p/deep-learning-core
 
     steps:
       - name: Download distribution artifacts
