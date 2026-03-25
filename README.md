@@ -9,7 +9,11 @@ extras and companion extension packages.
 
 ## Install
 
-Install from PyPI:
+Current public validation releases are published on TestPyPI. Once the package
+is promoted to PyPI, the plain `pip install dl-core` forms below will be the
+normal install path.
+
+PyPI install target:
 
 ```bash
 pip install dl-core
@@ -39,7 +43,7 @@ Install with multiple variants:
 pip install "dl-core[azure,wandb]"
 ```
 
-Install from TestPyPI with `pip`:
+Install today from TestPyPI with `pip`:
 
 ```bash
 pip install \
@@ -48,7 +52,7 @@ pip install \
   dl-core
 ```
 
-Install from TestPyPI in a `uv` project:
+Install today from TestPyPI in a `uv` project:
 
 ```toml
 [tool.uv.sources]
