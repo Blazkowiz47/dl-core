@@ -220,6 +220,11 @@ def _project_dataset_skeleton(dataset_name: str, class_name: str) -> str:
 
 Implement the abstract methods below to map your local dataset structure onto
 the `dl-core` dataset contract.
+
+Available generic dl-core foundations:
+- BaseWrapper for sample-level datasets
+- FrameWrapper for frame datasets with grouped video metadata
+- MultiFrameWrapper for multiframe sequence datasets
 """
 
 from __future__ import annotations
