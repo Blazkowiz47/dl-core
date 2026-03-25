@@ -251,7 +251,7 @@ class {class_name}(BaseWrapper):
         """Return file records for the requested split."""
         raise NotImplementedError(
             "TODO: implement dataset scanning for this split. Each record must "
-            "include at least {'path': ..., 'label': ...}. Useful helpers: "
+            "include at least {{'path': ..., 'label': ...}}. Useful helpers: "
             "self.scan_directory(...), self.classes, and split-specific config."
         )
 
@@ -260,7 +260,7 @@ class {class_name}(BaseWrapper):
         raise NotImplementedError(
             "TODO: load file_dict['path'], apply preprocessing and "
             "self.augmentation.apply(..., split) when needed, then return "
-            "{'image': ..., 'label': ..., 'path': ...}."
+            "{{'image': ..., 'label': ..., 'path': ...}}."
         )
 '''
 
