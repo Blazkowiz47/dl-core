@@ -92,6 +92,26 @@ def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
     assert (created_dir / "README.md").exists()
 
 
+def test_scaffold_allows_existing_scripts_and_azure_config(tmp_path: Path) -> None:
+    """In-place init should tolerate helper scripts and Azure config files."""
+    target_dir = tmp_path / "custom_test"
+    target_dir.mkdir()
+    (target_dir / "scripts").mkdir()
+    (target_dir / "scripts" / "test.py").write_text("print('ok')\n", encoding="utf-8")
+    (target_dir / "azure-config.json").write_text(
+        '{"workspace_name": "existing-workspace"}\n',
+        encoding="utf-8",
+    )
+    (target_dir / "pyproject.toml").write_text("[project]\nname='temp'\n", encoding="utf-8")
+
+    created_dir = create_experiment_scaffold(root_dir=str(target_dir))
+
+    assert created_dir == target_dir.resolve()
+    assert (created_dir / "scripts" / "test.py").exists()
+    assert (created_dir / "azure-config.json").exists()
+    assert (created_dir / "configs" / "base.yaml").exists()
+
+
 def test_scaffold_preserves_existing_tool_uv_config(tmp_path: Path) -> None:
     """In-place init should keep existing uv index and source settings."""
     target_dir = tmp_path / "consumer_repo"

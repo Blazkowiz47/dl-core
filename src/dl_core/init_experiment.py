@@ -417,6 +417,8 @@ _IN_PLACE_ALLOWED_ENTRIES = {
     ".python-version",
     ".venv",
     "README.md",
+    "azure-config.json",
+    "scripts",
     "main.py",
     "pyproject.toml",
     "uv.lock",
