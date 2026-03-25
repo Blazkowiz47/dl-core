@@ -168,10 +168,11 @@ class EarlyStoppingCallback(Callback):
         metrics_ready_to_stop = []
 
         for monitor_key, state in self.metric_states.items():
-            if monitor_key not in logs:
+            resolved_monitor = self.resolve_log_key(logs, monitor_key)
+            if resolved_monitor is None:
                 continue
 
-            current_value = logs[monitor_key]
+            current_value = logs[resolved_monitor]
             mode = state["mode"]
             target_value = state["target_value"]
             target_mode = state["target_mode"]

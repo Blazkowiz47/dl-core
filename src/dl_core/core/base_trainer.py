@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dl_core.core import BaseAccelerator, BaseCriterion, BaseModel, BaseWrapper
-from dl_core.core.base_callback import CallbackList
+from dl_core.core.base_callback import Callback, CallbackList
 from dl_core.core.base_metric_manager import BaseMetricManager
 from dl_core.utils import (
     MeterTracker,
@@ -186,6 +186,8 @@ class BaseTrainer(ABC):
         self.global_step: int = 0
 
         self.stop_training = False  # For early stopping
+        self.current_checkpoint: dict[str, Any] | None = None
+        self.current_checkpoint_epoch: int | None = None
 
         self.logger.info(f"Initialized {self.__class__.__name__}")
 
@@ -646,21 +648,13 @@ class BaseTrainer(ABC):
             else:
                 raise ValueError(f"Invalid mode: {mode}")
 
-    def _save_checkpoint(self, epoch: int) -> None:
+    def _build_checkpoint_payload(self, epoch: int) -> dict[str, Any]:
         """
-        Save model checkpoint with simplified approach.
+        Build the checkpoint payload for one epoch.
 
         Args:
             epoch: Current epoch number
-            test_metrics: Test metrics for this epoch (used for best model selection)
         """
-        # Only save on main process (for DDP)
-        if not self.accelerator.is_main_process():
-            return
-
-        # Create checkpoint directory if it doesn't exist
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
-
         # Prepare criterion state dicts
         criterion_states = {}
         for name, criterion in self.criterions.items():
@@ -712,11 +706,40 @@ class BaseTrainer(ABC):
         if accelerator_state:
             checkpoint_dict.update(accelerator_state)
 
-        # Save regular checkpoint
-        checkpoint_path = os.path.join(self.checkpoint_dir, f"epoch_{epoch}.pth")
+        return checkpoint_dict
+
+    def _get_current_checkpoint(self, epoch: int) -> dict[str, Any]:
+        """Return the cached checkpoint payload for the active epoch."""
+
+        if (
+            self.current_checkpoint is None
+            or self.current_checkpoint_epoch != epoch
+        ):
+            self.current_checkpoint = self._build_checkpoint_payload(epoch)
+            self.current_checkpoint_epoch = epoch
+        return self.current_checkpoint
+
+    def _save_checkpoint(self, epoch: int, filename: str | None = None) -> None:
+        """
+        Save model checkpoint with simplified approach.
+
+        Args:
+            epoch: Current epoch number
+            filename: Optional checkpoint filename override
+        """
+        # Only save on main process (for DDP)
+        if not self.accelerator.is_main_process():
+            return
+
+        # Create checkpoint directory if it doesn't exist
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+
+        checkpoint_dict = self._get_current_checkpoint(epoch)
+        checkpoint_name = filename or f"epoch_{epoch}.pth"
+        checkpoint_path = os.path.join(self.checkpoint_dir, checkpoint_name)
         torch.save(checkpoint_dict, checkpoint_path)
 
-        self.logger.debug(f"Saved checkpoint for epoch {epoch}")
+        self.logger.debug(f"Saved checkpoint for epoch {epoch}: {checkpoint_path}")
 
     def _finalize_training(self) -> None:
         """
@@ -832,7 +855,7 @@ class BaseTrainer(ABC):
             self.log_metrics(epoch)
             self.accelerator.wait_for_everyone(f"after log_metrics for epoch {epoch}")
 
-            self.save_checkpoint(epoch)
+            self.save_checkpoint(epoch, filename="latest.pth")
             self.callbacks.on_checkpoint(epoch, self.current_metrics)
             self.accelerator.wait_for_everyone("after checkpoint save")
 
@@ -1324,10 +1347,11 @@ class BaseTrainer(ABC):
         best_value: float | None = None
         for epoch in recorded_epochs:
             epoch_logs = self._compile_epoch_logs_for_epoch(epoch)
-            if selection_metric not in epoch_logs:
+            resolved_metric = Callback.resolve_log_key(epoch_logs, selection_metric)
+            if resolved_metric is None:
                 continue
 
-            metric_value = float(epoch_logs[selection_metric])
+            metric_value = float(epoch_logs[resolved_metric])
             if best_value is None:
                 best_epoch = epoch
                 best_value = metric_value
@@ -2387,7 +2411,7 @@ class BaseTrainer(ABC):
         """
         self._log_metrics(epoch)
 
-    def save_checkpoint(self, epoch: int) -> None:
+    def save_checkpoint(self, epoch: int, filename: str | None = None) -> None:
         """
         Save model checkpoint with simplified approach.
         It saves models states, optimizers, schedulers, criterions, callback states,
@@ -2395,9 +2419,9 @@ class BaseTrainer(ABC):
 
         Args:
             epoch: Current epoch number
-            test_metrics: Test metrics for this epoch (used for best model selection)
+            filename: Optional checkpoint filename override
         """
-        self._save_checkpoint(epoch)
+        self._save_checkpoint(epoch, filename=filename)
 
     def register_model_states(self, checkpoint_dict: dict) -> None:
         """

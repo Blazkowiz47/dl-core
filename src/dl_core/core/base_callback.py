@@ -15,6 +15,12 @@ if TYPE_CHECKING:
     from dl_core.core.base_trainer import BaseTrainer
 
 
+def _normalize_log_key(key: str) -> str:
+    """Normalize a log key so separator differences still match."""
+
+    return "".join(char for char in key.casefold() if char.isalnum())
+
+
 class Callback(ABC):
     """
     Abstract base class for training callbacks.
@@ -91,6 +97,21 @@ class Callback(ABC):
         tensor = torch.tensor(value, dtype=torch.float32)
         averaged = accelerator.gather_for_metrics(tensor)
         return averaged.item()
+
+    @staticmethod
+    def resolve_log_key(logs: Dict[str, Any], requested_key: str) -> str | None:
+        """Resolve one requested metric key against available log keys."""
+
+        if requested_key in logs:
+            return requested_key
+
+        normalized_requested = _normalize_log_key(requested_key)
+        matches = [
+            key for key in logs if _normalize_log_key(key) == normalized_requested
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     def on_training_start(self, logs: Optional[Dict[str, Any]] = None) -> None:
         """

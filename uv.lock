@@ -1168,7 +1168,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "dl-core"
-version = "0.0.7"
+version = "0.0.8"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },
@@ -1235,7 +1235,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "dl-wandb"
-version = "0.0.2"
+version = "0.0.3"
 source = { editable = "../dl-wandb" }
 dependencies = [
     { name = "dl-core" },

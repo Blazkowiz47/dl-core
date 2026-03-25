@@ -53,13 +53,19 @@ class CheckpointCallback(Callback):
         """Check if current metrics warrant saving a checkpoint."""
         super().on_epoch_end(epoch, logs)
 
-        if not logs or self.monitor not in logs:
+        if not logs:
             # Save anyway if not monitoring specific metric
             if not self.save_best_only:
                 self.trainer.save_checkpoint(epoch)
             return
 
-        current_value = logs[self.monitor]
+        resolved_monitor = self.resolve_log_key(logs, self.monitor)
+        if resolved_monitor is None:
+            if not self.save_best_only:
+                self.trainer.save_checkpoint(epoch)
+            return
+
+        current_value = logs[resolved_monitor]
 
         # Determine if this is a better value
         is_better = False

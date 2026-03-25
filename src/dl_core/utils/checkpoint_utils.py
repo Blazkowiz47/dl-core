@@ -28,11 +28,18 @@ def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
         logger.warning(f"Checkpoint path is not a directory: {checkpoint_dir}")
         return None
 
+    latest_checkpoint = checkpoint_path / "latest.pth"
+    if latest_checkpoint.exists():
+        logger.info(f"Found latest checkpoint: {latest_checkpoint}")
+        return str(latest_checkpoint)
+
     # Find all epoch checkpoint files
-    checkpoint_pattern = re.compile(r"epoch_(\d+)\.pt")
+    checkpoint_pattern = re.compile(r"epoch_(\d+)\.(?:pt|pth)")
     checkpoint_epochs = []
 
-    for file_path in checkpoint_path.glob("epoch_*.pt"):
+    for file_path in checkpoint_path.iterdir():
+        if not file_path.is_file():
+            continue
         match = checkpoint_pattern.match(file_path.name)
         if match:
             epoch = int(match.group(1))
