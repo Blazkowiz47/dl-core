@@ -21,6 +21,12 @@ Install with Azure support:
 pip install "dl-core[azure]"
 ```
 
+Install with local MLflow support:
+
+```bash
+pip install "dl-core[mlflow]"
+```
+
 Install with W&B support:
 
 ```bash
@@ -61,8 +67,9 @@ dependency names from TestPyPI instead of PyPI.
 `dl-core` intentionally ships with the full public runtime dependencies,
 including `torch`, `torchvision`, and `opencv-python`. The Azure extra pulls in
 `dl-azure`, which pins the Azure package versions used by the current
-`pad_candidates` environment. The W&B extra pulls in `dl-wandb` and leaves the
-`wandb` package itself unpinned.
+`pad_candidates` environment. The MLflow extra pulls in `dl-mlflow` for local
+MLflow tracking. The W&B extra pulls in `dl-wandb` and leaves the `wandb`
+package itself unpinned.
 
 ## Scope
 
@@ -105,6 +112,9 @@ uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
 
 If Azure support is installed, `dl-init-experiment --with-azure` will also
 scaffold Azure-ready config placeholders and `azure-config.json`.
+
+If local MLflow support is installed, `dl-init-experiment --with-mlflow` will
+also scaffold an `mlflow` callback block and local tracking defaults.
 
 If W&B support is installed, `dl-init-experiment --with-wandb` will also
 scaffold a `wandb` callback block, W&B tracking defaults, and `.env.example`.

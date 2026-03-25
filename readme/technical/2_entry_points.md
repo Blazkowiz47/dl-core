@@ -44,8 +44,8 @@ Important arguments:
 
 - `--name` (optional)
 - `--root-dir`
-- dynamically added extension flags such as `--with-azure` when the relevant
-  extra package is installed
+- dynamically added extension flags such as `--with-azure`, `--with-mlflow`,
+  and `--with-wandb` when the relevant extra package is installed
 
 ## `dl-run`
 

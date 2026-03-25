@@ -49,6 +49,9 @@ dependencies = [
 azure = [
     "dl-azure",
 ]
+mlflow = [
+    "dl-mlflow",
+]
 wandb = [
     "dl-wandb",
 ]
@@ -72,6 +75,7 @@ dl-train-worker = "dl_core.worker:main"
 
 [tool.uv.sources]
 dl-azure = { path = "../dl-azure", editable = true }
+dl-mlflow = { path = "../dl-mlflow", editable = true }
 dl-wandb = { path = "../dl-wandb", editable = true }
 
 [tool.hatch.build.targets.sdist]

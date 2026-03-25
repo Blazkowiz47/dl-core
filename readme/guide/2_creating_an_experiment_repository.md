@@ -21,6 +21,13 @@ Optional Azure dependency wiring, available when `dl-core[azure]` is installed:
 uv run dl-init-experiment --name my-exp --root-dir . --with-azure
 ```
 
+Optional local MLflow dependency wiring, available when `dl-core[mlflow]` is
+installed:
+
+```bash
+uv run dl-init-experiment --name my-exp --root-dir . --with-mlflow
+```
+
 ## What Gets Generated
 
 ```text
