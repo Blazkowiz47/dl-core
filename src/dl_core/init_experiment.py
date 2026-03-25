@@ -224,7 +224,11 @@ the `dl-core` dataset contract.
 Available generic dl-core foundations:
 - BaseWrapper for sample-level datasets
 - FrameWrapper for frame datasets with grouped video metadata
-- MultiFrameWrapper for multiframe sequence datasets
+
+Install `dl-azure` to also access:
+- AzureComputeWrapper / AzureStreamingWrapper
+- AzureComputeFrameWrapper / AzureStreamingFrameWrapper
+- AzureComputeMultiFrameWrapper / AzureStreamingMultiFrameWrapper
 """
 
 from __future__ import annotations

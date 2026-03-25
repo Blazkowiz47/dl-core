@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.util
 import re
 from pathlib import Path
 
@@ -17,6 +18,18 @@ class ComponentSpec:
     package_dir: str
     class_suffix: str
     init_docstring: str
+
+
+@dataclass(frozen=True)
+class DatasetBaseSpec:
+    """Configuration for a scaffoldable dataset base class."""
+
+    canonical_name: str
+    import_path: str
+    base_class: str
+    class_docstring: str
+    template_kind: str
+    requires_file_extensions: bool = False
 
 
 _COMPONENT_SPECS = {
@@ -107,10 +120,43 @@ _COMPONENT_TYPE_ALIASES = {
     "trainers": "trainer",
 }
 
+_CORE_DATASET_BASE_SPECS = {
+    "base": DatasetBaseSpec(
+        canonical_name="base",
+        import_path="dl_core.core.base_dataset",
+        base_class="BaseWrapper",
+        class_docstring="Dataset scaffold based on BaseWrapper.",
+        template_kind="sample",
+        requires_file_extensions=True,
+    ),
+    "frame": DatasetBaseSpec(
+        canonical_name="frame",
+        import_path="dl_core.core.base_dataset",
+        base_class="FrameWrapper",
+        class_docstring="Dataset scaffold based on FrameWrapper.",
+        template_kind="frame",
+        requires_file_extensions=True,
+    ),
+}
+
+_DATASET_BASE_ALIASES = {
+    "base": "base",
+    "base_wrapper": "base",
+    "basewrapper": "base",
+    "frame": "frame",
+    "frame_wrapper": "frame",
+    "framewrapper": "frame",
+}
+
 
 def list_supported_component_types() -> list[str]:
     """Return the canonical component types supported by the scaffold CLI."""
     return sorted(_COMPONENT_SPECS.keys())
+
+
+def list_supported_dataset_bases() -> list[str]:
+    """Return dataset scaffold bases supported in the current environment."""
+    return list(_dataset_base_specs().keys())
 
 
 def normalize_component_type(component_type: str) -> str:
@@ -126,15 +172,33 @@ def normalize_component_type(component_type: str) -> str:
     return canonical_name
 
 
+def normalize_dataset_base(dataset_base: str | None) -> str:
+    """Normalize a user-provided dataset base string."""
+    if dataset_base is None:
+        return "base"
+
+    key = dataset_base.strip().lower().replace("-", "_").replace(" ", "_")
+    canonical_name = _DATASET_BASE_ALIASES.get(key, key)
+    if canonical_name not in _dataset_base_specs():
+        supported = ", ".join(list_supported_dataset_bases())
+        raise ValueError(
+            f"Unsupported dataset base '{dataset_base}'. Supported bases: "
+            f"{supported}"
+        )
+    return canonical_name
+
+
 def create_component_scaffold(
     component_type: str,
     name: str,
     root_dir: str = ".",
+    dataset_base: str | None = None,
     force: bool = False,
 ) -> Path:
     """Create a new local component scaffold inside an experiment repository."""
     canonical_type = normalize_component_type(component_type)
     spec = _COMPONENT_SPECS[canonical_type]
+    canonical_dataset_base = _resolve_dataset_base(canonical_type, dataset_base)
 
     search_root = Path(root_dir).resolve()
     project_root = find_project_root(search_root)
@@ -165,7 +229,12 @@ def create_component_scaffold(
         raise FileExistsError(f"Component already exists: {component_path}")
 
     component_path.write_text(
-        _render_component(spec, registry_names, class_name),
+        _render_component(
+            spec,
+            registry_names,
+            class_name,
+            dataset_base=canonical_dataset_base,
+        ),
         encoding="utf-8",
     )
     return component_path
@@ -212,6 +281,8 @@ def _render_component(
     spec: ComponentSpec,
     registry_names: list[str],
     class_name: str,
+    *,
+    dataset_base: str | None,
 ) -> str:
     """Render the generated component source code."""
     registry_literal = _registry_literal(registry_names)
@@ -253,16 +324,12 @@ def _render_component(
             ),
         )
     if spec.canonical_name == "dataset":
-        return _wrapper_component(
-            module_docstring="Local dataset scaffold.",
-            register_name="register_dataset",
+        if dataset_base is None:
+            raise ValueError("Dataset scaffolds require a resolved dataset base.")
+        return _render_dataset_component(
+            base_spec=_dataset_base_specs()[dataset_base],
             registry_literal=registry_literal,
-            import_path="dl_core.datasets.standard",
-            base_class="StandardWrapper",
             class_name=class_name,
-            class_docstring=(
-                "Thin local wrapper around the built-in standard dataset."
-            ),
         )
     if spec.canonical_name == "executor":
         return _wrapper_component(
@@ -357,6 +424,267 @@ class {class_name}({base_class}):
     # TODO: override the built-in behavior here when needed.
     pass
 """
+
+
+def _resolve_dataset_base(
+    component_type: str,
+    dataset_base: str | None,
+) -> str | None:
+    """Validate dataset base usage for the requested component type."""
+    if component_type != "dataset":
+        if dataset_base is not None:
+            raise ValueError("--base is only supported for dataset components.")
+        return None
+    return normalize_dataset_base(dataset_base)
+
+
+def _dataset_base_specs() -> dict[str, DatasetBaseSpec]:
+    """Return the dataset scaffold bases available in this environment."""
+    return {
+        **_CORE_DATASET_BASE_SPECS,
+        **_load_optional_dataset_base_specs(),
+    }
+
+
+def _load_optional_dataset_base_specs() -> dict[str, DatasetBaseSpec]:
+    """Return optional dataset bases exposed by installed extension packages."""
+    try:
+        azure_spec = importlib.util.find_spec("dl_azure")
+    except ModuleNotFoundError:
+        return {}
+
+    if azure_spec is None:
+        return {}
+
+    return {
+        "azure_compute": DatasetBaseSpec(
+            canonical_name="azure_compute",
+            import_path="dl_azure.datasets",
+            base_class="AzureComputeWrapper",
+            class_docstring="Dataset scaffold based on AzureComputeWrapper.",
+            template_kind="sample",
+        ),
+        "azure_streaming": DatasetBaseSpec(
+            canonical_name="azure_streaming",
+            import_path="dl_azure.datasets",
+            base_class="AzureStreamingWrapper",
+            class_docstring="Dataset scaffold based on AzureStreamingWrapper.",
+            template_kind="sample",
+        ),
+        "azure_compute_frame": DatasetBaseSpec(
+            canonical_name="azure_compute_frame",
+            import_path="dl_azure.datasets",
+            base_class="AzureComputeFrameWrapper",
+            class_docstring=(
+                "Dataset scaffold based on AzureComputeFrameWrapper."
+            ),
+            template_kind="frame",
+        ),
+        "azure_streaming_frame": DatasetBaseSpec(
+            canonical_name="azure_streaming_frame",
+            import_path="dl_azure.datasets",
+            base_class="AzureStreamingFrameWrapper",
+            class_docstring=(
+                "Dataset scaffold based on AzureStreamingFrameWrapper."
+            ),
+            template_kind="frame",
+        ),
+        "azure_compute_multiframe": DatasetBaseSpec(
+            canonical_name="azure_compute_multiframe",
+            import_path="dl_azure.datasets",
+            base_class="AzureComputeMultiFrameWrapper",
+            class_docstring=(
+                "Dataset scaffold based on AzureComputeMultiFrameWrapper."
+            ),
+            template_kind="multiframe",
+        ),
+        "azure_streaming_multiframe": DatasetBaseSpec(
+            canonical_name="azure_streaming_multiframe",
+            import_path="dl_azure.datasets",
+            base_class="AzureStreamingMultiFrameWrapper",
+            class_docstring=(
+                "Dataset scaffold based on AzureStreamingMultiFrameWrapper."
+            ),
+            template_kind="multiframe",
+        ),
+    }
+
+
+def _render_dataset_component(
+    *,
+    base_spec: DatasetBaseSpec,
+    registry_literal: str,
+    class_name: str,
+) -> str:
+    """Render a dataset scaffold for the selected base class."""
+    if base_spec.template_kind == "sample":
+        return _dataset_sample_component(base_spec, registry_literal, class_name)
+    if base_spec.template_kind == "frame":
+        return _dataset_frame_component(base_spec, registry_literal, class_name)
+    if base_spec.template_kind == "multiframe":
+        return _dataset_multiframe_component(
+            base_spec,
+            registry_literal,
+            class_name,
+        )
+    raise ValueError(
+        f"Unsupported dataset template kind: {base_spec.template_kind}"
+    )
+
+
+def _dataset_module_docstring(base_spec: DatasetBaseSpec) -> str:
+    """Render the module docstring for a generated dataset scaffold."""
+    base_list = "\n".join(
+        f"- {dataset_base}" for dataset_base in list_supported_dataset_bases()
+    )
+    return (
+        f"""Local dataset scaffold based on {base_spec.base_class}.\n\n"""
+        f"""Available scaffold bases in this environment:\n{base_list}"""
+    )
+
+
+def _dataset_sample_component(
+    base_spec: DatasetBaseSpec,
+    registry_literal: str,
+    class_name: str,
+) -> str:
+    """Render a sample-level dataset scaffold."""
+    file_extensions_block = ""
+    if base_spec.requires_file_extensions:
+        file_extensions_block = '''
+    @property
+    def file_extensions(self) -> list[str]:
+        """Return the file extensions used by this dataset."""
+        raise NotImplementedError(
+            "TODO: return patterns like ['*.jpg', '*.png'] for this dataset."
+        )
+
+'''
+
+    return f'''"""{_dataset_module_docstring(base_spec)}"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dl_core.core import register_dataset
+from {base_spec.import_path} import {base_spec.base_class}
+
+
+@register_dataset({registry_literal})
+class {class_name}({base_spec.base_class}):
+    """{base_spec.class_docstring}"""
+{file_extensions_block}    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        """Return one record per sample for the requested split."""
+        raise NotImplementedError(
+            "TODO: scan this split and return records like "
+            "{{'path': '...', 'label': 0}}."
+        )
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Load one sample and return the model input dictionary."""
+        raise NotImplementedError(
+            "TODO: load file_dict['path'], apply preprocessing, and return "
+            "{{'image': ..., 'label': ..., 'path': ...}}."
+        )
+'''
+
+
+def _dataset_frame_component(
+    base_spec: DatasetBaseSpec,
+    registry_literal: str,
+    class_name: str,
+) -> str:
+    """Render a frame-level dataset scaffold."""
+    file_extensions_block = ""
+    if base_spec.requires_file_extensions:
+        file_extensions_block = '''
+    @property
+    def file_extensions(self) -> list[str]:
+        """Return the frame file extensions used by this dataset."""
+        raise NotImplementedError(
+            "TODO: return patterns like ['*.jpg', '*.png'] for frame files."
+        )
+
+'''
+
+    return f'''"""{_dataset_module_docstring(base_spec)}"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dl_core.core import register_dataset
+from {base_spec.import_path} import {base_spec.base_class}
+
+
+@register_dataset({registry_literal})
+class {class_name}({base_spec.base_class}):
+    """{base_spec.class_docstring}"""
+{file_extensions_block}    def get_video_groups(self, split: str) -> dict[str, dict[str, list[str]]]:
+        """Return grouped frame paths for the requested split."""
+        raise NotImplementedError(
+            "TODO: return {{dataset_name: {{video_id: [frame_path, ...]}}}}."
+        )
+
+    def convert_groups_to_files(
+        self,
+        video_groups: dict[str, dict[str, list[str]]],
+        split: str,
+    ) -> list[dict[str, Any]]:
+        """Flatten grouped frames into one record per frame."""
+        raise NotImplementedError(
+            "TODO: convert grouped frames into records with 'path', 'label', "
+            "and 'video_id'."
+        )
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Load one frame sample and return the model input dictionary."""
+        raise NotImplementedError(
+            "TODO: load file_dict['path'], apply preprocessing, and return "
+            "{{'image': ..., 'label': ..., 'path': ...}}."
+        )
+'''
+
+
+def _dataset_multiframe_component(
+    base_spec: DatasetBaseSpec,
+    registry_literal: str,
+    class_name: str,
+) -> str:
+    """Render a multiframe dataset scaffold."""
+    return f'''"""{_dataset_module_docstring(base_spec)}"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dl_core.core import register_dataset
+from {base_spec.import_path} import {base_spec.base_class}
+
+
+@register_dataset({registry_literal})
+class {class_name}({base_spec.base_class}):
+    """{base_spec.class_docstring}"""
+
+    def get_video_groups(self, split: str) -> dict[str, dict[str, list[str]]]:
+        """Return grouped frame paths for the requested split."""
+        raise NotImplementedError(
+            "TODO: return {{dataset_name: {{video_id: [frame_path, ...]}}}}."
+        )
+
+    def build_frame_record(
+        self,
+        frame_path: str,
+        dataset_name: str,
+        video_id: str,
+    ) -> dict[str, Any]:
+        """Build the base metadata record for one multiframe sample."""
+        raise NotImplementedError(
+            "TODO: return a record with at least 'path' and 'label' plus any "
+            "metadata needed for multiframe loading."
+        )
+'''
 
 
 def _sampler_component(*, registry_literal: str, class_name: str) -> str:

@@ -6,7 +6,9 @@ import argparse
 
 from dl_core.component_scaffold import (
     create_component_scaffold,
+    list_supported_dataset_bases,
     list_supported_component_types,
+    normalize_component_type,
 )
 
 
@@ -34,6 +36,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Display name for the new component. It will also be normalized.",
     )
     add_parser.add_argument(
+        "--base",
+        help=(
+            "Dataset scaffold base to use when component_type is 'dataset'. "
+            "Supported values in this environment: "
+            f"{', '.join(list_supported_dataset_bases())}."
+        ),
+    )
+    add_parser.add_argument(
         "--root-dir",
         default=".",
         help=(
@@ -50,11 +60,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command != "add":
         parser.error(f"Unsupported command: {args.command}")
+    if args.base and normalize_component_type(args.component_type) != "dataset":
+        parser.error("--base is only supported when component_type is 'dataset'.")
 
     component_path = create_component_scaffold(
         component_type=args.component_type,
         name=args.name,
         root_dir=args.root_dir,
+        dataset_base=args.base,
         force=args.force,
     )
     print(f"Created component scaffold: {component_path}")
