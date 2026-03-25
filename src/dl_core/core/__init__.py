@@ -8,10 +8,12 @@ from .base_criterion import BaseCriterion
 from .base_dataset import BaseWrapper, FrameWrapper
 from .base_detector import BaseFaceDetector, FaceDetection, LandmarkDetection
 from .base_executor import BaseExecutor
+from .base_metrics_source import BaseMetricsSource
 from .base_metric_manager import BaseMetricManager
 from .base_biometric_model import BaseBiometricModel
 from .base_model import BaseModel
 from .base_sampler import BaseSampler
+from .base_tracker import BaseTracker
 from .base_trainer import BaseTrainer
 from .base_transform import BaseTransform
 
@@ -25,12 +27,14 @@ from .registry import (
     EXECUTOR_REGISTRY,
     FACE_DETECTOR_REGISTRY,
     METRIC_MANAGER_REGISTRY,
+    METRICS_SOURCE_REGISTRY,
     METRIC_REGISTRY,
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
     BIOMETRIC_PREPROCESSOR_REGISTRY,
     SAMPLER_REGISTRY,
     SCHEDULER_REGISTRY,
+    TRACKER_REGISTRY,
     TRAINER_REGISTRY,
     ComponentRegistry,
     get_all_registered_components,
@@ -44,11 +48,13 @@ from .registry import (
     register_face_detector,
     register_metric,
     register_metric_manager,
+    register_metrics_source,
     register_biometric_preprocessor,
     register_model,
     register_optimizer,
     register_sampler,
     register_scheduler,
+    register_tracker,
     register_trainer,
 )
 
@@ -61,6 +67,8 @@ __all__ = [
     "BaseWrapper",
     "FrameWrapper",
     "BaseExecutor",
+    "BaseTracker",
+    "BaseMetricsSource",
     "BaseMetricManager",
     "BaseSampler",
     "BaseTrainer",
@@ -85,6 +93,8 @@ __all__ = [
     "SAMPLER_REGISTRY",
     "SCHEDULER_REGISTRY",
     "EXECUTOR_REGISTRY",
+    "TRACKER_REGISTRY",
+    "METRICS_SOURCE_REGISTRY",
     "register_model",
     "register_trainer",
     "register_dataset",
@@ -98,6 +108,8 @@ __all__ = [
     "register_sampler",
     "register_scheduler",
     "register_executor",
+    "register_tracker",
+    "register_metrics_source",
     "register_metric_manager",
     "register_biometric_preprocessor",
     "get_all_registered_components",

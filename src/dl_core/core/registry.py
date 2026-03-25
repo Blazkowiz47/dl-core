@@ -202,6 +202,8 @@ SAMPLER_REGISTRY = ComponentRegistry("Sampler")
 OPTIMIZER_REGISTRY = ComponentRegistry("Optimizer")
 SCHEDULER_REGISTRY = ComponentRegistry("Scheduler")
 EXECUTOR_REGISTRY = ComponentRegistry("Executor")
+TRACKER_REGISTRY = ComponentRegistry("Tracker")
+METRICS_SOURCE_REGISTRY = ComponentRegistry("MetricsSource")
 BIOMETRIC_PREPROCESSOR_REGISTRY = ComponentRegistry("BiometricPreprocessor")
 FACE_DETECTOR_REGISTRY = ComponentRegistry("FaceDetector")
 
@@ -271,6 +273,16 @@ def register_executor(names: Union[str, List[str]]):
     return EXECUTOR_REGISTRY.register(names)
 
 
+def register_tracker(names: Union[str, List[str]]):
+    """Convenience decorator for registering trackers."""
+    return TRACKER_REGISTRY.register(names)
+
+
+def register_metrics_source(names: Union[str, List[str]]):
+    """Convenience decorator for registering metrics sources."""
+    return METRICS_SOURCE_REGISTRY.register(names)
+
+
 
 def register_biometric_preprocessor(names: Union[str, List[str]]):
     """Convenience decorator for registering biometric preprocessors."""
@@ -304,6 +316,8 @@ def get_all_registered_components() -> Dict[str, List[str]]:
         "optimizers": OPTIMIZER_REGISTRY.list_registered(),
         "schedulers": SCHEDULER_REGISTRY.list_registered(),
         "executors": EXECUTOR_REGISTRY.list_registered(),
+        "trackers": TRACKER_REGISTRY.list_registered(),
+        "metrics_sources": METRICS_SOURCE_REGISTRY.list_registered(),
         "biometric_preprocessors": BIOMETRIC_PREPROCESSOR_REGISTRY.list_registered(),
         "face_detectors": FACE_DETECTOR_REGISTRY.list_registered(),
     }

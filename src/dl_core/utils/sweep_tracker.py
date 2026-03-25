@@ -58,6 +58,8 @@ class SweepTracker:
         total_runs: int,
         user: str,
         tracking_context: Optional[str] = None,
+        tracking_backend: Optional[str] = None,
+        metrics_source_backend: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -67,6 +69,8 @@ class SweepTracker:
             total_runs: Total number of runs in sweep
             user: Username running the sweep
             tracking_context: Optional tracker-specific parent or group context
+            tracking_backend: Tracker backend name for this sweep
+            metrics_source_backend: Metrics source backend name for this sweep
             metadata: Additional metadata to store (optional)
         """
         with self._lock:
@@ -81,6 +85,8 @@ class SweepTracker:
                 "user": user,
                 "total_runs": total_runs,
                 "tracking_context": tracking_context,
+                "tracking_backend": tracking_backend or "local",
+                "metrics_source_backend": metrics_source_backend or "local",
                 "runs": {},
                 "last_update": datetime.now().isoformat(),
             }
@@ -94,6 +100,8 @@ class SweepTracker:
                 sweep_data["runs"][str(i)] = {
                     "tracking_run_id": None,
                     "tracking_run_name": None,
+                    "tracking_backend": tracking_backend or "local",
+                    "metrics_source_backend": metrics_source_backend or "local",
                     "config_path": None,
                     "artifact_dir": None,
                     "metrics_summary_path": None,

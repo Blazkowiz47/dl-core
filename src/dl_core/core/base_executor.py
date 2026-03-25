@@ -1,5 +1,6 @@
 """Base class for sweep execution backends."""
 
+from importlib import import_module
 import logging
 import shutil
 import sys
@@ -10,6 +11,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from dl_core.core.base_tracker import BaseTracker
+from dl_core.core.registry import TRACKER_REGISTRY
 from dl_core.utils.sweep_tracker import SweepTracker
 
 
@@ -54,6 +57,7 @@ class BaseExecutor(ABC):
 
         # Extract common configs from sweep config (available to all executors)
         self.executor_config = sweep_config.get("executor", {})
+        self.run_tracker = self._build_run_tracker()
 
         # Initialize sweep tracker if sweep_file provided
         self.tracker = None
@@ -67,6 +71,26 @@ class BaseExecutor(ABC):
 
         if self.dry_run:
             self.logger.info("[DRY RUN] Executor initialized in dry-run mode")
+
+    def _build_run_tracker(self) -> BaseTracker:
+        """
+        Instantiate the configured tracker backend.
+
+        Returns:
+            Tracker backend instance for run metadata injection.
+        """
+        tracking_config = self.sweep_config.get("tracking", {})
+        if not isinstance(tracking_config, dict):
+            tracking_config = {}
+
+        backend_name = tracking_config.get("backend", "local")
+        if not isinstance(backend_name, str) or not backend_name:
+            backend_name = "local"
+
+        if not TRACKER_REGISTRY.is_registered(backend_name):
+            import_module("dl_core.trackers")
+
+        return TRACKER_REGISTRY.get(backend_name, tracking_config)
 
     @abstractmethod
     def setup(self, total_runs: int) -> None:
@@ -289,6 +313,8 @@ class BaseExecutor(ABC):
                     total_runs=total_runs,
                     user=self.sweep_config.get("user", "unknown"),
                     tracking_context=self.tracking_context,
+                    tracking_backend=self.run_tracker.get_backend_name(),
+                    metrics_source_backend=self.run_tracker.get_metrics_source_name(),
                     metadata={
                         "base_config": self.sweep_config.get("base_config"),
                         "executor": self.__class__.__name__,
@@ -641,13 +667,12 @@ class BaseExecutor(ABC):
             tracking_uri: Tracker endpoint or workspace URI
             run_name: Name for the run
         """
-        tracking = config.setdefault("tracking", {})
-        if tracking_context:
-            tracking["context"] = tracking_context
-        if tracking_uri:
-            tracking["uri"] = tracking_uri
-        if run_name:
-            tracking["run_name"] = run_name
+        self.run_tracker.inject_tracking_config(
+            config,
+            run_name=run_name,
+            tracking_context=tracking_context,
+            tracking_uri=tracking_uri,
+        )
 
         # Inject sweep_file for artifact directory structure
         if "sweep_file" in self.sweep_config:

@@ -19,11 +19,13 @@ _BUILTIN_COMPONENT_MODULES = (
     "criterions",
     "datasets",
     "executors",
+    "metrics_sources",
     "metric_managers",
     "metrics",
     "models",
     "optimizers",
     "schedulers",
+    "trackers",
     "trainers",
 )
 
