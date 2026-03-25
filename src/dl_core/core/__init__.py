@@ -9,8 +9,8 @@ from .base_dataset import BaseWrapper, FrameWrapper
 from .base_detector import BaseFaceDetector, FaceDetection, LandmarkDetection
 from .base_executor import BaseExecutor
 from .base_metric_manager import BaseMetricManager
+from .base_biometric_model import BaseBiometricModel
 from .base_model import BaseModel
-from .base_pad_model import BasePadModel
 from .base_sampler import BaseSampler
 from .base_trainer import BaseTrainer
 from .base_transform import BaseTransform
@@ -28,7 +28,7 @@ from .registry import (
     METRIC_REGISTRY,
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
-    PAD_PREPROCESSOR_REGISTRY,
+    BIOMETRIC_PREPROCESSOR_REGISTRY,
     SAMPLER_REGISTRY,
     SCHEDULER_REGISTRY,
     TRAINER_REGISTRY,
@@ -44,6 +44,7 @@ from .registry import (
     register_face_detector,
     register_metric,
     register_metric_manager,
+    register_biometric_preprocessor,
     register_model,
     register_optimizer,
     register_sampler,
@@ -55,7 +56,7 @@ __all__ = [
     # Base classes
     "BaseAccelerator",
     "BaseModel",
-    "BasePadModel",
+    "BaseBiometricModel",
     "BaseCriterion",
     "BaseWrapper",
     "FrameWrapper",
@@ -80,7 +81,7 @@ __all__ = [
     "ACCELERATOR_REGISTRY",
     "AUGMENTATION_REGISTRY",
     "OPTIMIZER_REGISTRY",
-    "PAD_PREPROCESSOR_REGISTRY",
+    "BIOMETRIC_PREPROCESSOR_REGISTRY",
     "SAMPLER_REGISTRY",
     "SCHEDULER_REGISTRY",
     "EXECUTOR_REGISTRY",
@@ -98,6 +99,7 @@ __all__ = [
     "register_scheduler",
     "register_executor",
     "register_metric_manager",
+    "register_biometric_preprocessor",
     "get_all_registered_components",
     "print_registry_info",
 ]

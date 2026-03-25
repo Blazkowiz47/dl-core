@@ -202,7 +202,7 @@ SAMPLER_REGISTRY = ComponentRegistry("Sampler")
 OPTIMIZER_REGISTRY = ComponentRegistry("Optimizer")
 SCHEDULER_REGISTRY = ComponentRegistry("Scheduler")
 EXECUTOR_REGISTRY = ComponentRegistry("Executor")
-PAD_PREPROCESSOR_REGISTRY = ComponentRegistry("PADPreprocessor")
+BIOMETRIC_PREPROCESSOR_REGISTRY = ComponentRegistry("BiometricPreprocessor")
 FACE_DETECTOR_REGISTRY = ComponentRegistry("FaceDetector")
 
 
@@ -272,9 +272,9 @@ def register_executor(names: Union[str, List[str]]):
 
 
 
-def register_pad_preprocessor(names: Union[str, List[str]]):
-    """Convenience decorator for registering PAD dataset preprocessors."""
-    return PAD_PREPROCESSOR_REGISTRY.register(names)
+def register_biometric_preprocessor(names: Union[str, List[str]]):
+    """Convenience decorator for registering biometric preprocessors."""
+    return BIOMETRIC_PREPROCESSOR_REGISTRY.register(names)
 
 
 def register_face_detector(names: Union[str, List[str]]):
@@ -304,7 +304,7 @@ def get_all_registered_components() -> Dict[str, List[str]]:
         "optimizers": OPTIMIZER_REGISTRY.list_registered(),
         "schedulers": SCHEDULER_REGISTRY.list_registered(),
         "executors": EXECUTOR_REGISTRY.list_registered(),
-        "pad_preprocessors": PAD_PREPROCESSOR_REGISTRY.list_registered(),
+        "biometric_preprocessors": BIOMETRIC_PREPROCESSOR_REGISTRY.list_registered(),
         "face_detectors": FACE_DETECTOR_REGISTRY.list_registered(),
     }
 
@@ -314,10 +314,10 @@ def print_registry_info(log: Optional[Logger] = None):
     components = get_all_registered_components()
 
     if log is None:
-        print("🔧 PAD Training Framework - Registered Components")
+        print("🔧 DL Training Framework - Registered Components")
         print("=" * 50 + "\n")
     else:
-        log.info("🔧 PAD Training Framework - Registered Components")
+        log.info("🔧 DL Training Framework - Registered Components")
         log.info("=" * 50 + "\n")
 
     for component_type, names in components.items():

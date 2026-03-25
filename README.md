@@ -72,10 +72,10 @@ dependency names from TestPyPI instead of PyPI.
 
 `dl-core` intentionally ships with the full public runtime dependencies,
 including `torch`, `torchvision`, and `opencv-python`. The Azure extra pulls in
-`dl-azure`, which pins the Azure package versions used by the current
-`pad_candidates` environment. The MLflow extra pulls in `dl-mlflow` for local
-MLflow tracking. The W&B extra pulls in `dl-wandb` and leaves the `wandb`
-package itself unpinned.
+`dl-azure`, which pins the Azure package versions used by the validated Azure
+packaging stack. The MLflow extra pulls in `dl-mlflow` for local MLflow
+tracking. The W&B extra pulls in `dl-wandb` and leaves the `wandb` package
+itself unpinned.
 
 ## Package Variants
 
@@ -186,6 +186,10 @@ Plain `dl-core` currently exposes dataset bases for `BaseWrapper` and
 
 - [Documentation Index](https://github.com/Blazkowiz47/dl-core/tree/main/readme)
 - [GitHub Repository](https://github.com/Blazkowiz47/dl-core)
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 ## Development Validation
 
