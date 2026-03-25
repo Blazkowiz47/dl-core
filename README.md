@@ -1,46 +1,45 @@
-# dl-core
+# deep-learning-core
 
 Reusable deep learning framework core.
 
-`dl-core` contains the vendor-neutral training framework that can be reused
+`deep-learning-core` contains the vendor-neutral training framework that can be reused
 across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
 ## Install
 
-Current public validation releases are published on TestPyPI. Once the package
-is promoted to PyPI, the plain `pip install dl-core` forms below will be the
-normal install path.
+The package is now available on PyPI under the `deep-learning-core` name.
+TestPyPI remains available for validation flows.
 
 PyPI install target:
 
 ```bash
-pip install dl-core
+pip install deep-learning-core
 ```
 
 Install with Azure support:
 
 ```bash
-pip install "dl-core[azure]"
+pip install "deep-learning-core[azure]"
 ```
 
 Install with local MLflow support:
 
 ```bash
-pip install "dl-core[mlflow]"
+pip install "deep-learning-core[mlflow]"
 ```
 
 Install with W&B support:
 
 ```bash
-pip install "dl-core[wandb]"
+pip install "deep-learning-core[wandb]"
 ```
 
 Install with multiple variants:
 
 ```bash
-pip install "dl-core[azure,wandb]"
+pip install "deep-learning-core[azure,wandb]"
 ```
 
 Install today from TestPyPI with `pip`:
@@ -49,14 +48,14 @@ Install today from TestPyPI with `pip`:
 pip install \
   --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ \
-  dl-core
+  deep-learning-core
 ```
 
 Install today from TestPyPI in a `uv` project:
 
 ```toml
 [tool.uv.sources]
-dl-core = { index = "testpypi" }
+"deep-learning-core" = { index = "testpypi" }
 
 [[tool.uv.index]]
 name = "testpypi"
@@ -67,31 +66,31 @@ explicit = true
 Then run:
 
 ```bash
-uv add dl-core
+uv add deep-learning-core
 ```
 
-Do not use `uv add --index https://test.pypi.org/simple/ dl-core` for this
-package. With `uv`'s default `first-index` strategy, that can pull unrelated
+Do not use `uv add --index https://test.pypi.org/simple/ deep-learning-core`
+for this package. With `uv`'s default `first-index` strategy, that can pull unrelated
 dependency names from TestPyPI instead of PyPI.
 
-`dl-core` intentionally ships with the full public runtime dependencies,
-including `torch`, `torchvision`, and `opencv-python`. The Azure extra pulls in
-`dl-azure`, which pins the Azure package versions used by the validated Azure
-packaging stack. The MLflow extra pulls in `dl-mlflow` for local MLflow
-tracking. The W&B extra pulls in `dl-wandb` and leaves the `wandb` package
-itself unpinned.
+`deep-learning-core` intentionally ships with the full public runtime
+dependencies, including `torch`, `torchvision`, and `opencv-python`. The Azure
+extra pulls in `deep-learning-azure`, which pins the Azure package versions
+used by the validated Azure packaging stack. The MLflow extra pulls in
+`deep-learning-mlflow` for local MLflow tracking. The W&B extra pulls in
+`deep-learning-wandb` and leaves the `wandb` package itself unpinned.
 
 ## Package Variants
 
-- `dl-core`: local training, local sweeps, local sweep analysis, and the
+- `deep-learning-core`: local training, local sweeps, local sweep analysis, and the
   experiment scaffold
-- `dl-core[azure]`: adds the public
+- `deep-learning-core[azure]`: adds the public
   [`dl-azure`](https://github.com/Blazkowiz47/dl-azure)
   package for Azure execution and Azure dataset foundations
-- `dl-core[mlflow]`: adds the public
+- `deep-learning-core[mlflow]`: adds the public
   [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow)
   package for local MLflow integration
-- `dl-core[wandb]`: adds the public
+- `deep-learning-core[wandb]`: adds the public
   [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
   package for Weights & Biases integration
 
@@ -172,8 +171,8 @@ uv run dl-core add dataset AzureFrames --base azure_compute_frame
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
 ```
 
-Plain `dl-core` currently exposes dataset bases for `BaseWrapper` and
-`FrameWrapper`. Multiframe dataset bases are provided through `dl-azure`.
+Plain `deep-learning-core` currently exposes dataset bases for `BaseWrapper`
+and `FrameWrapper`. Multiframe dataset bases are provided through `dl-azure`.
 
 ## Releases
 
