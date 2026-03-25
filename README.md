@@ -115,6 +115,23 @@ To add a new local component scaffold inside the experiment repo:
 uv run dl-core add augmentation Custom1
 ```
 
+Dataset scaffolds can now target a specific wrapper base:
+
+```bash
+uv run dl-core add dataset MyDataset
+uv run dl-core add dataset FrameSet --base frame
+```
+
+When `dl-azure` is importable, the dataset scaffold also exposes Azure bases:
+
+```bash
+uv run dl-core add dataset AzureFrames --base azure_compute_frame
+uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
+```
+
+Plain `dl-core` currently exposes dataset bases for `BaseWrapper` and
+`FrameWrapper`. Multiframe dataset bases are provided through `dl-azure`.
+
 ## Releases
 
 - `Publish TestPyPI` is the manual validation workflow for TestPyPI.

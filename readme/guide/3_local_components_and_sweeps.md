@@ -10,8 +10,8 @@ In a scaffolded project named `my-exp`:
 - trainer name: `my_exp`
 - model name: `resnet_example`
 
-Those classes extend the built-in `StandardWrapper`, `StandardTrainer`, and
-`ResNet`.
+The generated dataset is a visible `BaseWrapper` skeleton, the trainer extends
+the built-in `StandardTrainer`, and the model extends `ResNet`.
 
 ## How Registration Works
 
@@ -35,6 +35,8 @@ Example:
 uv run dl-core add augmentation Custom1
 uv run dl-core add callback EpochLogger
 uv run dl-core add sampler PassThroughSampler
+uv run dl-core add dataset LocalDataset
+uv run dl-core add dataset FrameDataset --base frame
 ```
 
 Supported component types:
@@ -54,6 +56,17 @@ The command creates the right component package on demand under `src/` and
 normalizes the module name for you. Generated components register under the
 normalized name and also keep the original provided name as an alias when it
 differs.
+
+For dataset scaffolds, the available `--base` values depend on what is
+installed in the current environment:
+
+- plain `dl-core`: `base`, `frame`
+- with `dl-azure`: adds `azure_compute`, `azure_streaming`,
+  `azure_compute_frame`, `azure_streaming_frame`,
+  `azure_compute_multiframe`, and `azure_streaming_multiframe`
+
+The generated dataset stub includes the abstract methods required by the
+selected base class so the implementation contract is visible immediately.
 
 ## Local Training
 

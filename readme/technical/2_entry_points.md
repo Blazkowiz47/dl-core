@@ -8,13 +8,22 @@ Creates local component scaffolds inside an experiment repository.
 
 ```bash
 uv run dl-core add augmentation Custom1
+uv run dl-core add dataset LocalDataset
+uv run dl-core add dataset FrameDataset --base frame
 ```
 
 Useful flags:
 
+- `--base` for dataset scaffolds
 - `--root-dir`
-- `--package-name`
 - `--force`
+
+Dataset scaffold bases:
+
+- plain `dl-core`: `base`, `frame`
+- with `dl-azure`: `azure_compute`, `azure_streaming`,
+  `azure_compute_frame`, `azure_streaming_frame`,
+  `azure_compute_multiframe`, `azure_streaming_multiframe`
 
 ## `dl-init-experiment`
 
@@ -35,7 +44,6 @@ Important arguments:
 
 - `--name` (optional)
 - `--root-dir`
-- `--package-name`
 - dynamically added extension flags such as `--with-azure` when the relevant
   extra package is installed
 
