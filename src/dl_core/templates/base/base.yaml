@@ -77,3 +77,6 @@ callbacks:
 
   metric_logger:
     log_frequency: 1
+
+  local_metric_tracker:
+    log_frequency: 1

@@ -187,6 +187,27 @@ class ArtifactManager:
         self.logger.debug(f"Saved JSON artifact to {file_path}")
         return file_path
 
+    def append_jsonl(self, relative_path: str | Path, data: dict[str, Any]) -> Path:
+        """
+        Append one JSON record to a JSONL artifact.
+
+        Args:
+            relative_path: Relative path inside the run directory
+            data: JSON-serializable dictionary
+
+        Returns:
+            Path to the JSONL file
+        """
+        file_path = self.run_dir / relative_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(file_path, "a") as f:
+            f.write(json.dumps(data))
+            f.write("\n")
+
+        self.logger.debug(f"Appended JSONL artifact to {file_path}")
+        return file_path
+
     def save_metrics(
         self, metrics: dict[str, Any], filename: str = "metrics.json"
     ) -> None:
@@ -284,6 +305,10 @@ class ArtifactManager:
     def get_metrics_history_path(self) -> Path:
         """Get the metrics history JSON path."""
         return self.run_dir / "metrics" / "history.json"
+
+    def get_metric_streams_dir(self) -> Path:
+        """Get the directory for per-metric JSONL streams."""
+        return self.run_dir / "metrics" / "series"
 
     def save_run_info(self, run_info: dict[str, Any]) -> None:
         """

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from dl_core import load_builtin_components
+from dl_core import load_builtin_components, load_local_components
 from dl_core.core import METRICS_SOURCE_REGISTRY
 
 
@@ -71,6 +71,7 @@ def collect_sweep_runs(sweep_path: str | Path) -> list[dict[str, Any]]:
         raise FileNotFoundError(f"Sweep tracking file not found: {tracking_path}")
 
     load_builtin_components()
+    load_local_components(resolved_sweep_path)
     sweep_data = _load_json(tracking_path)
     runs = sweep_data.get("runs", {})
     collected_runs: list[dict[str, Any]] = []
