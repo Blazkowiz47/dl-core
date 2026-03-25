@@ -185,12 +185,14 @@ def _bootstrap_module() -> str:
     return '"""Project bootstrap hooks for local component loading."""\n'
 
 
-def _datasets_init(module_name: str, class_name: str) -> str:
+def _datasets_init(module_name: str, class_names: list[str]) -> str:
     """Render the local datasets package __init__ file."""
+    imports = ", ".join(class_names)
+    exported = ", ".join(f'"{class_name}"' for class_name in class_names)
     return (
         '"""Local dataset extensions."""\n\n'
-        f"from .{module_name} import {class_name}\n\n"
-        f'__all__ = ["{class_name}"]\n'
+        f"from .{module_name} import {imports}\n\n"
+        f"__all__ = [{exported}]\n"
     )
 
 
@@ -212,18 +214,50 @@ def _trainers_init(module_name: str, class_name: str) -> str:
     )
 
 
-def _project_standard_dataset(dataset_name: str, class_name: str) -> str:
-    """Render a project-specific dataset example."""
-    return f"""\"\"\"Example project dataset wrapper.\"\"\"
+def _project_dataset_skeleton(dataset_name: str, class_name: str) -> str:
+    """Render a project-specific dataset skeleton."""
+    return f'''"""Project dataset wrapper scaffold.
+
+Implement the abstract methods below to map your local dataset structure onto
+the `dl-core` dataset contract.
+"""
+
+from __future__ import annotations
+
+from typing import Any
 
 from dl_core.core import register_dataset
-from dl_core.datasets.standard import StandardWrapper
+from dl_core.core.base_dataset import BaseWrapper
 
 
 @register_dataset("{dataset_name}")
-class {class_name}(StandardWrapper):
-    \"\"\"Thin local wrapper around the built-in standard dataset.\"\"\"
-"""
+class {class_name}(BaseWrapper):
+    """Project-specific dataset wrapper skeleton."""
+
+    @property
+    def file_extensions(self) -> list[str]:
+        """Return the file extensions used by this dataset."""
+        raise NotImplementedError(
+            "TODO: return the file extensions used by this dataset, for "
+            "example ['*.jpg', '*.png']."
+        )
+
+    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        """Return file records for the requested split."""
+        raise NotImplementedError(
+            "TODO: implement dataset scanning for this split. Each record must "
+            "include at least {'path': ..., 'label': ...}. Useful helpers: "
+            "self.scan_directory(...), self.classes, and split-specific config."
+        )
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Load one sample and convert it into model-ready tensors."""
+        raise NotImplementedError(
+            "TODO: load file_dict['path'], apply preprocessing and "
+            "self.augmentation.apply(..., split) when needed, then return "
+            "{'image': ..., 'label': ..., 'path': ...}."
+        )
+'''
 
 
 def _project_resnet_model(model_name: str, class_name: str) -> str:
@@ -343,10 +377,10 @@ def _base_scaffold_files(
         Path("src") / "bootstrap.py": _bootstrap_module(),
         Path("src") / "datasets" / "__init__.py": _datasets_init(
             dataset_module_name,
-            project.dataset_class_name,
+            [project.dataset_class_name],
         ),
         Path("src") / "datasets" / f"{dataset_module_name}.py": (
-            _project_standard_dataset(
+            _project_dataset_skeleton(
                 project.dataset_name,
                 project.dataset_class_name,
             )
