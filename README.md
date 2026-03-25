@@ -33,6 +33,12 @@ Install with W&B support:
 pip install "dl-core[wandb]"
 ```
 
+Install with multiple variants:
+
+```bash
+pip install "dl-core[azure,wandb]"
+```
+
 Install from TestPyPI with `pip`:
 
 ```bash
@@ -70,6 +76,23 @@ including `torch`, `torchvision`, and `opencv-python`. The Azure extra pulls in
 `pad_candidates` environment. The MLflow extra pulls in `dl-mlflow` for local
 MLflow tracking. The W&B extra pulls in `dl-wandb` and leaves the `wandb`
 package itself unpinned.
+
+## Package Variants
+
+- `dl-core`: local training, local sweeps, local sweep analysis, and the
+  experiment scaffold
+- `dl-core[azure]`: adds the public
+  [`dl-azure`](https://github.com/Blazkowiz47/dl-azure)
+  package for Azure execution and Azure dataset foundations
+- `dl-core[mlflow]`: adds the public
+  [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow)
+  package for local MLflow integration
+- `dl-core[wandb]`: adds the public
+  [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
+  package for Weights & Biases integration
+
+The extension packages stay separate so the base package remains reusable and
+vendor-neutral.
 
 ## Scope
 
@@ -119,6 +142,12 @@ also scaffold an `mlflow` callback block and local tracking defaults.
 If W&B support is installed, `dl-init-experiment --with-wandb` will also
 scaffold a `wandb` callback block, W&B tracking defaults, and `.env.example`.
 
+## Companion Packages
+
+- [`dl-azure`](https://github.com/Blazkowiz47/dl-azure)
+- [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow)
+- [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
+
 To add a new local component scaffold inside the experiment repo:
 
 ```bash
@@ -155,14 +184,8 @@ Plain `dl-core` currently exposes dataset bases for `BaseWrapper` and
 
 ## Documentation
 
-- [Documentation Index](https://github.com/Blazkowiz47/dl-core/blob/main/readme/README.md)
-- [TLDR: Install and Verify](https://github.com/Blazkowiz47/dl-core/blob/main/readme/tldr/1_install_and_verify.md)
-- [TLDR: Create and Run an Experiment](https://github.com/Blazkowiz47/dl-core/blob/main/readme/tldr/2_create_and_run_an_experiment.md)
-- [Guide: Getting Started](https://github.com/Blazkowiz47/dl-core/blob/main/readme/guide/1_getting_started.md)
-- [Guide: Local Components and Sweeps](https://github.com/Blazkowiz47/dl-core/blob/main/readme/guide/3_local_components_and_sweeps.md)
-- [Technical: Configuration](https://github.com/Blazkowiz47/dl-core/blob/main/readme/technical/1_configuration.md)
-- [Technical: Entry Points](https://github.com/Blazkowiz47/dl-core/blob/main/readme/technical/2_entry_points.md)
-- [Technical: Sweep System](https://github.com/Blazkowiz47/dl-core/blob/main/readme/technical/3_sweep_system.md)
+- [Documentation Index](https://github.com/Blazkowiz47/dl-core/tree/main/readme)
+- [GitHub Repository](https://github.com/Blazkowiz47/dl-core)
 
 ## Development Validation
 

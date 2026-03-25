@@ -4,6 +4,15 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
+## Companion Packages
+
+- [`dl-azure`](https://github.com/Blazkowiz47/dl-azure): Azure execution and
+  Azure dataset foundations
+- [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow): local MLflow
+  integration
+- [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb): Weights & Biases
+  integration
+
 ## Structure
 
 ### 1. [`tldr/`](./tldr/1_install_and_verify.md)
