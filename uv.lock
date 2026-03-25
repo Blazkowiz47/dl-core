@@ -947,7 +947,7 @@ wheels = [
 
 [[package]]
 name = "dl-azure"
-version = "0.0.1"
+version = "0.0.4"
 source = { editable = "../dl-azure" }
 dependencies = [
     { name = "azure-ai-ml" },
@@ -972,7 +972,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "dl-core"
-version = "0.0.2"
+version = "0.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },
