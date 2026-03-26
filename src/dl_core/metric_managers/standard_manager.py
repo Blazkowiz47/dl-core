@@ -163,10 +163,9 @@ class StandardMetricManager(BaseMetricManager):
         if labels.shape[0] != pred_labels.shape[0]:
             return {}
 
-        prefix = f"{self.__class__.__name__.lower()}/cm"
+        prefix = "cm"
         diagnostics: Dict[str, float] = {
             f"{prefix}/num_samples": float(labels.shape[0]),
-            f"{prefix}/accuracy": float((pred_labels == labels).mean() * 100.0),
         }
 
         # Binary confusion-matrix details (class 1 as "positive")
