@@ -49,7 +49,8 @@ class ComponentRegistry:
             if existing_cls != cls:
                 raise ValueError(
                     f"{self.component_type} '{name}' is already registered "
-                    f"with class {existing_cls.__name__}, cannot register {cls.__name__}"
+                    "with class "
+                    f"{existing_cls.__name__}, cannot register {cls.__name__}"
                 )
         else:
             self._components[name] = cls
@@ -76,7 +77,8 @@ class ComponentRegistry:
                     if existing_cls != cls:
                         raise ValueError(
                             f"{self.component_type} '{name}' is already registered "
-                            f"with class {existing_cls.__name__}, cannot register {cls.__name__}"
+                            "with class "
+                            f"{existing_cls.__name__}, cannot register {cls.__name__}"
                         )
                 else:
                     self._components[name] = cls
@@ -186,6 +188,22 @@ class ComponentRegistry:
             f"{self.component_type} '{name}' not found. "
             f"Available {self.component_type.lower()}s: {available_names}"
         )
+
+    def get_registered_names_for_class(self, cls: Type) -> List[str]:
+        """
+        Get all registered names that resolve to a specific class.
+
+        Args:
+            cls: Registered component class
+
+        Returns:
+            Registered names for the class, in registration order
+        """
+        return [
+            name
+            for name, registered_cls in self._components.items()
+            if registered_cls == cls
+        ]
 
 
 # Global registries for different component types

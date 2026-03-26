@@ -23,6 +23,8 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert (target_dir / "configs" / "base_sweep.yaml").exists()
     assert (target_dir / "experiments" / "lr_sweep.yaml").exists()
     assert (target_dir / "experiments" / "experiments.log").exists()
+    assert (target_dir / "AGENTS.md").exists()
+    assert (target_dir / "pyrightconfig.json").exists()
     assert not (target_dir / "configs" / "sweeps").exists()
 
     config = yaml.safe_load((target_dir / "configs" / "base.yaml").read_text())
@@ -40,9 +42,12 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
 
     lr_sweep = (target_dir / "experiments" / "lr_sweep.yaml").read_text()
     experiments_log = (target_dir / "experiments" / "experiments.log").read_text()
+    agents_text = (target_dir / "AGENTS.md").read_text()
     assert 'extends_template: "../configs/base_sweep.yaml"' in lr_sweep
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
+    assert "uv run dl-core add dataset ExtraDataset" in agents_text
+    assert "uv run dl-core describe class dl_core.core.FrameWrapper" in agents_text
 
 def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> None:
     """Omitting --name should initialize the provided directory in place."""
@@ -80,7 +85,10 @@ def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
     (target_dir / ".python-version").write_text("3.11\n", encoding="utf-8")
     (target_dir / "README.md").write_text("# temp\n", encoding="utf-8")
     (target_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
-    (target_dir / "pyproject.toml").write_text("[project]\nname='temp'\n", encoding="utf-8")
+    (target_dir / "pyproject.toml").write_text(
+        "[project]\nname='temp'\n",
+        encoding="utf-8",
+    )
     (target_dir / "uv.lock").write_text("version = 1\n", encoding="utf-8")
 
     created_dir = create_experiment_scaffold(root_dir=str(target_dir))
@@ -90,6 +98,24 @@ def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
     assert not (created_dir / "uv.lock").exists()
     assert (created_dir / "pyproject.toml").exists()
     assert (created_dir / "README.md").exists()
+
+
+def test_scaffold_allows_existing_agents_and_pyright_files(tmp_path: Path) -> None:
+    """In-place init should replace scaffold-owned metadata helper files."""
+    target_dir = tmp_path / "custom_test"
+    target_dir.mkdir()
+    (target_dir / "AGENTS.md").write_text("temp\n", encoding="utf-8")
+    (target_dir / "pyrightconfig.json").write_text("{}", encoding="utf-8")
+
+    created_dir = create_experiment_scaffold(root_dir=str(target_dir))
+
+    assert created_dir == target_dir.resolve()
+    assert "uv run dl-core describe" in (
+        created_dir / "AGENTS.md"
+    ).read_text(encoding="utf-8")
+    assert '"typeCheckingMode": "basic"' in (
+        created_dir / "pyrightconfig.json"
+    ).read_text(encoding="utf-8")
 
 
 def test_scaffold_allows_existing_scripts_and_azure_config(tmp_path: Path) -> None:
@@ -102,7 +128,10 @@ def test_scaffold_allows_existing_scripts_and_azure_config(tmp_path: Path) -> No
         '{"workspace_name": "existing-workspace"}\n',
         encoding="utf-8",
     )
-    (target_dir / "pyproject.toml").write_text("[project]\nname='temp'\n", encoding="utf-8")
+    (target_dir / "pyproject.toml").write_text(
+        "[project]\nname='temp'\n",
+        encoding="utf-8",
+    )
 
     created_dir = create_experiment_scaffold(root_dir=str(target_dir))
 

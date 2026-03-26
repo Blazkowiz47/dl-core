@@ -162,6 +162,7 @@ Then:
    - `src/datasets/my_exp.py`
    - `configs/base.yaml`
    - `experiments/lr_sweep.yaml`
+   - `AGENTS.md`
 2. implement the generated dataset wrapper under `src/datasets/my_exp.py`
 3. adjust `configs/base.yaml` so it points at the dataset/model/trainer you want
 4. start with:
@@ -210,6 +211,30 @@ uv run dl-core add augmentation MyAugmentation
 uv run dl-core add metric MyMetric
 uv run dl-core add executor MyExecutor
 ```
+
+You can inspect registered components and built-in base classes directly from
+the CLI:
+
+```bash
+uv run dl-core describe dataset my_dataset --root-dir .
+uv run dl-core describe model my_resnet --root-dir .
+uv run dl-core describe class dl_core.core.FrameWrapper
+uv run dl-core describe class dl_azure.datasets.AzureComputeMultiFrameWrapper
+uv run dl-core describe dataset my_dataset --root-dir . --json
+```
+
+The describe command shows:
+
+- resolved class and registered names
+- constructor signature
+- inheritance chain
+- docstring
+- declared properties
+- class-level attributes
+- public methods defined on the class
+
+It does not discover instance attributes created dynamically inside `__init__`
+without constructing the class.
 
 Dataset scaffolds can target a specific wrapper base:
 

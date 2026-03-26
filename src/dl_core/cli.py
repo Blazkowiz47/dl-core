@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import argparse
 
+from dl_core.component_describer import (
+    describe_component,
+    format_description,
+    format_description_json,
+    list_supported_describe_types,
+    normalize_describe_type,
+)
 from dl_core.component_scaffold import (
     create_component_scaffold,
     list_supported_dataset_bases,
@@ -23,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-init-experiment --name my-exp --root-dir .\n"
             "  cd my-exp\n"
             "  uv run dl-core add dataset LocalDataset\n"
+            "  uv run dl-core describe dataset LocalDataset --root-dir .\n"
             "  uv run dl-core add model MyResNet\n"
             "  uv run dl-core add callback MyMetrics\n"
             "  uv run dl-run --config configs/base.yaml"
@@ -94,21 +102,83 @@ def main(argv: list[str] | None = None) -> int:
         help="Overwrite an existing component scaffold if it already exists.",
     )
 
-    args = parser.parse_args(argv)
-    if args.command != "add":
-        parser.error(f"Unsupported command: {args.command}")
-    if args.base and normalize_component_type(args.component_type) != "dataset":
-        parser.error("--base is only supported when component_type is 'dataset'.")
-
-    component_path = create_component_scaffold(
-        component_type=args.component_type,
-        name=args.name,
-        root_dir=args.root_dir,
-        dataset_base=args.base,
-        force=args.force,
+    describe_parser = subparsers.add_parser(
+        "describe",
+        help="Describe a registered component class or importable base class.",
+        description=(
+            "Inspect a registered component or importable class.\n\n"
+            "Use this when you want constructor signatures, inheritance, "
+            "properties, class attributes, and public methods without opening "
+            "the source code first."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  dl-core describe dataset my_dataset --root-dir .\n"
+            "  dl-core describe model tall_swin --root-dir .\n"
+            "  dl-core describe class dl_core.core.FrameWrapper\n"
+            "  dl-core describe class dl_azure.datasets.AzureComputeMultiFrameWrapper\n"
+            "  dl-core describe dataset ocim_multiframe --root-dir . --json"
+        ),
     )
-    print(f"Created component scaffold: {component_path}")
-    return 0
+    describe_parser.add_argument(
+        "component_type",
+        help=(
+            "Describe target type. Supported values: "
+            f"{', '.join(list_supported_describe_types())}"
+        ),
+    )
+    describe_parser.add_argument(
+        "name",
+        help=(
+            "Registered component name or fully qualified class path when "
+            "component_type is 'class'."
+        ),
+    )
+    describe_parser.add_argument(
+        "--root-dir",
+        default=".",
+        help=(
+            "Path inside the target experiment repository. "
+            "Defaults to the current directory."
+        ),
+    )
+    describe_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the description as JSON instead of human-readable text.",
+    )
+
+    args = parser.parse_args(argv)
+    if args.command == "add":
+        if args.base and normalize_component_type(args.component_type) != "dataset":
+            parser.error("--base is only supported when component_type is 'dataset'.")
+
+        component_path = create_component_scaffold(
+            component_type=args.component_type,
+            name=args.name,
+            root_dir=args.root_dir,
+            dataset_base=args.base,
+            force=args.force,
+        )
+        print(f"Created component scaffold: {component_path}")
+        return 0
+
+    if args.command == "describe":
+        normalize_describe_type(args.component_type)
+        description = describe_component(
+            args.component_type,
+            args.name,
+            root_dir=args.root_dir,
+        )
+        if args.json:
+            print(format_description_json(description))
+        else:
+            print(format_description(description))
+        return 0
+
+    parser.error(f"Unsupported command: {args.command}")
+    return 1
 
 
 if __name__ == "__main__":
