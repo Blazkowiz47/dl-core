@@ -53,6 +53,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     )
     assert list(sweep_config["fixed"]["trainer"].keys()) == [component_name]
     assert sweep_config["fixed"]["trainer"][component_name]["name"] == component_name
+    assert sweep_config["default_grid"] == {}
 
     lr_sweep = (target_dir / "experiments" / "lr_sweep.yaml").read_text()
     experiments_log = (target_dir / "experiments" / "experiments.log").read_text()
