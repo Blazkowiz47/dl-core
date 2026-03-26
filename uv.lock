@@ -1168,7 +1168,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.0.1"
+version = "0.0.2a0"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },
