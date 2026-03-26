@@ -145,6 +145,38 @@ uv run dl-sweep --sweep experiments/lr_sweep.yaml
 uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
 ```
 
+## First Run Workflow
+
+If you are starting from scratch, the minimum path is:
+
+```bash
+pip install deep-learning-core
+dl-init-experiment --name my-exp --root-dir .
+cd my-exp
+uv sync
+```
+
+Then:
+
+1. open these generated files first:
+   - `src/datasets/my_exp.py`
+   - `configs/base.yaml`
+   - `experiments/lr_sweep.yaml`
+2. implement the generated dataset wrapper under `src/datasets/my_exp.py`
+3. adjust `configs/base.yaml` so it points at the dataset/model/trainer you want
+4. start with:
+
+```bash
+uv run dl-run --config configs/base.yaml
+```
+
+Once that works, move on to:
+
+```bash
+uv run dl-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
+```
+
 If Azure support is installed, `dl-init-experiment --with-azure` will also
 scaffold Azure-ready config placeholders and `azure-config.json`.
 

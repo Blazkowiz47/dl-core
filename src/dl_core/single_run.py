@@ -22,24 +22,30 @@ from dl_core.utils.logging import setup_logging
 def main():
     """Main orchestration function for single runs."""
     parser = argparse.ArgumentParser(
-        description="Deep Learning Lab - Single Run Orchestrator",
+        description="Run one training configuration through the configured executor.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Train with config (local execution)
-  dl-run --config configs/baseline.yaml
-  
-  # Train with custom name
-  dl-run --config configs/baseline.yaml --name test_run
-  
+  # Run the scaffolded base config
+  dl-run --config configs/base.yaml
+
+  # Run with a custom runtime name
+  dl-run --config configs/base.yaml --name baseline_debug
+
   # Validate config only
-  dl-run --config configs/baseline.yaml --validate-only
-  
+  dl-run --config configs/base.yaml --validate-only
+
   # Dry-run (show what would be executed)
-  dl-run --config configs/baseline.yaml --dry-run
-  
+  dl-run --config configs/base.yaml --dry-run
+
   # Show registered components
   dl-run --show-registry
+
+Typical first use:
+  1. Run dl-init-experiment
+  2. Implement your dataset wrapper under src/datasets/
+  3. Update configs/base.yaml
+  4. Run dl-run --config configs/base.yaml
         """,
     )
 
@@ -56,21 +62,21 @@ Examples:
         type=str,
         choices=["local"],
         default="local",
-        help="Execution mode (default: local)",
+        help="Execution mode (default: local).",
     )
 
     # Azure-specific args
     parser.add_argument(
         "--compute",
         type=str,
-        help="Azure compute target (required for azure mode)",
+        help="Executor-specific compute target override when supported.",
     )
 
     parser.add_argument(
         "--environment",
         type=str,
         default="dl_lab",
-        help="Azure environment name (default: dl_lab)",
+        help="Executor-specific environment override (default: dl_lab).",
     )
 
     parser.add_argument(

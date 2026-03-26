@@ -45,7 +45,18 @@ def get_config_output_dir(sweep_config: Dict[str, Any], sweep_id: str) -> Path:
 
 def main():
     """Main sweep runner entry point."""
-    parser = argparse.ArgumentParser(description="Sweep Runner")
+    parser = argparse.ArgumentParser(
+        description="Generate run configs from a sweep file and execute them.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  dl-sweep --sweep experiments/lr_sweep.yaml\n"
+            "  dl-sweep --sweep experiments/lr_sweep.yaml --dry-run\n"
+            "  dl-sweep --sweep experiments/lr_sweep.yaml --resume\n\n"
+            "The sweep file normally lives under experiments/ and points at\n"
+            "configs/base.yaml via base_config."
+        ),
+    )
 
     parser.add_argument(
         "--sweep", type=str, required=True, help="Path to sweep YAML file"
@@ -55,20 +66,20 @@ def main():
         "--executor",
         type=str,
         choices=["local"],
-        help="Execution executor (overrides executor.name in sweep config)",
+        help="Execution executor (overrides executor.name in the sweep config).",
     )
 
     # Azure-specific args (override executor config)
     parser.add_argument(
         "--compute",
         type=str,
-        help="Azure compute target (overrides executor.compute_target)",
+        help="Executor-specific compute target override when supported.",
     )
 
     parser.add_argument(
         "--environment",
         type=str,
-        help="Azure environment name (overrides executor.environment_name)",
+        help="Executor-specific environment override when supported.",
     )
 
     parser.add_argument(

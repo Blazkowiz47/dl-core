@@ -160,6 +160,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl-analyze-sweep",
         description="Inspect local sweep results from saved artifact summaries.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  dl-analyze-sweep --sweep experiments/lr_sweep.yaml\n"
+            "  dl-analyze-sweep --sweep experiments/lr_sweep.yaml --json\n\n"
+            "This command reads the generated experiments/<sweep_name>/"
+            "sweep_tracking.json plus the per-run metric summaries."
+        ),
     )
     parser.add_argument(
         "--sweep",

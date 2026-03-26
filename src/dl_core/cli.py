@@ -17,12 +17,34 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl-core",
         description="Utilities for working with dl-core experiment repositories.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Common first steps:\n"
+            "  dl-init-experiment --name my-exp --root-dir .\n"
+            "  cd my-exp\n"
+            "  uv run dl-core add dataset LocalDataset\n"
+            "  uv run dl-run --config configs/base.yaml"
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     add_parser = subparsers.add_parser(
         "add",
         help="Create a local component scaffold inside an experiment repository.",
+        description=(
+            "Create a local component scaffold inside an experiment repository.\n\n"
+            "Use this after dl-init-experiment when you want an extra local "
+            "dataset, model, callback, trainer, or other component."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  dl-core add dataset LocalDataset\n"
+            "  dl-core add dataset FrameDataset --base frame\n"
+            "  dl-core add dataset TextDataset --base text_sequence\n"
+            "  dl-core add dataset ActDataset --base adaptive_computation\n"
+            "  dl-core add model MyResNet"
+        ),
     )
     add_parser.add_argument(
         "component_type",
