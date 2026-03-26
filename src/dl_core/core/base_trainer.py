@@ -1231,7 +1231,7 @@ class BaseTrainer(ABC):
                     )
 
         # Model weight and layer norms are opt-in because they add a lot of log noise.
-        if self.models and epoch > 0:
+        if self.models:
             for model_name, model in self.models.items():
                 trainable_params = sum(
                     parameter.numel()
