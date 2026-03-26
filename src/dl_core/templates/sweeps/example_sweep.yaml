@@ -3,6 +3,10 @@
 extends_template: "../configs/base_sweep.yaml"
 description: "Basic learning rate sweep"
 
+fixed:
+  accelerators: preset:accelerators.cpu
+  executors: preset:executors.local
+
 grid:
   optimizers.lr: [0.001, 0.0001]
 

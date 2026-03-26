@@ -51,16 +51,17 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     sweep_config = yaml.safe_load(
         (target_dir / "configs" / "base_sweep.yaml").read_text()
     )
-    assert sweep_config["fixed"]["accelerators"] == "preset:accelerators.cpu"
-    assert sweep_config["fixed"]["executors"] == "preset:executors.local"
     assert list(sweep_config["fixed"]["trainer"].keys()) == [component_name]
     assert sweep_config["fixed"]["trainer"][component_name]["name"] == component_name
     assert sweep_config["default_grid"] == {}
 
-    lr_sweep = (target_dir / "experiments" / "lr_sweep.yaml").read_text()
+    lr_sweep_text = (target_dir / "experiments" / "lr_sweep.yaml").read_text()
+    lr_sweep = yaml.safe_load(lr_sweep_text)
     experiments_log = (target_dir / "experiments" / "experiments.log").read_text()
     agents_text = (target_dir / "AGENTS.md").read_text()
-    assert 'extends_template: "../configs/base_sweep.yaml"' in lr_sweep
+    assert 'extends_template: "../configs/base_sweep.yaml"' in lr_sweep_text
+    assert lr_sweep["fixed"]["accelerators"] == "preset:accelerators.cpu"
+    assert lr_sweep["fixed"]["executors"] == "preset:executors.local"
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
     assert "uv run dl-core add dataset ExtraDataset" in agents_text
