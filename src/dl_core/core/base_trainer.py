@@ -160,6 +160,10 @@ class BaseTrainer(ABC):
         self.skip_baseline_eval = trainer_config.get("skip_baseline_eval", False)
         self.test_frequency = trainer_config.get("test_frequency", 1)
         self.validation_frequency = trainer_config.get("validation_frequency", 1)
+        self.log_weights = trainer_config.get(
+            "log_weights",
+            trainer_config.get("log-weights", False),
+        )
         self.overfit_single_batch_enabled = trainer_config.get(
             "overfit_single_batch", False
         )
@@ -1226,7 +1230,7 @@ class BaseTrainer(ABC):
                         float(lr_value)
                     )
 
-        # Compute model weight norms for default model
+        # Model weight and layer norms are opt-in because they add a lot of log noise.
         if self.models and epoch > 0:
             for model_name, model in self.models.items():
                 trainable_params = sum(
@@ -1248,10 +1252,11 @@ class BaseTrainer(ABC):
                         trainable_params / total_params
                     )
 
-                weight_norms = self.compute_model_weight_norms(model)
-                epoch_logs.update(
-                    {f"{model_name}/{k}": v for k, v in weight_norms.items()}
-                )
+                if self.log_weights:
+                    weight_norms = self.compute_model_weight_norms(model)
+                    epoch_logs.update(
+                        {f"{model_name}/{k}": v for k, v in weight_norms.items()}
+                    )
 
         return epoch_logs
 

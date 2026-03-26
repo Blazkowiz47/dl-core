@@ -52,6 +52,7 @@ trainer:
   standard:
     name: standard
     epochs: 3
+    log_weights: false
 
 criterions:
   crossentropy:
