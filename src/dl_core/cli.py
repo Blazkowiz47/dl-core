@@ -17,6 +17,16 @@ from dl_core.component_scaffold import (
     list_supported_component_types,
     normalize_component_type,
 )
+from dl_core.sweep_scaffold import (
+    create_sweep_scaffold,
+    list_supported_tracking_backends,
+    normalize_tracking_backend,
+)
+
+
+def _list_supported_add_targets() -> list[str]:
+    """Return supported targets for ``dl-core add``."""
+    return sorted([*list_supported_component_types(), "sweep"])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-init-experiment --name my-exp --root-dir .\n"
             "  cd my-exp\n"
             "  uv run dl-core add dataset LocalDataset\n"
+            "  uv run dl-core add sweep DebugSweep\n"
             "  uv run dl-core describe dataset LocalDataset --root-dir .\n"
             "  uv run dl-core add model MyResNet\n"
             "  uv run dl-core add callback MyMetrics\n"
@@ -40,13 +51,13 @@ def main(argv: list[str] | None = None) -> int:
 
     add_parser = subparsers.add_parser(
         "add",
-        help="Create a local component scaffold inside an experiment repository.",
+        help="Create a local component or sweep scaffold inside an experiment repository.",
         description=(
-            "Create a local component scaffold inside an experiment repository.\n\n"
-            "Use this after dl-init-experiment when you want an extra local "
-            "dataset, model, callback, trainer, or other component.\n"
-            "The command writes the component module and updates the matching "
-            "src/<package>/__init__.py export list for you."
+            "Create a local component or sweep scaffold inside an experiment "
+            "repository.\n\nUse this after dl-init-experiment when you want an "
+            "extra local dataset, model, callback, trainer, or another sweep "
+            "file.\nComponent generation writes the module and updates the "
+            "matching src/<package>/__init__.py export list for you."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -57,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-core add dataset ActDataset --base adaptive_computation\n"
             "  dl-core add dataset AzureFrames --base azure_compute_frame\n"
             "  dl-core add dataset AzureSeq --base azure_compute_multiframe\n\n"
+            "Sweep examples:\n"
+            "  dl-core add sweep DebugSweep\n"
+            "  dl-core add sweep AzureEval --tracking azure_mlflow\n"
+            "  dl-core add sweep WandbAblation --tracking wandb\n\n"
             "Other component examples:\n"
             "  dl-core add model MyResNet\n"
             "  dl-core add trainer MyTrainer\n"
@@ -73,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         "component_type",
         help=(
             "Component type to generate. Supported values: "
-            f"{', '.join(list_supported_component_types())}"
+            f"{', '.join(_list_supported_add_targets())}"
         ),
     )
     add_parser.add_argument(
@@ -86,6 +101,16 @@ def main(argv: list[str] | None = None) -> int:
             "Dataset scaffold base to use when component_type is 'dataset'. "
             "Supported values in this environment: "
             f"{', '.join(list_supported_dataset_bases())}."
+        ),
+    )
+    add_parser.add_argument(
+        "--tracking",
+        default="local",
+        help=(
+            "Tracking backend to scaffold when component_type is 'sweep'. "
+            "Supported values: "
+            f"{', '.join(list_supported_tracking_backends())}. "
+            "Defaults to local."
         ),
     )
     add_parser.add_argument(
@@ -151,6 +176,29 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.command == "add":
+        normalized_add_target = args.component_type.strip().lower().replace(
+            "-", "_"
+        ).replace(" ", "_")
+        if normalized_add_target == "sweep":
+            if args.base:
+                parser.error(
+                    "--base is only supported when component_type is 'dataset'."
+                )
+            normalize_tracking_backend(args.tracking)
+            sweep_path = create_sweep_scaffold(
+                args.name,
+                root_dir=args.root_dir,
+                tracking_backend=args.tracking,
+                force=args.force,
+            )
+            print(f"Created sweep scaffold: {sweep_path}")
+            return 0
+
+        if args.tracking != "local":
+            parser.error(
+                "--tracking is only supported when component_type is 'sweep'."
+            )
+
         if args.base and normalize_component_type(args.component_type) != "dataset":
             parser.error("--base is only supported when component_type is 'dataset'.")
 

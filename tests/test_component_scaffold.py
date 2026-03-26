@@ -265,3 +265,54 @@ def test_cli_add_component_updates_existing_package_exports(tmp_path: Path) -> N
     assert "from .extradataset import ExtraDatasetDataset" in init_text
     assert '"ExportsDemoDataset"' in init_text
     assert '"ExtraDatasetDataset"' in init_text
+
+
+def test_cli_add_sweep_creates_local_sweep_file(tmp_path: Path) -> None:
+    """The add command should create a sweep scaffold with local tracking."""
+    target_dir = create_experiment_scaffold("sweep-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "sweep",
+            "DebugSweep",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    sweep_path = target_dir / "experiments" / "debugsweep.yaml"
+    sweep_text = sweep_path.read_text()
+
+    assert sweep_path.exists()
+    assert 'extends_template: "../configs/base_sweep.yaml"' in sweep_text
+    assert "fixed:" in sweep_text
+    assert "  accelerators: preset:accelerators.cpu" in sweep_text
+    assert "  executors: preset:executors.local" in sweep_text
+    assert "grid: {}" in sweep_text
+    assert "backend: local" in sweep_text
+
+
+def test_cli_add_sweep_supports_tracking_backend(tmp_path: Path) -> None:
+    """Sweep scaffolds should support alternate tracking backend blocks."""
+    target_dir = create_experiment_scaffold("tracking-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "sweep",
+            "AzureEval",
+            "--tracking",
+            "azure_mlflow",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    sweep_path = target_dir / "experiments" / "azureeval.yaml"
+    sweep_text = sweep_path.read_text()
+
+    assert "backend: azure_mlflow" in sweep_text
+    assert "project:" not in sweep_text

@@ -171,6 +171,10 @@ def _project_agents_md(project_name: str) -> str:
       hand-writing empty modules.
     </rule>
     <rule>
+      Use `uv run dl-core add sweep MySweep` to scaffold a new sweep file under
+      `experiments/`.
+    </rule>
+    <rule>
       Use `uv run dl-core describe ...` to inspect registered components and
       base classes before editing code.
     </rule>
@@ -192,6 +196,10 @@ def _project_agents_md(project_name: str) -> str:
     <rule>
       `uv run dl-core add dataset FrameDataset --base frame` creates a
       grouped-frame dataset scaffold.
+    </rule>
+    <rule>
+      `uv run dl-core add sweep DebugSweep --tracking local` creates a new
+      sweep file with an empty grid.
     </rule>
     <rule>`uv run dl-core add model MyResNet` creates a local model wrapper.</rule>
     <rule>

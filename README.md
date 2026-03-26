@@ -212,6 +212,23 @@ uv run dl-core add metric MyMetric
 uv run dl-core add executor MyExecutor
 ```
 
+Sweep scaffolds are supported too:
+
+```bash
+uv run dl-core add sweep DebugSweep
+uv run dl-core add sweep AzureEval --tracking azure_mlflow
+uv run dl-core add sweep MlflowBaseline --tracking mlflow
+uv run dl-core add sweep WandbAblation --tracking wandb
+```
+
+Generated sweep files:
+
+- live under `experiments/`
+- extend `../configs/base_sweep.yaml`
+- include runnable defaults in `fixed`
+- start with `grid: {}`
+- let the tracker derive group/parent naming from the sweep filename
+
 You can inspect registered components and built-in base classes directly from
 the CLI:
 
