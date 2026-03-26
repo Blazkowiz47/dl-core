@@ -171,6 +171,8 @@ Dataset scaffolds can now target a specific wrapper base:
 ```bash
 uv run dl-core add dataset MyDataset
 uv run dl-core add dataset FrameSet --base frame
+uv run dl-core add dataset TextSet --base text_sequence
+uv run dl-core add dataset ActSet --base adaptive_computation
 ```
 
 When `dl-azure` is importable, the dataset scaffold also exposes Azure bases:
@@ -180,8 +182,17 @@ uv run dl-core add dataset AzureFrames --base azure_compute_frame
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
 ```
 
-Plain `deep-learning-core` currently exposes dataset bases for `BaseWrapper`
-and `FrameWrapper`. Multiframe dataset bases are provided through `dl-azure`.
+Plain `deep-learning-core` currently exposes dataset bases for:
+
+- `BaseWrapper`
+- `FrameWrapper`
+- `TextSequenceWrapper`
+- `AdaptiveComputationDataset`
+
+`TextSequenceWrapper` adds sequence-aware batch padding for tokenized inputs.
+`AdaptiveComputationDataset` adds per-class sample stream helpers for
+adaptive-time computation trainers. Multiframe dataset bases are still
+provided through `dl-azure`.
 
 ## Releases
 

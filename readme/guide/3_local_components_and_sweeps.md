@@ -38,6 +38,8 @@ uv run dl-core add callback EpochLogger
 uv run dl-core add sampler PassThroughSampler
 uv run dl-core add dataset LocalDataset
 uv run dl-core add dataset FrameDataset --base frame
+uv run dl-core add dataset TextDataset --base text_sequence
+uv run dl-core add dataset ActDataset --base adaptive_computation
 ```
 
 Supported component types:
@@ -68,6 +70,14 @@ installed in the current environment:
 
 The generated dataset stub includes the abstract methods required by the
 selected base class so the implementation contract is visible immediately.
+
+The core dataset bases are intended for different data shapes:
+
+- `base`: generic sample-level datasets
+- `frame`: grouped video-frame datasets
+- `text_sequence`: tokenized text and sequence datasets with padded batching
+- `adaptive_computation`: sample-level datasets with class-stream helpers for
+  adaptive-time computation trainers
 
 ## Local Training
 
