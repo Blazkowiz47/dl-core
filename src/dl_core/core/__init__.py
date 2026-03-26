@@ -5,7 +5,12 @@ Core framework components.
 # Base classes
 from .base_accelerator import BaseAccelerator
 from .base_criterion import BaseCriterion
-from .base_dataset import BaseWrapper, FrameWrapper
+from .base_dataset import (
+    AdaptiveComputationDataset,
+    BaseWrapper,
+    FrameWrapper,
+    TextSequenceWrapper,
+)
 from .base_detector import BaseFaceDetector, FaceDetection, LandmarkDetection
 from .base_executor import BaseExecutor
 from .base_metrics_source import BaseMetricsSource
@@ -69,6 +74,8 @@ __all__ = [
     "BaseCriterion",
     "BaseWrapper",
     "FrameWrapper",
+    "TextSequenceWrapper",
+    "AdaptiveComputationDataset",
     "BaseExecutor",
     "BaseTracker",
     "BaseMetricsSource",

@@ -8,6 +8,7 @@ from typing import Any, Callable
 import torch
 import torch.distributed as dist
 from sklearn.model_selection import train_test_split
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 
 from dl_core.core.base_transform import BaseTransform
@@ -950,6 +951,278 @@ class BaseWrapper(ABC):
             - any other custom keys
         """
         raise NotImplementedError("Subclasses must implement transform")
+
+
+class TextSequenceWrapper(BaseWrapper):
+    """
+    Base wrapper for tokenized text and sequence datasets.
+
+    This wrapper keeps the standard `BaseWrapper` contract but adds sequence-
+    aware batching so variable-length token tensors can be padded cleanly in
+    local, single-GPU, and multi-GPU setups.
+    """
+
+    def __init__(self, config: dict, **kwargs) -> None:
+        super().__init__(config, **kwargs)
+
+        sequence_keys = self.config.get(
+            "sequence_keys",
+            ["input_ids", "attention_mask", "token_type_ids"],
+        )
+        if isinstance(sequence_keys, str):
+            sequence_keys = [sequence_keys]
+        self.sequence_keys = set(sequence_keys)
+        self.sequence_padding_values = {
+            str(key): value
+            for key, value in self.config.get("sequence_padding_values", {}).items()
+        }
+
+    @property
+    def file_extensions(self) -> list[str]:
+        """
+        Return default text-oriented file extensions.
+
+        Subclasses can override this when they scan a specific on-disk format.
+        """
+
+        return ["*.txt", "*.json", "*.jsonl", "*.csv", "*.tsv"]
+
+    def _pad_sequence_values(
+        self,
+        values: list[torch.Tensor],
+        key: str,
+    ) -> torch.Tensor:
+        """Pad variable-length tensors for a sequence-oriented batch key."""
+
+        if not values:
+            raise ValueError("Cannot pad an empty list of sequence tensors")
+
+        if all(value.shape == values[0].shape for value in values):
+            return torch.stack(values)
+
+        if values[0].ndim == 0:
+            return torch.stack(values)
+
+        padding_value = self.sequence_padding_values.get(key, 0)
+        return pad_sequence(values, batch_first=True, padding_value=padding_value)
+
+    def collate_fn(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
+        """Pad configured sequence keys while preserving the base collate rules."""
+
+        if not batch:
+            return {}
+
+        keys = batch[0].keys()
+        collated: dict[str, Any] = {}
+
+        for key in keys:
+            values = [sample[key] for sample in batch if sample.get(key) is not None]
+
+            if not values:
+                collated[key] = None
+                continue
+
+            first_val = values[0]
+
+            if key in self.sequence_keys and isinstance(first_val, torch.Tensor):
+                collated[key] = self._pad_sequence_values(values, key)
+            elif isinstance(first_val, torch.Tensor):
+                collated[key] = torch.stack(values)
+            elif (
+                isinstance(first_val, (list, tuple))
+                and len(first_val) > 0
+                and isinstance(first_val[0], torch.Tensor)
+            ):
+                num_views = len(first_val)
+                if all(len(v) == num_views for v in values):
+                    collated[key] = [
+                        torch.stack([v[i] for v in values]) for i in range(num_views)
+                    ]
+                else:
+                    collated[key] = values
+            elif isinstance(first_val, (int, float)):
+                collated[key] = torch.tensor(values)
+            else:
+                collated[key] = values
+
+        return collated
+
+
+class AdaptiveComputationDataset(BaseWrapper):
+    """
+    Base wrapper for adaptive-time computation datasets with class sample streams.
+
+    In addition to the standard dataset contract, this wrapper caches split data
+    by class so ACT-style trainers can request the next sample for a label
+    without rescanning the full split on every carry-state update.
+    """
+
+    def __init__(self, config: dict, **kwargs) -> None:
+        super().__init__(config, **kwargs)
+
+        self.class_stream_key = self.config.get("class_stream_key", "label")
+        class_stream_shuffle = self.config.get(
+            "class_stream_shuffle",
+            {"train": True, "validation": False, "test": False},
+        )
+        if not isinstance(class_stream_shuffle, dict):
+            class_stream_shuffle = {
+                "train": bool(class_stream_shuffle),
+                "validation": bool(class_stream_shuffle),
+                "test": bool(class_stream_shuffle),
+            }
+        self.class_stream_shuffle: dict[str, bool] = {
+            split: bool(class_stream_shuffle.get(split, False))
+            for split in ["train", "validation", "test"]
+        }
+        self.class_streams: dict[str, dict[Any, list[dict[str, Any]]]] = {
+            "train": {},
+            "validation": {},
+            "test": {},
+        }
+        self.class_stream_positions: dict[str, dict[Any, int]] = {
+            "train": {},
+            "validation": {},
+            "test": {},
+        }
+
+    def _class_stream_seed(self, label: Any) -> int:
+        """Build a stable per-class seed for epoch-aware class stream shuffling."""
+
+        return self.seed + self.current_epoch + sum(ord(char) for char in str(label))
+
+    def _build_class_streams(self, split: str) -> None:
+        """Group the current split by class and reset stream positions."""
+
+        records = self.sampled_files_list[split] or self._get_file_list(split)
+        class_streams: dict[Any, list[dict[str, Any]]] = {}
+
+        for record in records:
+            label = record.get(self.class_stream_key, record.get("label"))
+            class_streams.setdefault(label, []).append(record)
+
+        if self.class_stream_shuffle[split]:
+            for label, label_records in class_streams.items():
+                rng = random.Random(self._class_stream_seed(label))
+                rng.shuffle(label_records)
+
+        self.class_streams[split] = class_streams
+        self.class_stream_positions[split] = {
+            label: 0 for label in class_streams
+        }
+
+    def _ensure_class_streams(self, split: str) -> None:
+        """Build class streams lazily for the requested split."""
+
+        if not self.class_streams[split]:
+            self._build_class_streams(split)
+
+    def set_epoch(self, epoch: int) -> None:
+        """Refresh epoch-aware class stream order when the epoch changes."""
+
+        super().set_epoch(epoch)
+        for split in ["train", "validation", "test"]:
+            self.class_streams[split] = {}
+            self.class_stream_positions[split] = {}
+
+    def clear_cache(self, split: str | None = None) -> None:
+        """Clear cached files and adaptive class stream state."""
+
+        super().clear_cache(split)
+
+        if split is None:
+            self.class_streams = {"train": {}, "validation": {}, "test": {}}
+            self.class_stream_positions = {
+                "train": {},
+                "validation": {},
+                "test": {},
+            }
+            return
+
+        self.class_streams[split] = {}
+        self.class_stream_positions[split] = {}
+
+    def refresh_dataset(self, split: str | None = None) -> None:
+        """Refresh sampled files and adaptive class stream state."""
+
+        super().refresh_dataset(split)
+
+        if split is None:
+            self.class_streams = {"train": {}, "validation": {}, "test": {}}
+            self.class_stream_positions = {
+                "train": {},
+                "validation": {},
+                "test": {},
+            }
+            return
+
+        self.class_streams[split] = {}
+        self.class_stream_positions[split] = {}
+
+    def reset_class_stream(self, split: str, label: Any | None = None) -> None:
+        """Reset one class stream pointer or rebuild all streams for a split."""
+
+        self._ensure_class_streams(split)
+
+        if label is None:
+            self._build_class_streams(split)
+            return
+
+        if label in self.class_stream_positions[split]:
+            self.class_stream_positions[split][label] = 0
+
+    def peek_next_class_sample(
+        self,
+        label: Any,
+        split: str,
+        *,
+        wrap_around: bool = False,
+        transform_sample: bool = True,
+    ) -> dict[str, Any] | None:
+        """Return the next class-specific sample without advancing the stream."""
+
+        self._ensure_class_streams(split)
+        label_records = self.class_streams[split].get(label, [])
+        if not label_records:
+            return None
+
+        position = self.class_stream_positions[split].get(label, 0)
+        if position >= len(label_records):
+            if not wrap_around:
+                return None
+            position = 0
+
+        record = label_records[position]
+        if transform_sample:
+            return self.transform(record, split)
+        return record
+
+    def get_next_class_sample(
+        self,
+        label: Any,
+        split: str,
+        *,
+        wrap_around: bool = False,
+        transform_sample: bool = True,
+    ) -> dict[str, Any] | None:
+        """Return the next class-specific sample and advance the stream pointer."""
+
+        self._ensure_class_streams(split)
+        label_records = self.class_streams[split].get(label, [])
+        if not label_records:
+            return None
+
+        position = self.class_stream_positions[split].get(label, 0)
+        if position >= len(label_records):
+            if not wrap_around:
+                return None
+            position = 0
+
+        self.class_stream_positions[split][label] = position + 1
+        record = label_records[position]
+        if transform_sample:
+            return self.transform(record, split)
+        return record
 
 
 class FrameWrapper(BaseWrapper):

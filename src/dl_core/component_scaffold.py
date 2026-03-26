@@ -137,6 +137,22 @@ _CORE_DATASET_BASE_SPECS = {
         template_kind="frame",
         requires_file_extensions=True,
     ),
+    "text_sequence": DatasetBaseSpec(
+        canonical_name="text_sequence",
+        import_path="dl_core.core.base_dataset",
+        base_class="TextSequenceWrapper",
+        class_docstring="Dataset scaffold based on TextSequenceWrapper.",
+        template_kind="text_sequence",
+    ),
+    "adaptive_computation": DatasetBaseSpec(
+        canonical_name="adaptive_computation",
+        import_path="dl_core.core.base_dataset",
+        base_class="AdaptiveComputationDataset",
+        class_docstring=(
+            "Dataset scaffold based on AdaptiveComputationDataset."
+        ),
+        template_kind="adaptive_computation",
+    ),
 }
 
 _DATASET_BASE_ALIASES = {
@@ -146,6 +162,18 @@ _DATASET_BASE_ALIASES = {
     "frame": "frame",
     "frame_wrapper": "frame",
     "framewrapper": "frame",
+    "text": "text_sequence",
+    "text_sequence": "text_sequence",
+    "textsequence": "text_sequence",
+    "sequence": "text_sequence",
+    "sequence_wrapper": "text_sequence",
+    "textsequencewrapper": "text_sequence",
+    "adaptive": "adaptive_computation",
+    "adaptive_computation": "adaptive_computation",
+    "adaptivecomputation": "adaptive_computation",
+    "adaptive_computation_dataset": "adaptive_computation",
+    "adaptivecomputationdataset": "adaptive_computation",
+    "act": "adaptive_computation",
 }
 
 
@@ -521,6 +549,18 @@ def _render_dataset_component(
         return _dataset_sample_component(base_spec, registry_literal, class_name)
     if base_spec.template_kind == "frame":
         return _dataset_frame_component(base_spec, registry_literal, class_name)
+    if base_spec.template_kind == "text_sequence":
+        return _dataset_text_sequence_component(
+            base_spec,
+            registry_literal,
+            class_name,
+        )
+    if base_spec.template_kind == "adaptive_computation":
+        return _dataset_adaptive_component(
+            base_spec,
+            registry_literal,
+            class_name,
+        )
     if base_spec.template_kind == "multiframe":
         return _dataset_multiframe_component(
             base_spec,
@@ -683,6 +723,79 @@ class {class_name}({base_spec.base_class}):
         raise NotImplementedError(
             "TODO: return a record with at least 'path' and 'label' plus any "
             "metadata needed for multiframe loading."
+        )
+'''
+
+
+def _dataset_text_sequence_component(
+    base_spec: DatasetBaseSpec,
+    registry_literal: str,
+    class_name: str,
+) -> str:
+    """Render a text-sequence dataset scaffold."""
+    return f'''"""{_dataset_module_docstring(base_spec)}"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dl_core.core import register_dataset
+from {base_spec.import_path} import {base_spec.base_class}
+
+
+@register_dataset({registry_literal})
+class {class_name}({base_spec.base_class}):
+    """{base_spec.class_docstring}"""
+
+    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        """Return one record per text sample for the requested split."""
+        raise NotImplementedError(
+            "TODO: return records like {{'path': '...', 'text': '...', "
+            "'label': 0}}."
+        )
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Tokenize one text sample and return the model input dictionary."""
+        raise NotImplementedError(
+            "TODO: tokenize file_dict['text'] and return keys like "
+            "{{'input_ids': ..., 'attention_mask': ..., 'label': ..., "
+            "'path': ...}}."
+        )
+'''
+
+
+def _dataset_adaptive_component(
+    base_spec: DatasetBaseSpec,
+    registry_literal: str,
+    class_name: str,
+) -> str:
+    """Render an adaptive-computation dataset scaffold."""
+    return f'''"""{_dataset_module_docstring(base_spec)}"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dl_core.core import register_dataset
+from {base_spec.import_path} import {base_spec.base_class}
+
+
+@register_dataset({registry_literal})
+class {class_name}({base_spec.base_class}):
+    """{base_spec.class_docstring}"""
+
+    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        """Return one record per sample for the requested split."""
+        raise NotImplementedError(
+            "TODO: return records like {{'path': '...', 'label': 0}}. "
+            "AdaptiveComputationDataset will group them per class for you."
+        )
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Load one sample and return the model input dictionary."""
+        raise NotImplementedError(
+            "TODO: load file_dict['path'] and return the tensors needed by "
+            "your adaptive-computation trainer."
         )
 '''
 

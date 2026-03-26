@@ -61,7 +61,7 @@ differs.
 For dataset scaffolds, the available `--base` values depend on what is
 installed in the current environment:
 
-- plain `dl-core`: `base`, `frame`
+- plain `dl-core`: `base`, `frame`, `text_sequence`, `adaptive_computation`
 - with `dl-azure`: adds `azure_compute`, `azure_streaming`,
   `azure_compute_frame`, `azure_streaming_frame`,
   `azure_compute_multiframe`, and `azure_streaming_multiframe`

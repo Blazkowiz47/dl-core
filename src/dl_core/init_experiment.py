@@ -225,6 +225,8 @@ the `deep-learning-core` dataset contract.
 Available generic deep-learning-core foundations:
 - BaseWrapper for sample-level datasets
 - FrameWrapper for frame datasets with grouped video metadata
+- TextSequenceWrapper for tokenized text and sequence datasets
+- AdaptiveComputationDataset for class-streamed adaptive training
 
 Install `deep-learning-azure` to also access:
 - AzureComputeWrapper / AzureStreamingWrapper

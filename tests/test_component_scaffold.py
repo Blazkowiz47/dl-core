@@ -129,6 +129,64 @@ def test_cli_add_frame_dataset_uses_frame_wrapper(tmp_path: Path) -> None:
     )
 
 
+def test_cli_add_text_sequence_dataset_uses_text_sequence_wrapper(
+    tmp_path: Path,
+) -> None:
+    """Text dataset scaffolds should expose the tokenized sequence contract."""
+
+    target_dir = create_experiment_scaffold("text-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "dataset",
+            "text_set",
+            "--base",
+            "text-sequence",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "datasets" / "text_set.py"
+    component_text = component_path.read_text()
+
+    assert 'class TextSetDataset(TextSequenceWrapper):' in component_text
+    assert "def get_file_list(self, split: str)" in component_text
+    assert "def transform(self, file_dict: dict[str, Any], split: str)" in (
+        component_text
+    )
+    assert "input_ids" in component_text
+
+
+def test_cli_add_adaptive_dataset_uses_adaptive_base(tmp_path: Path) -> None:
+    """Adaptive dataset scaffolds should expose class-stream helper guidance."""
+
+    target_dir = create_experiment_scaffold("adaptive-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "dataset",
+            "act_set",
+            "--base",
+            "adaptive-computation",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "datasets" / "act_set.py"
+    component_text = component_path.read_text()
+
+    assert 'class ActSetDataset(AdaptiveComputationDataset):' in component_text
+    assert "AdaptiveComputationDataset will group them per class for you." in (
+        component_text
+    )
+
+
 def test_cli_add_dataset_supports_optional_azure_bases(
     tmp_path: Path,
     monkeypatch,

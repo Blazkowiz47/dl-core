@@ -20,7 +20,7 @@ Useful flags:
 
 Dataset scaffold bases:
 
-- plain `dl-core`: `base`, `frame`
+- plain `dl-core`: `base`, `frame`, `text_sequence`, `adaptive_computation`
 - with `dl-azure`: `azure_compute`, `azure_streaming`,
   `azure_compute_frame`, `azure_streaming_frame`,
   `azure_compute_multiframe`, `azure_streaming_multiframe`
