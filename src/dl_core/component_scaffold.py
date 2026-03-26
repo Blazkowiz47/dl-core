@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 import importlib.util
 import re
@@ -265,6 +266,12 @@ def create_component_scaffold(
         ),
         encoding="utf-8",
     )
+    _update_package_init(
+        init_path,
+        module_name,
+        class_name,
+        default_docstring=spec.init_docstring,
+    )
     return component_path
 
 
@@ -418,6 +425,147 @@ def _render_component(
         )
 
     raise ValueError(f"Unsupported component type: {spec.canonical_name}")
+
+
+def _update_package_init(
+    init_path: Path,
+    module_name: str,
+    class_name: str,
+    *,
+    default_docstring: str,
+) -> None:
+    """Update a local component package ``__init__`` with the new export."""
+
+    if not init_path.exists():
+        init_path.write_text(
+            _render_package_init(
+                docstring=default_docstring,
+                imports_by_module={module_name: {class_name}},
+                exported_names=[class_name],
+            ),
+            encoding="utf-8",
+        )
+        return
+
+    init_text = init_path.read_text(encoding="utf-8")
+    package_init = _parse_package_init(init_text)
+    if package_init is None:
+        _append_package_export(init_path, init_text, module_name, class_name)
+        return
+
+    docstring, imports_by_module, exported_names = package_init
+    imports_by_module.setdefault(module_name, set()).add(class_name)
+    if class_name not in exported_names:
+        exported_names.append(class_name)
+
+    init_path.write_text(
+        _render_package_init(
+            docstring=docstring or default_docstring,
+            imports_by_module=imports_by_module,
+            exported_names=exported_names,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _parse_package_init(
+    init_text: str,
+) -> tuple[str | None, dict[str, set[str]], list[str]] | None:
+    """Parse a simple package ``__init__`` file into exports and imports."""
+
+    try:
+        module = ast.parse(init_text)
+    except SyntaxError:
+        return None
+
+    docstring = ast.get_docstring(module)
+    imports_by_module: dict[str, set[str]] = {}
+    exported_names: list[str] = []
+
+    for node in module.body:
+        if isinstance(node, ast.Expr):
+            if (
+                isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                continue
+            return None
+
+        if isinstance(node, ast.ImportFrom):
+            if node.level != 1 or node.module is None:
+                return None
+            imports_by_module.setdefault(node.module, set()).update(
+                alias.name for alias in node.names
+            )
+            continue
+
+        if isinstance(node, ast.Assign):
+            if not any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            ):
+                return None
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError):
+                return None
+            if not isinstance(value, (list, tuple)):
+                return None
+            exported_names.extend(str(item) for item in value)
+            continue
+
+        return None
+
+    return docstring, imports_by_module, exported_names
+
+
+def _render_package_init(
+    *,
+    docstring: str,
+    imports_by_module: dict[str, set[str]],
+    exported_names: list[str],
+) -> str:
+    """Render a local component package ``__init__`` file."""
+
+    import_blocks: list[str] = []
+    for module_name in sorted(imports_by_module):
+        imported_names = ", ".join(sorted(imports_by_module[module_name]))
+        import_blocks.append(f"from .{module_name} import {imported_names}")
+
+    ordered_exports = sorted(dict.fromkeys(exported_names))
+    exports_block = ",\n".join(f'    "{name}"' for name in ordered_exports)
+
+    rendered = f'"""{docstring}"""\n'
+    if import_blocks:
+        rendered += "\n" + "\n".join(import_blocks) + "\n"
+    if ordered_exports:
+        rendered += f"\n__all__ = [\n{exports_block},\n]\n"
+    return rendered
+
+
+def _append_package_export(
+    init_path: Path,
+    init_text: str,
+    module_name: str,
+    class_name: str,
+) -> None:
+    """Append a best-effort export when the package init is non-standard."""
+
+    appended_lines: list[str] = []
+    import_line = f"from .{module_name} import {class_name}"
+    if import_line not in init_text:
+        appended_lines.append(import_line)
+
+    if "__all__" in init_text:
+        appended_lines.append(f'__all__.append("{class_name}")')
+    else:
+        appended_lines.append(f'__all__ = ["{class_name}"]')
+
+    updated_text = init_text.rstrip()
+    if updated_text:
+        updated_text += "\n\n"
+    updated_text += "\n".join(appended_lines) + "\n"
+    init_path.write_text(updated_text, encoding="utf-8")
 
 
 def _registry_literal(registry_names: list[str]) -> str:

@@ -23,6 +23,8 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-init-experiment --name my-exp --root-dir .\n"
             "  cd my-exp\n"
             "  uv run dl-core add dataset LocalDataset\n"
+            "  uv run dl-core add model MyResNet\n"
+            "  uv run dl-core add callback MyMetrics\n"
             "  uv run dl-run --config configs/base.yaml"
         ),
     )
@@ -34,16 +36,29 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Create a local component scaffold inside an experiment repository.\n\n"
             "Use this after dl-init-experiment when you want an extra local "
-            "dataset, model, callback, trainer, or other component."
+            "dataset, model, callback, trainer, or other component.\n"
+            "The command writes the component module and updates the matching "
+            "src/<package>/__init__.py export list for you."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Examples:\n"
+            "Dataset examples:\n"
             "  dl-core add dataset LocalDataset\n"
             "  dl-core add dataset FrameDataset --base frame\n"
             "  dl-core add dataset TextDataset --base text_sequence\n"
             "  dl-core add dataset ActDataset --base adaptive_computation\n"
-            "  dl-core add model MyResNet"
+            "  dl-core add dataset AzureFrames --base azure_compute_frame\n"
+            "  dl-core add dataset AzureSeq --base azure_compute_multiframe\n\n"
+            "Other component examples:\n"
+            "  dl-core add model MyResNet\n"
+            "  dl-core add trainer MyTrainer\n"
+            "  dl-core add callback MyMetrics\n"
+            "  dl-core add metric_manager MyManager\n"
+            "  dl-core add sampler MySampler\n"
+            "  dl-core add criterion MyLoss\n"
+            "  dl-core add augmentation MyAugmentation\n"
+            "  dl-core add metric MyMetric\n"
+            "  dl-core add executor MyExecutor"
         ),
     )
     add_parser.add_argument(

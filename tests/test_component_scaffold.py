@@ -31,6 +31,9 @@ def test_cli_add_augmentation_registers_component(tmp_path: Path) -> None:
     assert '@register_augmentation(["custom1", "Custom1"])' in (
         component_path.read_text()
     )
+    init_text = (target_dir / "src" / "augmentations" / "__init__.py").read_text()
+    assert "from .custom1 import Custom1Augmentation" in init_text
+    assert '"Custom1Augmentation"' in init_text
 
     load_builtin_components()
     imported_modules = load_local_components(target_dir / "configs" / "base.yaml")
@@ -99,6 +102,10 @@ def test_cli_add_dataset_defaults_to_base_wrapper(tmp_path: Path) -> None:
     assert "Thin local wrapper around the built-in standard dataset." not in (
         component_text
     )
+
+    init_text = (target_dir / "src" / "datasets" / "__init__.py").read_text()
+    assert "from .localbase import LocalBaseDataset" in init_text
+    assert '"LocalBaseDataset"' in init_text
 
 
 def test_cli_add_frame_dataset_uses_frame_wrapper(tmp_path: Path) -> None:
@@ -234,3 +241,27 @@ def test_cli_add_dataset_supports_optional_azure_bases(
     )
     assert "def get_video_groups(self, split: str)" in component_text
     assert "def build_frame_record(" in component_text
+
+
+def test_cli_add_component_updates_existing_package_exports(tmp_path: Path) -> None:
+    """New component scaffolds should extend the package-level re-exports."""
+
+    target_dir = create_experiment_scaffold("exports-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "dataset",
+            "ExtraDataset",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    init_text = (target_dir / "src" / "datasets" / "__init__.py").read_text()
+
+    assert "from .exports_demo import ExportsDemoDataset" in init_text
+    assert "from .extradataset import ExtraDatasetDataset" in init_text
+    assert '"ExportsDemoDataset"' in init_text
+    assert '"ExtraDatasetDataset"' in init_text

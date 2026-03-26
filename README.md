@@ -192,13 +192,26 @@ scaffold a `wandb` callback block, W&B tracking defaults, and `.env.example`.
 - [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow)
 - [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
 
-To add a new local component scaffold inside the experiment repo:
+## Scaffold Commands
+
+Each `dl-core add ...` command creates the new module and updates the matching
+local package `__init__.py` export list under `src/`.
+
+Common local component scaffolds:
 
 ```bash
-uv run dl-core add augmentation Custom1
+uv run dl-core add model MyResNet
+uv run dl-core add trainer MyTrainer
+uv run dl-core add callback MyMetrics
+uv run dl-core add metric_manager MyManager
+uv run dl-core add sampler MySampler
+uv run dl-core add criterion MyLoss
+uv run dl-core add augmentation MyAugmentation
+uv run dl-core add metric MyMetric
+uv run dl-core add executor MyExecutor
 ```
 
-Dataset scaffolds can now target a specific wrapper base:
+Dataset scaffolds can target a specific wrapper base:
 
 ```bash
 uv run dl-core add dataset MyDataset
@@ -212,6 +225,8 @@ When `dl-azure` is importable, the dataset scaffold also exposes Azure bases:
 ```bash
 uv run dl-core add dataset AzureFrames --base azure_compute_frame
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
+uv run dl-core add dataset AzureStream --base azure_streaming
+uv run dl-core add dataset AzureStreamSeq --base azure_streaming_multiframe
 ```
 
 Plain `deep-learning-core` currently exposes dataset bases for:
