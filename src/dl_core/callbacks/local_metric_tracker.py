@@ -41,9 +41,14 @@ def _sanitize_metric_filename(metric_name: str) -> str:
     return sanitized or "metric"
 
 
-def _is_phase_metric(metric_name: str) -> bool:
-    """Return whether a metric belongs to a train/validation/test phase."""
-    return metric_name.startswith(("train/", "validation/", "test/"))
+def _qualify_phase_metrics(
+    scalars: dict[str, float],
+    phase: str | None,
+) -> dict[str, float]:
+    """Return phase-qualified scalars for phase hooks."""
+    if phase is None:
+        return scalars
+    return {f"{phase}/{key}": value for key, value in scalars.items()}
 
 
 @register_callback("local_metric_tracker")
@@ -66,7 +71,7 @@ class LocalMetricTrackerCallback(Callback):
         epoch: int,
         logs: dict[str, Any] | None,
         *,
-        phase_only: bool,
+        phase: str | None = None,
     ) -> None:
         """Append scalar metrics to per-metric JSONL files."""
         if not self.enabled:
@@ -77,13 +82,12 @@ class LocalMetricTrackerCallback(Callback):
             return
 
         scalars = _extract_scalars(logs)
-        if phase_only:
+        scalars = _qualify_phase_metrics(scalars, phase)
+        if phase is None:
             scalars = {
-                key: value for key, value in scalars.items() if _is_phase_metric(key)
-            }
-        else:
-            scalars = {
-                key: value for key, value in scalars.items() if not _is_phase_metric(key)
+                key: value
+                for key, value in scalars.items()
+                if not key.startswith(("train/", "validation/", "test/"))
             }
 
         for metric_name, value in scalars.items():
@@ -102,7 +106,7 @@ class LocalMetricTrackerCallback(Callback):
     def on_train_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Append train metrics at the end of a train epoch."""
         super().on_train_end(epoch, logs)
-        self._append_scalars(epoch, logs, phase_only=True)
+        self._append_scalars(epoch, logs, phase="train")
 
     def on_validation_end(
         self,
@@ -111,14 +115,14 @@ class LocalMetricTrackerCallback(Callback):
     ) -> None:
         """Append validation metrics at the end of a validation epoch."""
         super().on_validation_end(epoch, logs)
-        self._append_scalars(epoch, logs, phase_only=True)
+        self._append_scalars(epoch, logs, phase="validation")
 
     def on_test_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Append test metrics at the end of a test epoch."""
         super().on_test_end(epoch, logs)
-        self._append_scalars(epoch, logs, phase_only=True)
+        self._append_scalars(epoch, logs, phase="test")
 
     def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Append non-phase epoch metrics after train/validation/test complete."""
         super().on_epoch_end(epoch, logs)
-        self._append_scalars(epoch, logs, phase_only=False)
+        self._append_scalars(epoch, logs, phase=None)

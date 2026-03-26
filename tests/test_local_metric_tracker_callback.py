@@ -45,20 +45,20 @@ def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
         callback.on_test_end(
             0,
             {
-                "test/accuracy": 0.61,
+                "accuracy": 0.61,
                 "note": "ignored",
             },
         )
         callback.on_train_end(
             1,
             {
-                "train/loss": 0.5,
+                "loss": 0.5,
             },
         )
         callback.on_validation_end(
             1,
             {
-                "validation/accuracy": 0.75,
+                "accuracy": 0.75,
             },
         )
         callback.on_epoch_end(
