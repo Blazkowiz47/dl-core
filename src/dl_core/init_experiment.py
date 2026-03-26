@@ -236,12 +236,41 @@ def _pyright_config() -> str:
 
 
 def _config_presets() -> str:
-    """Render config-level presets placeholder file."""
+    """Render config-level presets with common accelerator defaults."""
     return """# Config-Level Presets
 #
 # Use this file for experiment-specific presets referenced by sweeps.
-#
-# Example:
+# The scaffold includes common accelerator presets so both humans and coding
+# agents can discover the expected config shape quickly.
+
+accelerators:
+  cpu:
+    accelerator.type: cpu
+    accelerator.gradient_accumulation_steps: 1
+
+  single_gpu:
+    accelerator.type: single_gpu
+    accelerator.gradient_accumulation_steps: 1
+
+  multi_gpu_ddp_2:
+    accelerator.type: multi_gpu
+    accelerator.devices: [0, 1]
+    accelerator.strategy: ddp
+    accelerator.gradient_accumulation_steps: 1
+
+  multi_gpu_ddp_4:
+    accelerator.type: multi_gpu
+    accelerator.devices: [0, 1, 2, 3]
+    accelerator.strategy: ddp
+    accelerator.gradient_accumulation_steps: 1
+
+  multi_gpu_ddp_8:
+    accelerator.type: multi_gpu
+    accelerator.devices: [0, 1, 2, 3, 4, 5, 6, 7]
+    accelerator.strategy: ddp
+    accelerator.gradient_accumulation_steps: 1
+
+# Example experiment-level preset:
 # fast_debug:
 #   trainer.standard.epochs: 3
 """

@@ -28,11 +28,25 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert not (target_dir / "configs" / "sweeps").exists()
 
     config = yaml.safe_load((target_dir / "configs" / "base.yaml").read_text())
+    presets = yaml.safe_load((target_dir / "configs" / "presets.yaml").read_text())
     assert list(config["models"].keys()) == ["resnet_example"]
     assert config["models"]["resnet_example"]["name"] == "resnet_example"
     assert config["dataset"]["name"] == component_name
     assert list(config["trainer"].keys()) == [component_name]
     assert config["trainer"][component_name]["name"] == component_name
+    assert list(presets["accelerators"].keys()) == [
+        "cpu",
+        "single_gpu",
+        "multi_gpu_ddp_2",
+        "multi_gpu_ddp_4",
+        "multi_gpu_ddp_8",
+    ]
+    assert presets["accelerators"]["multi_gpu_ddp_4"]["accelerator.devices"] == [
+        0,
+        1,
+        2,
+        3,
+    ]
 
     sweep_config = yaml.safe_load(
         (target_dir / "configs" / "base_sweep.yaml").read_text()
