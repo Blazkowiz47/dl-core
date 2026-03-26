@@ -32,7 +32,7 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
 
 
 def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
-    """The callback should append scalar metrics to per-metric JSONL files."""
+    """The callback should append phase and general metrics with correct steps."""
     with TemporaryDirectory() as temp_dir:
         artifact_manager = ArtifactManager(
             run_name="demo-run",
@@ -42,41 +42,60 @@ def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
         callback = LocalMetricTrackerCallback()
         callback.set_trainer(_DummyTrainer(artifact_manager))
 
-        callback.on_epoch_end(
+        callback.on_test_end(
             0,
             {
-                "train/loss": 0.5,
-                "validation_accuracy": 0.75,
+                "test/accuracy": 0.61,
                 "note": "ignored",
+            },
+        )
+        callback.on_train_end(
+            1,
+            {
+                "train/loss": 0.5,
+            },
+        )
+        callback.on_validation_end(
+            1,
+            {
+                "validation/accuracy": 0.75,
             },
         )
         callback.on_epoch_end(
             1,
             {
-                "train/loss": 0.4,
-                "validation_accuracy": 0.8,
+                "general/state/global_step": 32.0,
+                "note": "ignored",
             },
         )
 
         series_dir = artifact_manager.get_metric_streams_dir()
+        test_accuracy_records = _read_jsonl(series_dir / "test_accuracy.jsonl")
         train_loss_records = _read_jsonl(series_dir / "train_loss.jsonl")
         validation_records = _read_jsonl(series_dir / "validation_accuracy.jsonl")
+        global_step_records = _read_jsonl(
+            series_dir / "general_state_global_step.jsonl"
+        )
 
+        assert test_accuracy_records == [
+            {"metric": "test/accuracy", "step": 0, "epoch": 0, "value": 0.61}
+        ]
         assert train_loss_records == [
-            {"metric": "train/loss", "step": 1, "epoch": 1, "value": 0.5},
-            {"metric": "train/loss", "step": 2, "epoch": 2, "value": 0.4},
+            {"metric": "train/loss", "step": 1, "epoch": 1, "value": 0.5}
         ]
         assert validation_records == [
             {
-                "metric": "validation_accuracy",
+                "metric": "validation/accuracy",
                 "step": 1,
                 "epoch": 1,
                 "value": 0.75,
             },
+        ]
+        assert global_step_records == [
             {
-                "metric": "validation_accuracy",
-                "step": 2,
-                "epoch": 2,
-                "value": 0.8,
-            },
+                "metric": "general/state/global_step",
+                "step": 1,
+                "epoch": 1,
+                "value": 32.0,
+            }
         ]

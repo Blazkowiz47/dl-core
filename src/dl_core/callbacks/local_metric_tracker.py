@@ -41,6 +41,11 @@ def _sanitize_metric_filename(metric_name: str) -> str:
     return sanitized or "metric"
 
 
+def _is_phase_metric(metric_name: str) -> bool:
+    """Return whether a metric belongs to a train/validation/test phase."""
+    return metric_name.startswith(("train/", "validation/", "test/"))
+
+
 @register_callback("local_metric_tracker")
 class LocalMetricTrackerCallback(Callback):
     """Append scalar metric values to per-metric JSONL files under run artifacts."""
@@ -56,32 +61,36 @@ class LocalMetricTrackerCallback(Callback):
         super().__init__(log_frequency=log_frequency, **kwargs)
         self.log_frequency = log_frequency
 
-    def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
-        """
-        Append scalar epoch metrics to per-metric JSONL files.
-
-        Args:
-            epoch: Current epoch number
-            logs: Scalar training metrics
-        """
+    def _append_scalars(
+        self,
+        epoch: int,
+        logs: dict[str, Any] | None,
+        *,
+        phase_only: bool,
+    ) -> None:
+        """Append scalar metrics to per-metric JSONL files."""
         if not self.enabled:
             return
-
-        super().on_epoch_end(epoch, logs)
         if not self.is_main_process():
             return
         if epoch % self.log_frequency != 0:
             return
 
         scalars = _extract_scalars(logs)
-        if not scalars:
-            return
+        if phase_only:
+            scalars = {
+                key: value for key, value in scalars.items() if _is_phase_metric(key)
+            }
+        else:
+            scalars = {
+                key: value for key, value in scalars.items() if not _is_phase_metric(key)
+            }
 
         for metric_name, value in scalars.items():
             payload = {
                 "metric": metric_name,
-                "step": epoch + 1,
-                "epoch": epoch + 1,
+                "step": epoch,
+                "epoch": epoch,
                 "value": value,
             }
             filename = f"{_sanitize_metric_filename(metric_name)}.jsonl"
@@ -89,3 +98,27 @@ class LocalMetricTrackerCallback(Callback):
                 Path("metrics") / "series" / filename,
                 payload,
             )
+
+    def on_train_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
+        """Append train metrics at the end of a train epoch."""
+        super().on_train_end(epoch, logs)
+        self._append_scalars(epoch, logs, phase_only=True)
+
+    def on_validation_end(
+        self,
+        epoch: int,
+        logs: dict[str, Any] | None = None,
+    ) -> None:
+        """Append validation metrics at the end of a validation epoch."""
+        super().on_validation_end(epoch, logs)
+        self._append_scalars(epoch, logs, phase_only=True)
+
+    def on_test_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
+        """Append test metrics at the end of a test epoch."""
+        super().on_test_end(epoch, logs)
+        self._append_scalars(epoch, logs, phase_only=True)
+
+    def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
+        """Append non-phase epoch metrics after train/validation/test complete."""
+        super().on_epoch_end(epoch, logs)
+        self._append_scalars(epoch, logs, phase_only=False)
