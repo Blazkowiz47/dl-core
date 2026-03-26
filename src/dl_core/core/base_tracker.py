@@ -46,6 +46,93 @@ class BaseTracker(ABC):
         """
         return self.get_backend_name()
 
+    def setup_sweep(
+        self,
+        *,
+        experiment_name: str,
+        sweep_id: str,
+        sweep_config: dict[str, Any],
+        total_runs: int,
+        tracking_context: str | None = None,
+        tracking_uri: str | None = None,
+        resume: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Prepare tracker state for a sweep.
+
+        Args:
+            experiment_name: Sweep experiment name
+            sweep_id: Sweep identifier
+            sweep_config: Full sweep configuration
+            total_runs: Number of concrete runs in the sweep
+            tracking_context: Existing tracker-specific parent or group context
+            tracking_uri: Existing tracker endpoint or workspace URI
+            resume: Whether the sweep is resuming an existing context
+
+        Returns:
+            Updated tracker state. Supported keys are ``tracking_context`` and
+            ``tracking_uri``.
+        """
+        del experiment_name
+        del sweep_id
+        del sweep_config
+        del total_runs
+        del resume
+        return {
+            "tracking_context": tracking_context,
+            "tracking_uri": tracking_uri,
+        }
+
+    def teardown_sweep(self) -> None:
+        """Clean up any tracker-owned sweep state."""
+
+    def build_run_reference(
+        self,
+        *,
+        result: dict[str, Any] | None = None,
+        run_name: str | None = None,
+        tracking_context: str | None = None,
+        tracking_uri: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Build one backend-specific run reference for sweep tracking.
+
+        Args:
+            result: Executor result payload
+            run_name: Generated run name
+            tracking_context: Tracker-specific parent or group context
+            tracking_uri: Tracker endpoint or workspace URI
+
+        Returns:
+            A backend-specific run reference dictionary, or ``None`` when the
+            tracker has no external reference to persist.
+        """
+        result = result or {}
+        reference = result.get("tracking_run_ref")
+        if isinstance(reference, dict):
+            merged_reference = dict(reference)
+        else:
+            merged_reference = {}
+
+        if not merged_reference:
+            merged_reference["backend"] = self.get_backend_name()
+
+        tracking_run_id = result.get("tracking_run_id")
+        if isinstance(tracking_run_id, str) and tracking_run_id:
+            merged_reference.setdefault("run_id", tracking_run_id)
+
+        resolved_run_name = result.get("tracking_run_name") or run_name
+        if isinstance(resolved_run_name, str) and resolved_run_name:
+            merged_reference.setdefault("run_name", resolved_run_name)
+
+        if tracking_context:
+            merged_reference.setdefault("tracking_context", tracking_context)
+
+        if tracking_uri:
+            merged_reference.setdefault("tracking_uri", tracking_uri)
+
+        return merged_reference or None
+
     def inject_tracking_config(
         self,
         config: dict[str, Any],

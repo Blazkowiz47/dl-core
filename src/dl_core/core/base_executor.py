@@ -54,6 +54,7 @@ class BaseExecutor(ABC):
         self.failed_runs = []
         self.unknown_runs = []  # Jobs with indeterminate status due to connection issues
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.tracking_uri: Optional[str] = None
 
         # Extract common configs from sweep config (available to all executors)
         self.executor_config = sweep_config.get("executor", {})
@@ -244,11 +245,18 @@ class BaseExecutor(ABC):
             return
 
         result = result or {}
+        tracking_run_ref = self.run_tracker.build_run_reference(
+            result=result,
+            run_name=result.get("tracking_run_name"),
+            tracking_context=self.tracking_context,
+            tracking_uri=self.tracking_uri,
+        )
         self.tracker.update_run_status(
             run_index,
             status,
             tracking_run_id=result.get("tracking_run_id"),
             tracking_run_name=result.get("tracking_run_name"),
+            tracking_run_ref=tracking_run_ref,
             error_message=error_message,
             config_path=str(config_path.resolve()),
             artifact_dir=result.get("artifact_dir"),
@@ -307,12 +315,32 @@ class BaseExecutor(ABC):
                 self.logger.info(f"[DRY RUN] Max workers: {max_workers}")
 
         try:
+            # Setup executor
+            self.setup(total_runs)
+
+            if not self.dry_run:
+                tracker_state = self.run_tracker.setup_sweep(
+                    experiment_name=self.experiment_name,
+                    sweep_id=self.sweep_id,
+                    sweep_config=self.sweep_config,
+                    total_runs=total_runs,
+                    tracking_context=self.tracking_context,
+                    tracking_uri=self.tracking_uri,
+                    resume=self.resume,
+                )
+                self.tracking_context = tracker_state.get(
+                    "tracking_context",
+                    self.tracking_context,
+                )
+                self.tracking_uri = tracker_state.get("tracking_uri", self.tracking_uri)
+
             # Initialize sweep tracker (only if not resuming - avoid overwriting existing data)
             if self.tracker and not self.dry_run and not self.resume:
                 self.tracker.initialize_sweep(
                     total_runs=total_runs,
                     user=self.sweep_config.get("user", "unknown"),
                     tracking_context=self.tracking_context,
+                    tracking_uri=self.tracking_uri,
                     tracking_backend=self.run_tracker.get_backend_name(),
                     metrics_source_backend=self.run_tracker.get_metrics_source_name(),
                     metadata={
@@ -320,9 +348,6 @@ class BaseExecutor(ABC):
                         "executor": self.__class__.__name__,
                     },
                 )
-
-            # Setup executor
-            self.setup(total_runs)
 
             # Execute runs (parallel or sequential)
             if max_workers > 1:
@@ -354,6 +379,8 @@ class BaseExecutor(ABC):
 
             # Teardown
             self.teardown()
+            if not self.dry_run:
+                self.run_tracker.teardown_sweep()
 
             # Return progress
             return self.get_progress()
@@ -361,6 +388,8 @@ class BaseExecutor(ABC):
         except Exception as e:
             self.logger.error(f"Sweep execution failed: {e}")
             traceback.print_exc()
+            if not self.dry_run:
+                self.run_tracker.teardown_sweep()
             raise
 
     def run(self, config_path: str, run_name: Optional[str] = None) -> bool:

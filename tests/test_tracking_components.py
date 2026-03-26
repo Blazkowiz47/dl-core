@@ -35,6 +35,26 @@ def test_local_tracker_is_registered_and_injects_tracking_config() -> None:
     }
 
 
+def test_local_tracker_builds_default_run_reference() -> None:
+    """Local tracker should emit a minimal backend-specific run reference."""
+    dl_core.load_builtin_components()
+
+    tracker = TRACKER_REGISTRY.get("local")
+    run_reference = tracker.build_run_reference(
+        result={"tracking_run_name": "demo-run"},
+        run_name="demo-run",
+        tracking_context="demo-group",
+        tracking_uri="./artifacts",
+    )
+
+    assert run_reference == {
+        "backend": "local",
+        "run_name": "demo-run",
+        "tracking_context": "demo-group",
+        "tracking_uri": "./artifacts",
+    }
+
+
 def test_collect_sweep_runs_uses_local_metrics_source(tmp_path: Path) -> None:
     """Sweep analyzer should resolve local metrics via the registered source."""
     dl_core.load_builtin_components()
@@ -98,6 +118,10 @@ def test_collect_sweep_runs_uses_local_metrics_source(tmp_path: Path) -> None:
                     "0": {
                         "tracking_run_id": None,
                         "tracking_run_name": "demo-run",
+                        "tracking_run_ref": {
+                            "backend": "local",
+                            "run_name": "demo-run",
+                        },
                         "tracking_backend": "local",
                         "metrics_source_backend": "local",
                         "config_path": str(config_path),

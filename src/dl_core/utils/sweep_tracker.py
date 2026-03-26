@@ -58,6 +58,7 @@ class SweepTracker:
         total_runs: int,
         user: str,
         tracking_context: Optional[str] = None,
+        tracking_uri: Optional[str] = None,
         tracking_backend: Optional[str] = None,
         metrics_source_backend: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -69,6 +70,7 @@ class SweepTracker:
             total_runs: Total number of runs in sweep
             user: Username running the sweep
             tracking_context: Optional tracker-specific parent or group context
+            tracking_uri: Optional tracker endpoint or workspace URI
             tracking_backend: Tracker backend name for this sweep
             metrics_source_backend: Metrics source backend name for this sweep
             metadata: Additional metadata to store (optional)
@@ -85,6 +87,7 @@ class SweepTracker:
                 "user": user,
                 "total_runs": total_runs,
                 "tracking_context": tracking_context,
+                "tracking_uri": tracking_uri,
                 "tracking_backend": tracking_backend or "local",
                 "metrics_source_backend": metrics_source_backend or "local",
                 "runs": {},
@@ -100,6 +103,7 @@ class SweepTracker:
                 sweep_data["runs"][str(i)] = {
                     "tracking_run_id": None,
                     "tracking_run_name": None,
+                    "tracking_run_ref": None,
                     "tracking_backend": tracking_backend or "local",
                     "metrics_source_backend": metrics_source_backend or "local",
                     "config_path": None,
@@ -121,6 +125,7 @@ class SweepTracker:
         status: str,
         tracking_run_id: Optional[str] = None,
         tracking_run_name: Optional[str] = None,
+        tracking_run_ref: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None,
         config_path: Optional[str] = None,
         artifact_dir: Optional[str] = None,
@@ -135,6 +140,7 @@ class SweepTracker:
             status: One of: pending, running, completed, failed, unknown
             tracking_run_id: External tracker run ID, if available
             tracking_run_name: External tracker run name, if available
+            tracking_run_ref: Backend-specific tracker reference
             error_message: Error message (for failed runs)
             config_path: Path to the concrete run config file
             artifact_dir: Path to the run artifact directory
@@ -166,6 +172,9 @@ class SweepTracker:
             if tracking_run_name:
                 run_data["tracking_run_name"] = tracking_run_name
 
+            if tracking_run_ref:
+                run_data["tracking_run_ref"] = tracking_run_ref
+
             if error_message:
                 run_data["error_message"] = error_message
 
@@ -192,12 +201,17 @@ class SweepTracker:
                 f"tracking_run_id={tracking_run_id}"
             )
 
-    def update_tracking_context(self, tracking_context: str) -> None:
+    def update_tracking_context(
+        self,
+        tracking_context: str,
+        tracking_uri: Optional[str] = None,
+    ) -> None:
         """
         Update external tracking context in sweep JSON.
 
         Args:
             tracking_context: Tracker-specific parent or group context
+            tracking_uri: Optional tracker endpoint or workspace URI
         """
         with self._lock:
             sweep_data = self._read_json()
@@ -207,6 +221,8 @@ class SweepTracker:
                 return
 
             sweep_data["tracking_context"] = tracking_context
+            if tracking_uri:
+                sweep_data["tracking_uri"] = tracking_uri
             sweep_data["last_update"] = datetime.now().isoformat()
 
             self._write_json(sweep_data)

@@ -310,6 +310,14 @@ class ArtifactManager:
         """Get the directory for per-metric JSONL streams."""
         return self.run_dir / "metrics" / "series"
 
+    def get_tracking_dir(self) -> Path:
+        """Get the tracking metadata directory."""
+        return self.run_dir / "tracking"
+
+    def get_tracking_session_path(self) -> Path:
+        """Get the tracker session metadata JSON path."""
+        return self.get_tracking_dir() / "session.json"
+
     def save_run_info(self, run_info: dict[str, Any]) -> None:
         """
         Save run metadata to the artifact directory.
@@ -318,6 +326,15 @@ class ArtifactManager:
             run_info: Run metadata dictionary
         """
         self.save_json("run_info.json", run_info)
+
+    def save_tracking_session(self, session_data: dict[str, Any]) -> None:
+        """
+        Save tracker session metadata to the artifact directory.
+
+        Args:
+            session_data: Tracker-owned session metadata
+        """
+        self.save_json(self.get_tracking_session_path(), session_data)
 
     def write_eval_summary(self, summary: dict[str, Any]) -> None:
         """

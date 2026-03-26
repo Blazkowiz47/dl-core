@@ -35,8 +35,6 @@ class LocalMetricsSource(BaseMetricsSource):
         Returns:
             Normalized run record for the analyzer.
         """
-        del sweep_data
-
         artifact_dir = self._infer_artifact_dir(run_data)
         summary_path = self._resolve_metrics_path(
             run_data,
@@ -68,6 +66,15 @@ class LocalMetricsSource(BaseMetricsSource):
             "error_message": (
                 run_data.get("error_message") or summary.get("error_message")
             ),
+            "tracking_backend": run_data.get(
+                "tracking_backend",
+                sweep_data.get("tracking_backend"),
+            ),
+            "metrics_source_backend": run_data.get(
+                "metrics_source_backend",
+                sweep_data.get("metrics_source_backend"),
+            ),
+            "tracking_run_ref": run_data.get("tracking_run_ref"),
             "artifact_dir": str(artifact_dir) if artifact_dir else None,
             "config_path": run_data.get("config_path"),
             "metrics_summary_path": (

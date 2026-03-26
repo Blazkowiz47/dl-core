@@ -1,5 +1,6 @@
 """Simple local executor."""
 
+import json
 import subprocess
 import yaml
 from pathlib import Path
@@ -129,13 +130,52 @@ class LocalExecutor(BaseExecutor):
                 f"Run {run_index + 1} failed with code {result.returncode}"
             )
 
+        tracking_session = self._load_tracking_session(artifact_dir)
+
         return {
             "success": success,
-            "tracking_run_name": run_name,
+            "tracking_run_id": (
+                tracking_session.get("run_id")
+                if isinstance(tracking_session, dict)
+                else None
+            ),
+            "tracking_run_name": (
+                tracking_session.get("run_name")
+                if isinstance(tracking_session, dict)
+                else run_name
+            ),
+            "tracking_run_ref": tracking_session,
             "artifact_dir": str(artifact_dir),
             "metrics_summary_path": str(artifact_dir / "metrics" / "summary.json"),
             "metrics_history_path": str(artifact_dir / "metrics" / "history.json"),
         }
+
+    def _load_tracking_session(self, artifact_dir: Path) -> Dict[str, Any] | None:
+        """
+        Load tracker session metadata written by a callback.
+
+        Args:
+            artifact_dir: Run artifact directory
+
+        Returns:
+            Parsed tracking session metadata when available.
+        """
+        session_path = artifact_dir / "tracking" / "session.json"
+        if not session_path.exists():
+            return None
+
+        try:
+            with open(session_path, "r", encoding="utf-8") as handle:
+                session = json.load(handle)
+        except Exception as exc:
+            self.logger.warning(
+                f"Failed to load tracking session from {session_path}: {exc}"
+            )
+            return None
+
+        if not isinstance(session, dict):
+            return None
+        return session
 
     def _inject_sweep_metadata(self, config: Dict[str, Any]) -> None:
         """Inject sweep metadata into config for artifact directory structure."""
