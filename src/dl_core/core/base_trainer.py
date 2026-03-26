@@ -1,8 +1,10 @@
 """
-Refactored base trainer class with pluggable metric managers.
+Epoch-based trainer foundation with pluggable metric managers.
 
-This version removes domain-specific coupling and uses a pluggable
-architecture for metrics via metric managers.
+This module keeps the shared training loop, accelerator integration, callback
+hooks, and checkpoint flow used by the built-in trainers. `BaseTrainer`
+remains as a compatibility alias for the epoch-based implementation so
+existing imports continue to work.
 """
 
 import logging
@@ -44,9 +46,9 @@ from .registry import (
 logger = logging.getLogger(__name__)
 
 
-class BaseTrainer(ABC):
+class EpochTrainer(ABC):
     """
-    Abstract base class for all trainers.
+    Epoch-based trainer base class for supervised training workloads.
 
     Provides standardized training pipeline with:
     - Dictionary-based interfaces for models, criterions, optimizers, schedulers
@@ -151,6 +153,8 @@ class BaseTrainer(ABC):
                 f"Trainer configuration missing, using default settings for {trainer_name}",
             )
 
+        self.trainer_name = trainer_name
+        self.trainer_config = trainer_config
         self.logger.info(f"Using trainer: {trainer_name}")
         self.logger.info(f"Trainer configuration: {trainer_config}")
         self.epochs = trainer_config["epochs"]
@@ -2735,3 +2739,7 @@ class BaseTrainer(ABC):
             split: self.metrics_history[split].get(epoch, {})
             for split in ["train", "validation", "test"]
         }
+
+
+# Compatibility alias for existing imports.
+BaseTrainer = EpochTrainer

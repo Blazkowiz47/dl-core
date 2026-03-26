@@ -94,7 +94,8 @@ trainer:
     epochs: 3
 ```
 
-That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`.
+That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`,
+which builds on the epoch-based `dl_core.core.EpochTrainer`.
 
 ## Runtime
 

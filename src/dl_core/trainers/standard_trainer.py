@@ -12,13 +12,13 @@ from dl_core.core import (
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
     SCHEDULER_REGISTRY,
-    BaseTrainer,
+    EpochTrainer,
     register_trainer,
 )
 
 
 @register_trainer("standard")
-class StandardTrainer(BaseTrainer):
+class StandardTrainer(EpochTrainer):
     """
     Standard trainer that loads all components from config.
 

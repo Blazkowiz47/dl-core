@@ -11,7 +11,8 @@ In a scaffolded project named `my-exp`:
 - model name: `resnet_example`
 
 The generated dataset is a visible `BaseWrapper` skeleton, the trainer extends
-the built-in `StandardTrainer`, and the model extends `ResNet`.
+the built-in `StandardTrainer` on top of `EpochTrainer`, and the model extends
+`ResNet`.
 
 ## How Registration Works
 
