@@ -6,8 +6,8 @@ version: "1.0"
 base_config: "./base.yaml"
 
 fixed:
-  accelerator: preset:accelerators.cpu
-  executor: preset:executors.local
+  accelerators: preset:accelerators.cpu
+  executors: preset:executors.local
   runtime:
     log_level: INFO
   trainer:

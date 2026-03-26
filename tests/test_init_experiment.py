@@ -51,6 +51,8 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     sweep_config = yaml.safe_load(
         (target_dir / "configs" / "base_sweep.yaml").read_text()
     )
+    assert sweep_config["fixed"]["accelerators"] == "preset:accelerators.cpu"
+    assert sweep_config["fixed"]["executors"] == "preset:executors.local"
     assert list(sweep_config["fixed"]["trainer"].keys()) == [component_name]
     assert sweep_config["fixed"]["trainer"][component_name]["name"] == component_name
     assert sweep_config["default_grid"] == {}
