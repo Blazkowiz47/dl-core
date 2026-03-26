@@ -10,6 +10,7 @@ import yaml
 import dl_core
 from dl_core.analysis.sweep_analyzer import collect_sweep_runs
 from dl_core.core import METRICS_SOURCE_REGISTRY, TRACKER_REGISTRY
+from dl_core.executors.local import LocalExecutor
 
 
 def test_local_tracker_is_registered_and_injects_tracking_config() -> None:
@@ -144,3 +145,31 @@ def test_collect_sweep_runs_uses_local_metrics_source(tmp_path: Path) -> None:
     assert runs[0]["selection_metric"] == "validation_accuracy"
     assert runs[0]["selection_value"] == 0.91
     assert runs[0]["metrics_summary_path"] == str(summary_path)
+
+
+def test_local_executor_injects_tracker_metadata_into_run_config() -> None:
+    """Local executor should inject tracker metadata before launching a run."""
+    dl_core.load_builtin_components()
+
+    executor = LocalExecutor(
+        {
+            "tracking": {"backend": "local"},
+            "sweep_file": "experiments/demo_sweep.yaml",
+        },
+        experiment_name="demo-exp",
+        sweep_id="sweep-001",
+        tracking_context="demo-group",
+    )
+    executor.tracking_uri = "./artifacts"
+
+    config: dict[str, object] = {"runtime": {"name": "demo-run"}}
+    executor._inject_sweep_metadata(config)
+
+    assert config["tracking"] == {
+        "backend": "local",
+        "context": "demo-group",
+        "uri": "./artifacts",
+        "run_name": "demo-run",
+    }
+    assert config["sweep_file"] == "experiments/demo_sweep.yaml"
+    assert config["auto_resume_local"] is True

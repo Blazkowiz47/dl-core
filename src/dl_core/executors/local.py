@@ -179,6 +179,16 @@ class LocalExecutor(BaseExecutor):
 
     def _inject_sweep_metadata(self, config: Dict[str, Any]) -> None:
         """Inject sweep metadata into config for artifact directory structure."""
+        runtime_config = config.get("runtime", {})
+        run_name = runtime_config.get("name") if isinstance(runtime_config, dict) else None
+
+        self.inject_tracking_params(
+            config,
+            tracking_context=self.tracking_context,
+            tracking_uri=self.tracking_uri,
+            run_name=run_name if isinstance(run_name, str) else None,
+        )
+
         # Inject sweep_file for artifact directory structure
         if "sweep_file" in self.sweep_config:
             config["sweep_file"] = self.sweep_config["sweep_file"]
