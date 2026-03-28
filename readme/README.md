@@ -71,5 +71,5 @@ uv run dl-run --config configs/base.yaml
 ### Run a sweep
 
 ```bash
-uv run dl-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-sweep experiments/lr_sweep.yaml
 ```

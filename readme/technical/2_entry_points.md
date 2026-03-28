@@ -68,7 +68,7 @@ Generates run configs from a sweep spec and dispatches them through the
 configured executor.
 
 ```bash
-uv run dl-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-sweep experiments/lr_sweep.yaml
 ```
 
 Useful flags:
