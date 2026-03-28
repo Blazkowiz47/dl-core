@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 from dl_core.init_experiment import create_experiment_scaffold, main as init_main
@@ -110,7 +109,7 @@ def test_cli_allows_missing_name_with_root_dir(tmp_path: Path) -> None:
 
 
 def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
-    """In-place init should accept and replace a fresh uv-init bootstrap."""
+    """In-place init should preserve existing bootstrap files by default."""
     target_dir = tmp_path / "custom_test"
     target_dir.mkdir()
     (target_dir / ".gitignore").write_text(".venv/\n", encoding="utf-8")
@@ -126,14 +125,17 @@ def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
     created_dir = create_experiment_scaffold(root_dir=str(target_dir))
 
     assert created_dir == target_dir.resolve()
-    assert not (created_dir / "main.py").exists()
-    assert not (created_dir / "uv.lock").exists()
-    assert (created_dir / "pyproject.toml").exists()
-    assert (created_dir / "README.md").exists()
+    assert (created_dir / "main.py").read_text(encoding="utf-8") == "print('hello')\n"
+    assert (created_dir / "uv.lock").read_text(encoding="utf-8") == "version = 1\n"
+    assert (created_dir / "pyproject.toml").read_text(encoding="utf-8") == (
+        "[project]\nname='temp'\n"
+    )
+    assert (created_dir / "README.md").read_text(encoding="utf-8") == "# temp\n"
+    assert (created_dir / "configs" / "base.yaml").exists()
 
 
 def test_scaffold_allows_existing_agents_and_pyright_files(tmp_path: Path) -> None:
-    """In-place init should replace scaffold-owned metadata helper files."""
+    """In-place init should preserve existing scaffold-owned helper files."""
     target_dir = tmp_path / "custom_test"
     target_dir.mkdir()
     (target_dir / "AGENTS.md").write_text("temp\n", encoding="utf-8")
@@ -142,12 +144,9 @@ def test_scaffold_allows_existing_agents_and_pyright_files(tmp_path: Path) -> No
     created_dir = create_experiment_scaffold(root_dir=str(target_dir))
 
     assert created_dir == target_dir.resolve()
-    assert "uv run dl-core describe" in (
-        created_dir / "AGENTS.md"
-    ).read_text(encoding="utf-8")
-    assert '"typeCheckingMode": "basic"' in (
-        created_dir / "pyrightconfig.json"
-    ).read_text(encoding="utf-8")
+    assert (created_dir / "AGENTS.md").read_text(encoding="utf-8") == "temp\n"
+    assert (created_dir / "pyrightconfig.json").read_text(encoding="utf-8") == "{}"
+    assert (created_dir / "configs" / "base.yaml").exists()
 
 
 def test_scaffold_allows_existing_scripts_and_azure_config(tmp_path: Path) -> None:
@@ -174,7 +173,7 @@ def test_scaffold_allows_existing_scripts_and_azure_config(tmp_path: Path) -> No
 
 
 def test_scaffold_preserves_existing_tool_uv_config(tmp_path: Path) -> None:
-    """In-place init should keep existing uv index and source settings."""
+    """In-place init should leave an existing pyproject untouched by default."""
     target_dir = tmp_path / "consumer_repo"
     target_dir.mkdir()
     (target_dir / "pyproject.toml").write_text(
@@ -206,11 +205,14 @@ def test_scaffold_preserves_existing_tool_uv_config(tmp_path: Path) -> None:
     assert 'url = "https://test.pypi.org/simple/"' in pyproject_text
 
 
-def test_scaffold_rejects_unexpected_existing_files(tmp_path: Path) -> None:
-    """In-place init should still reject directories with unrelated files."""
+def test_scaffold_allows_unrelated_existing_files(tmp_path: Path) -> None:
+    """In-place init should add missing scaffold files without rejecting extras."""
     target_dir = tmp_path / "custom_test"
     target_dir.mkdir()
     (target_dir / "notes.txt").write_text("keep me\n", encoding="utf-8")
 
-    with pytest.raises(FileExistsError):
-        create_experiment_scaffold(root_dir=str(target_dir))
+    created_dir = create_experiment_scaffold(root_dir=str(target_dir))
+
+    assert created_dir == target_dir.resolve()
+    assert (created_dir / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+    assert (created_dir / "configs" / "base.yaml").exists()

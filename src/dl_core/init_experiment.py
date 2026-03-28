@@ -44,9 +44,14 @@ def _templates_dir() -> Path:
     return Path(__file__).resolve().parent / "templates"
 
 
-def _write_text(path: Path, content: str) -> None:
+def _write_text(path: Path, content: str, *, overwrite: bool = True) -> None:
     """Write text content to a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if path.is_dir():
+            raise FileExistsError(f"Expected file path but found directory: {path}")
+        if not overwrite:
+            return
     path.write_text(content, encoding="utf-8")
 
 
@@ -62,37 +67,9 @@ def _template_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _extract_tool_uv_blocks(pyproject_text: str) -> str:
-    """Extract raw ``tool.uv`` TOML blocks from an existing pyproject."""
-    lines = pyproject_text.splitlines()
-    captured_blocks: list[str] = []
-    current_block: list[str] = []
-    capturing = False
-
-    for line in lines:
-        stripped = line.strip()
-        is_header = stripped.startswith("[") and stripped.endswith("]")
-        if is_header:
-            if capturing and current_block:
-                captured_blocks.append("\n".join(current_block).rstrip())
-                current_block = []
-            capturing = stripped.startswith("[tool.uv") or stripped.startswith(
-                "[[tool.uv"
-            )
-        if capturing:
-            current_block.append(line)
-
-    if capturing and current_block:
-        captured_blocks.append("\n".join(current_block).rstrip())
-
-    if not captured_blocks:
-        return ""
-    return "\n\n".join(captured_blocks) + "\n"
-
-
-def _project_pyproject(project_name: str, preserved_uv_blocks: str = "") -> str:
+def _project_pyproject(project_name: str) -> str:
     """Render the generated experiment project's pyproject.toml."""
-    content = f"""[build-system]
+    return f"""[build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
@@ -110,9 +87,6 @@ dependencies = [
 only-include = ["src"]
 sources = ["src"]
 """
-    if preserved_uv_blocks:
-        content = f"{content.rstrip()}\n\n{preserved_uv_blocks}"
-    return content
 
 
 def _project_readme(project_name: str) -> str:
@@ -470,7 +444,6 @@ def _build_project_names(project_name: str) -> ProjectNames:
 def _base_scaffold_files(
     templates_dir: Path,
     project: ProjectNames,
-    preserved_uv_blocks: str = "",
 ) -> dict[Path, str]:
     """Render the base scaffold files before extensions are applied."""
     replacements = {
@@ -512,10 +485,7 @@ def _base_scaffold_files(
         Path("configs") / "presets.yaml": _config_presets(),
         Path("experiments") / "lr_sweep.yaml": lr_sweep_yaml,
         Path("experiments") / "experiments.log": _experiments_log(),
-        Path("pyproject.toml"): _project_pyproject(
-            project.project_slug,
-            preserved_uv_blocks=preserved_uv_blocks,
-        ),
+        Path("pyproject.toml"): _project_pyproject(project.project_slug),
         Path("README.md"): _project_readme(project.project_slug),
         Path("AGENTS.md"): _project_agents_md(project.project_slug),
         Path(".gitignore"): _gitignore(),
@@ -552,43 +522,6 @@ def _base_scaffold_files(
     }
 
 
-_IN_PLACE_ALLOWED_ENTRIES = {
-    ".git",
-    ".gitignore",
-    ".python-version",
-    "AGENTS.md",
-    ".venv",
-    "README.md",
-    "pyrightconfig.json",
-    "azure-config.json",
-    "scripts",
-    "main.py",
-    "pyproject.toml",
-    "uv.lock",
-}
-
-_IN_PLACE_REPLACED_FILES = {
-    ".gitignore",
-    "AGENTS.md",
-    "README.md",
-    "pyrightconfig.json",
-    "pyproject.toml",
-}
-
-_IN_PLACE_REMOVED_FILES = {
-    "main.py",
-    "uv.lock",
-}
-
-
-def _cleanup_in_place_target_dir(target_dir: Path) -> None:
-    """Remove transient bootstrap files before writing the scaffold."""
-    for relative_name in _IN_PLACE_REPLACED_FILES | _IN_PLACE_REMOVED_FILES:
-        path = target_dir / relative_name
-        if path.exists() and path.is_file():
-            path.unlink()
-
-
 def _validate_target_dir(target_dir: Path, initialize_in_place: bool) -> None:
     """Validate that the scaffold target directory is safe to create."""
     if target_dir.exists() and not target_dir.is_dir():
@@ -599,17 +532,6 @@ def _validate_target_dir(target_dir: Path, initialize_in_place: bool) -> None:
 
     if not initialize_in_place:
         raise FileExistsError(f"Target directory already exists: {target_dir}")
-
-    existing_names = {path.name for path in target_dir.iterdir()}
-    if not existing_names:
-        return
-
-    unsupported_entries = sorted(existing_names - _IN_PLACE_ALLOWED_ENTRIES)
-    if unsupported_entries:
-        raise FileExistsError(
-            "Target directory already exists and contains unsupported files: "
-            f"{unsupported_entries}. Directory: {target_dir}"
-        )
 
 
 def create_experiment_scaffold(
@@ -625,14 +547,7 @@ def create_experiment_scaffold(
     project = _build_project_names(project_name)
     target_dir = _resolve_target_dir(name, root_path)
     _validate_target_dir(target_dir, initialize_in_place=name is None)
-    preserved_uv_blocks = ""
-    existing_pyproject = target_dir / "pyproject.toml"
-    if name is None and existing_pyproject.exists():
-        preserved_uv_blocks = _extract_tool_uv_blocks(
-            existing_pyproject.read_text(encoding="utf-8")
-        )
-    if name is None and target_dir.exists():
-        _cleanup_in_place_target_dir(target_dir)
+    initialize_in_place = name is None and target_dir.exists()
 
     templates_dir = _templates_dir()
     extensions = (
@@ -651,7 +566,6 @@ def create_experiment_scaffold(
         files=_base_scaffold_files(
             templates_dir,
             project,
-            preserved_uv_blocks=preserved_uv_blocks,
         ),
         enabled_extensions=set(selected_extensions),
     )
@@ -662,7 +576,11 @@ def create_experiment_scaffold(
         extension.apply(context)
 
     for relative_path, content in context.files.items():
-        _write_text(target_dir / relative_path, content)
+        _write_text(
+            target_dir / relative_path,
+            content,
+            overwrite=not initialize_in_place,
+        )
 
     return target_dir
 
