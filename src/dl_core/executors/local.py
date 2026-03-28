@@ -8,6 +8,10 @@ from typing import Any, Dict, Optional
 
 from dl_core.core import BaseExecutor, register_executor
 from dl_core.utils.artifact_manager import get_run_artifact_dir
+from dl_core.utils.config_names import (
+    resolve_config_experiment_name,
+    resolve_config_run_name,
+)
 
 
 @register_executor("local")
@@ -88,9 +92,12 @@ class LocalExecutor(BaseExecutor):
 
         # Get launch command based on accelerator config
         runtime_config = run_config.get("runtime", {})
-        experiment_config = run_config.get("experiment", {})
-        run_name = runtime_config.get("name", config_path.stem)
+        run_name = resolve_config_run_name(run_config, config_path=config_path)
         output_dir = runtime_config.get("output_dir", "artifacts")
+        experiment_name = resolve_config_experiment_name(
+            run_config,
+            config_path=config_path,
+        )
         sweep_name = None
         sweep_file = run_config.get("sweep_file")
         if sweep_file:
@@ -100,7 +107,7 @@ class LocalExecutor(BaseExecutor):
             get_run_artifact_dir(
                 run_name=run_name,
                 output_dir=output_dir,
-                experiment_name=experiment_config.get("name"),
+                experiment_name=experiment_name,
                 sweep_name=sweep_name,
             )
         ).resolve()

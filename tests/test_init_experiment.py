@@ -28,12 +28,16 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert not (target_dir / "configs" / "sweeps").exists()
 
     config = yaml.safe_load((target_dir / "configs" / "base.yaml").read_text())
+    base_text = (target_dir / "configs" / "base.yaml").read_text()
     presets = yaml.safe_load((target_dir / "configs" / "presets.yaml").read_text())
     assert list(config["models"].keys()) == ["resnet_example"]
     assert config["models"]["resnet_example"]["name"] == "resnet_example"
     assert config["dataset"]["name"] == component_name
     assert list(config["trainer"].keys()) == [component_name]
     assert config["trainer"][component_name]["name"] == component_name
+    assert "name" not in config["runtime"]
+    assert "name" not in config["experiment"]
+    assert "# name: named-demo" in base_text
     assert list(presets["accelerators"].keys()) == [
         "cpu",
         "single_gpu",
@@ -56,7 +60,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert sweep_config["fixed"]["trainer"][component_name]["name"] == component_name
     assert sweep_config["default_grid"] == {}
     assert "# experiment_name: my_project" in base_sweep_text
-    assert "Defaults to the repository root name." in base_sweep_text
+    assert "Defaults to experiment.name or the" in base_sweep_text
     assert "# sweep_name: my_custom_sweep" in base_sweep_text
     assert "Optional sweep grouping override. Defaults to the sweep filename." in (
         base_sweep_text
@@ -86,8 +90,11 @@ def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> 
     assert (created_dir / "src" / "datasets" / "custom_test.py").exists()
     assert (created_dir / "src" / "bootstrap.py").exists()
 
-    config = yaml.safe_load((created_dir / "configs" / "base.yaml").read_text())
-    assert config["experiment"]["name"] == "custom-test"
+    base_text = (created_dir / "configs" / "base.yaml").read_text()
+    config = yaml.safe_load(base_text)
+    assert "name" not in config["experiment"]
+    assert "# name: custom-test" in base_text
+    assert "name" not in config["runtime"]
     assert config["dataset"]["name"] == "custom_test"
 
 

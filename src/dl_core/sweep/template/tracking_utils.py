@@ -10,28 +10,9 @@ This module handles:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from dl_core.project import find_project_root
-
-
-def _as_non_empty_string(value: Any) -> str | None:
-    """Return a stripped string when the input is a non-empty string."""
-    if not isinstance(value, str):
-        return None
-    stripped = value.strip()
-    return stripped or None
-
-
-def _resolve_project_root_name(*paths: Path) -> str | None:
-    """Resolve the nearest project root name from one or more candidate paths."""
-    for path in paths:
-        project_root = find_project_root(path)
-        if project_root is None:
-            continue
-        return project_root.name
-    return None
+from dl_core.utils.config_names import resolve_config_experiment_name
 
 
 def resolve_tracking_experiment_name(
@@ -44,8 +25,8 @@ def resolve_tracking_experiment_name(
 
     Resolution order:
     1. ``tracking.experiment_name``
-    2. The nearest experiment repository root name
-    3. ``experiment.name``
+    2. ``experiment.name``
+    3. The nearest experiment repository root name
     4. ``template_name`` without common suffixes
     5. ``"experiment"``
 
@@ -56,35 +37,7 @@ def resolve_tracking_experiment_name(
     Returns:
         Resolved tracker experiment name.
     """
-    tracking_config = config.get("tracking", {})
-    if isinstance(tracking_config, dict):
-        configured_name = _as_non_empty_string(tracking_config.get("experiment_name"))
-        if configured_name is not None:
-            return configured_name
-
-    candidate_paths: list[Path] = []
-    if config_path is not None:
-        candidate_paths.append(Path(config_path))
-
-    sweep_file = _as_non_empty_string(config.get("sweep_file"))
-    if sweep_file is not None:
-        candidate_paths.append(Path(sweep_file))
-
-    project_root_name = _resolve_project_root_name(*candidate_paths)
-    if project_root_name is not None:
-        return project_root_name
-
-    experiment_config = config.get("experiment", {})
-    if isinstance(experiment_config, dict):
-        experiment_name = _as_non_empty_string(experiment_config.get("name"))
-        if experiment_name is not None:
-            return experiment_name
-
-    template_name = _as_non_empty_string(config.get("template_name"))
-    if template_name is not None:
-        return template_name.replace("_template", "").replace("_sweep", "")
-
-    return "experiment"
+    return resolve_config_experiment_name(config, config_path=config_path)
 
 
 def ensure_tracking_experiment_name(

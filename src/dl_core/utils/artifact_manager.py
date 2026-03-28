@@ -47,7 +47,7 @@ class ArtifactManager:
         Initialize artifact manager.
 
         Args:
-            run_name: Name for this training run (from config runtime.name)
+            run_name: Name for this training run
             output_dir: Base output directory (default: "artifacts")
             experiment_name: Experiment name for directory structure
             sweep_name: Sweep name for directory structure

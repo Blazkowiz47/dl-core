@@ -16,7 +16,8 @@ _TRACKING_BACKENDS = {
 
 _SWEEP_NAME_COMMENT = (
     "  # experiment_name: my_project\n"
-    "  # Optional tracker destination override. Defaults to the repository root name.\n"
+    "  # Optional tracker destination override. Defaults to experiment.name or the\n"
+    "  # repository root name.\n"
     "  # sweep_name: custom_sweep_name\n"
     "  # Optional sweep grouping override. Defaults to the sweep filename.\n"
 )

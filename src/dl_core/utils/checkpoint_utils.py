@@ -6,6 +6,11 @@ from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from dl_core.utils.config_names import (
+    resolve_config_experiment_name,
+    resolve_config_run_name,
+)
+
 logger = getLogger(__name__)
 
 
@@ -76,17 +81,16 @@ def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
         runtime_config = config.get("runtime", {})
         output_dir = runtime_config.get("output_dir", "artifacts")
 
-        experiment_config = config.get("experiment", {})
-        experiment_name = experiment_config.get("name")
+        config_path = config.get("_config_path")
+        experiment_name = resolve_config_experiment_name(
+            config,
+            config_path=config_path,
+        )
         sweep_file = config.get("sweep_file")
         if sweep_file:
             sweep_file = Path(sweep_file).name.replace(".yaml", "")
 
-        run_name = runtime_config.get("name")
-
-        if not experiment_name or not run_name:
-            logger.warning("Missing experiment_name or run_name in config")
-            return None
+        run_name = resolve_config_run_name(config, config_path=config_path)
 
         # Construct checkpoint dir path (matches ArtifactManager structure)
         if sweep_file:

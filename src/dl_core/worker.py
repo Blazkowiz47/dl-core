@@ -79,6 +79,7 @@ def main():
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+    config["_config_path"] = str(config_path)
     logger_level = config.get("runtime", {}).get("logger_level") or args.log_level
     setup_logging(logger_level)
     logger = logging.getLogger(__name__)

@@ -34,6 +34,10 @@ from dl_core.utils import (
     ArtifactManager,
     ExponentialMovingAverage,
 )
+from dl_core.utils.config_names import (
+    resolve_config_experiment_name,
+    resolve_config_run_name,
+)
 
 from .registry import (
     ACCELERATOR_REGISTRY,
@@ -479,15 +483,18 @@ class EpochTrainer(ABC):
         self.logger.info(f"Setup data loaders - {loader_info}")
 
     def _setup_artifact_manager(self) -> None:
-        # Get runtime configuration
         runtime_config = self.config.get("runtime", {})
-
-        # Get output directory from config
         output_dir = runtime_config.get("output_dir", "artifacts")
-
-        experiment_config = self.config.get("experiment", {})
-        experiment_name = experiment_config.get("name")
-        run_name = runtime_config.get("name") or self.__class__.__name__
+        config_path = self.config.get("_config_path")
+        experiment_name = resolve_config_experiment_name(
+            self.config,
+            config_path=config_path,
+        )
+        run_name = resolve_config_run_name(
+            self.config,
+            config_path=config_path,
+            fallback=self.__class__.__name__,
+        )
         sweep_file = self.config.get("sweep_file")
         if sweep_file:
             sweep_file = Path(sweep_file).name.replace(".yaml", "")

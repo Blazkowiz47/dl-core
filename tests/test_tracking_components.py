@@ -165,6 +165,27 @@ def test_generate_experiment_name_defaults_to_project_root(tmp_path: Path) -> No
     assert experiment_name == "demo_repo"
 
 
+def test_generate_experiment_name_prefers_experiment_override(
+    tmp_path: Path,
+) -> None:
+    """Explicit experiment.name should override the repository root default."""
+    project_root = tmp_path / "demo_repo"
+    sweep_path = project_root / "experiments" / "lr_sweep.yaml"
+    (project_root / "src").mkdir(parents=True)
+    sweep_path.parent.mkdir(parents=True)
+    (project_root / "pyproject.toml").write_text("[project]\nname='demo'\n")
+
+    experiment_name = generate_experiment_name(
+        {
+            "sweep_file": str(sweep_path),
+            "experiment": {"name": "custom-exp"},
+        },
+        timestamp="",
+    )
+
+    assert experiment_name == "custom-exp"
+
+
 def test_local_executor_injects_tracker_metadata_into_run_config() -> None:
     """Local executor should inject tracker metadata before launching a run."""
     dl_core.load_builtin_components()

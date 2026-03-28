@@ -4,13 +4,13 @@
 seed: 2025
 
 runtime:
-  name: my_run  # TODO: Set a run identifier
   output_dir: artifacts
   log_level: INFO
   tags: []
 
 experiment:
-  name: my_experiment  # TODO: Set an experiment name
+  # name: my_experiment
+  # Optional root experiment override. Defaults to the repository root name.
   description: "Standard classification baseline"
 
 accelerator:

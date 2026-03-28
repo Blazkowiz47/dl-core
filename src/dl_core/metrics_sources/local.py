@@ -7,6 +7,10 @@ from typing import Any
 
 from dl_core.core import BaseMetricsSource, register_metrics_source
 from dl_core.utils.artifact_manager import get_run_artifact_dir
+from dl_core.utils.config_names import (
+    resolve_config_experiment_name,
+    resolve_config_run_name,
+)
 
 
 def _normalize_metric_key(key: str) -> str:
@@ -117,9 +121,12 @@ class LocalMetricsSource(BaseMetricsSource):
 
         config = self.load_yaml(config_path)
         runtime_config = config.get("runtime", {})
-        experiment_config = config.get("experiment", {})
-        run_name = runtime_config.get("name", config_path.stem)
+        run_name = resolve_config_run_name(config, config_path=config_path)
         output_dir = runtime_config.get("output_dir", "artifacts")
+        experiment_name = resolve_config_experiment_name(
+            config,
+            config_path=config_path,
+        )
 
         sweep_name = None
         sweep_file = config.get("sweep_file")
@@ -130,7 +137,7 @@ class LocalMetricsSource(BaseMetricsSource):
             get_run_artifact_dir(
                 run_name=run_name,
                 output_dir=output_dir,
-                experiment_name=experiment_config.get("name"),
+                experiment_name=experiment_name,
                 sweep_name=sweep_name,
             )
         )
