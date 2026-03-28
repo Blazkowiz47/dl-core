@@ -10,6 +10,7 @@ This module handles:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from dl_core.utils.config_names import resolve_config_experiment_name
