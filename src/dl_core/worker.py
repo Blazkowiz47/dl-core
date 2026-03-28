@@ -15,6 +15,7 @@ import yaml
 from pathlib import Path
 
 import torch.distributed as dist
+import torch.multiprocessing as mp
 
 from dl_core import load_builtin_components, load_local_components
 from dl_core.core import TRAINER_REGISTRY
@@ -24,6 +25,23 @@ from dl_core.utils.checkpoint_utils import (
     get_checkpoint_dir_from_config,
 )
 from dl_core.utils.logging import setup_logging
+
+
+def _configure_torch_sharing_strategy(logger: logging.Logger) -> None:
+    """Prefer file-system sharing to reduce dataloader file descriptor pressure."""
+    try:
+        if "file_system" not in mp.get_all_sharing_strategies():
+            return
+        if mp.get_sharing_strategy() == "file_system":
+            return
+        mp.set_sharing_strategy("file_system")
+        logger.info(
+            "Using torch multiprocessing sharing strategy: file_system"
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Failed to configure torch multiprocessing sharing strategy: {exc}"
+        )
 
 
 def main():
@@ -64,6 +82,7 @@ def main():
     logger_level = config.get("runtime", {}).get("logger_level") or args.log_level
     setup_logging(logger_level)
     logger = logging.getLogger(__name__)
+    _configure_torch_sharing_strategy(logger)
 
     # Get trainer name from config
     # Config structure: trainer: { <name>: {...} }
