@@ -50,16 +50,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  dl-sweep --sweep experiments/lr_sweep.yaml\n"
-            "  dl-sweep --sweep experiments/lr_sweep.yaml --dry-run\n"
-            "  dl-sweep --sweep experiments/lr_sweep.yaml --resume\n\n"
+            "  dl-sweep experiments/lr_sweep.yaml\n"
+            "  dl-sweep experiments/lr_sweep.yaml --dry-run\n"
+            "  dl-sweep experiments/lr_sweep.yaml --resume\n"
+            "  dl-sweep --sweep experiments/lr_sweep.yaml\n\n"
             "The sweep file normally lives under experiments/ and points at\n"
             "configs/base.yaml via base_config."
         ),
     )
 
     parser.add_argument(
-        "--sweep", type=str, required=True, help="Path to sweep YAML file"
+        "sweep_path",
+        nargs="?",
+        help="Path to sweep YAML file",
+    )
+    parser.add_argument(
+        "--sweep",
+        dest="sweep_flag",
+        type=str,
+        help="Path to sweep YAML file (backward-compatible alias)",
     )
 
     parser.add_argument(
@@ -109,12 +118,18 @@ def main():
     )
 
     args = parser.parse_args()
+    if args.sweep_path and args.sweep_flag and args.sweep_path != args.sweep_flag:
+        parser.error("Pass the sweep file either positionally or with --sweep.")
+    sweep_arg = args.sweep_flag or args.sweep_path
+    if not sweep_arg:
+        parser.error("Provide a sweep file as a positional argument or with --sweep.")
+
     setup_logging(args.log_level)
     load_builtin_components()
-    load_local_components(args.sweep)
+    load_local_components(sweep_arg)
 
     # Load sweep config
-    sweep_path = Path(args.sweep)
+    sweep_path = Path(sweep_arg)
     if not sweep_path.exists():
         print(f"Error: Sweep file not found: {sweep_path}")
         return 1

@@ -141,7 +141,7 @@ that repository in editable mode, then run:
 
 ```bash
 uv run dl-run --config configs/base.yaml
-uv run dl-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
 ```
 
@@ -174,7 +174,7 @@ uv run dl-run --config configs/base.yaml
 Once that works, move on to:
 
 ```bash
-uv run dl-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
 ```
 
