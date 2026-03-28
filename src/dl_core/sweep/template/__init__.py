@@ -24,8 +24,10 @@ from .template_merger import (
 from .template_validator import validate_sweep_config
 
 from .tracking_utils import (
+    ensure_tracking_experiment_name,
     extract_tracking_config,
     generate_experiment_name,
+    resolve_tracking_experiment_name,
 )
 
 __all__ = [
@@ -41,6 +43,8 @@ __all__ = [
     # Validation
     "validate_sweep_config",
     # Tracking utilities
+    "ensure_tracking_experiment_name",
     "extract_tracking_config",
     "generate_experiment_name",
+    "resolve_tracking_experiment_name",
 ]

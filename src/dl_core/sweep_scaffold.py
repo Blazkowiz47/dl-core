@@ -10,13 +10,15 @@ from dl_core.project import find_project_root
 _TRACKING_BACKENDS = {
     "local": "  backend: local\n",
     "mlflow": "  backend: mlflow\n  tracking_uri: ./mlruns\n",
-    "wandb": "  backend: wandb\n  project: my_experiment\n  entity: null\n",
+    "wandb": "  backend: wandb\n  entity: null\n",
     "azure_mlflow": "  backend: azure_mlflow\n",
 }
 
 _SWEEP_NAME_COMMENT = (
+    "  # experiment_name: my_project\n"
+    "  # Optional tracker destination override. Defaults to the repository root name.\n"
     "  # sweep_name: custom_sweep_name\n"
-    "  # Optional override. Defaults to the sweep filename.\n"
+    "  # Optional sweep grouping override. Defaults to the sweep filename.\n"
 )
 
 

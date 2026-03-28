@@ -16,8 +16,10 @@ fixed:
 default_grid: {}
 
 tracking:
+  # experiment_name: my_project
+  # Optional tracker destination override. Defaults to the repository root name.
   # sweep_name: my_custom_sweep
-  # Optional override. Defaults to the sweep filename.
+  # Optional sweep grouping override. Defaults to the sweep filename.
   run_name_template: "lr_{optimizers.lr}"
   description_template: "learning_rate={optimizers.lr}"
   auto_tags:

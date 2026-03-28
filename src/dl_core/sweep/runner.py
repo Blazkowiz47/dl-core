@@ -12,7 +12,11 @@ from dl_core.core import EXECUTOR_REGISTRY
 from dl_core.utils.logging import setup_logging
 from dl_core.utils.sweep_tracker import SweepTracker
 from .config import ConfigBuilder
-from .template import load_user_sweep, generate_experiment_name
+from .template import (
+    ensure_tracking_experiment_name,
+    generate_experiment_name,
+    load_user_sweep,
+)
 
 
 def generate_all_run_configs(
@@ -138,6 +142,7 @@ def main():
 
     # Add sweep file path to config for sweep naming
     sweep_config["sweep_file"] = str(sweep_path)
+    ensure_tracking_experiment_name(sweep_config, config_path=sweep_path)
 
     # Determine experiment name (used for tracker and executors)
     experiment_name = generate_experiment_name(sweep_config, timestamp="")

@@ -227,7 +227,9 @@ Generated sweep files:
 - extend `../configs/base_sweep.yaml`
 - include runnable defaults in `fixed`
 - start with `grid: {}`
-- let the tracker derive sweep naming from the filename unless
+- default the tracker experiment destination to the repository root name unless
+  `tracking.experiment_name` overrides it
+- let the tracker derive sweep grouping from the filename unless
   `tracking.sweep_name` overrides it
 
 You can inspect registered components and built-in base classes directly from

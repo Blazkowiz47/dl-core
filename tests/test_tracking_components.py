@@ -11,6 +11,7 @@ import dl_core
 from dl_core.analysis.sweep_analyzer import collect_sweep_runs
 from dl_core.core import METRICS_SOURCE_REGISTRY, TRACKER_REGISTRY
 from dl_core.executors.local import LocalExecutor
+from dl_core.sweep.template import generate_experiment_name
 
 
 def test_local_tracker_is_registered_and_injects_tracking_config() -> None:
@@ -19,7 +20,7 @@ def test_local_tracker_is_registered_and_injects_tracking_config() -> None:
 
     assert TRACKER_REGISTRY.is_registered("local")
 
-    tracker = TRACKER_REGISTRY.get("local")
+    tracker = TRACKER_REGISTRY.get("local", {"experiment_name": "demo-project"})
     config: dict[str, object] = {}
     tracker.inject_tracking_config(
         config,
@@ -31,6 +32,7 @@ def test_local_tracker_is_registered_and_injects_tracking_config() -> None:
     assert config["tracking"] == {
         "backend": "local",
         "context": "demo-group",
+        "experiment_name": "demo-project",
         "uri": "./mlruns",
         "run_name": "demo-run",
     }
@@ -147,13 +149,32 @@ def test_collect_sweep_runs_uses_local_metrics_source(tmp_path: Path) -> None:
     assert runs[0]["metrics_summary_path"] == str(summary_path)
 
 
+def test_generate_experiment_name_defaults_to_project_root(tmp_path: Path) -> None:
+    """Tracker experiment naming should default to the repository root name."""
+    project_root = tmp_path / "demo_repo"
+    sweep_path = project_root / "experiments" / "lr_sweep.yaml"
+    (project_root / "src").mkdir(parents=True)
+    sweep_path.parent.mkdir(parents=True)
+    (project_root / "pyproject.toml").write_text("[project]\nname='demo'\n")
+
+    experiment_name = generate_experiment_name(
+        {"sweep_file": str(sweep_path)},
+        timestamp="",
+    )
+
+    assert experiment_name == "demo_repo"
+
+
 def test_local_executor_injects_tracker_metadata_into_run_config() -> None:
     """Local executor should inject tracker metadata before launching a run."""
     dl_core.load_builtin_components()
 
     executor = LocalExecutor(
         {
-            "tracking": {"backend": "local"},
+            "tracking": {
+                "backend": "local",
+                "experiment_name": "demo-project",
+            },
             "sweep_file": "experiments/demo_sweep.yaml",
         },
         experiment_name="demo-exp",
@@ -168,6 +189,7 @@ def test_local_executor_injects_tracker_metadata_into_run_config() -> None:
     assert config["tracking"] == {
         "backend": "local",
         "context": "demo-group",
+        "experiment_name": "demo-project",
         "uri": "./artifacts",
         "run_name": "demo-run",
     }

@@ -159,3 +159,7 @@ class BaseTracker(ABC):
             tracking["uri"] = tracking_uri
         if run_name:
             tracking["run_name"] = run_name
+
+        experiment_name = self.tracking_config.get("experiment_name")
+        if isinstance(experiment_name, str) and experiment_name:
+            tracking.setdefault("experiment_name", experiment_name)

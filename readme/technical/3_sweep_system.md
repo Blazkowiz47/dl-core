@@ -25,8 +25,10 @@ default_grid:
   optimizers.lr: [1e-4, 5e-4]
 
 tracking:
+  # experiment_name: my_project
+  # Optional tracker destination override. Defaults to the repository root name.
   # sweep_name: my_custom_sweep
-  # Optional override. Defaults to the sweep filename.
+  # Optional sweep grouping override. Defaults to the sweep filename.
   run_name_template: "lr_{optimizers.lr}"
 
 seeds: [2025]
@@ -71,8 +73,9 @@ That local artifact contract is what powers `dl-analyze-sweep`.
 
 Sweep templates support a `tracking` block used for:
 
+- tracker experiment destination overrides
 - run name templates
-- sweep names
+- sweep grouping names
 - description templates
 - auto-generated tags
 

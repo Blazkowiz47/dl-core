@@ -9,12 +9,14 @@ For sweep orchestration, use `dl-sweep` instead.
 import argparse
 import sys
 import time
-import yaml
 from pathlib import Path
+
+import yaml
 
 from dl_core import load_builtin_components, load_local_components
 from dl_core.core import EXECUTOR_REGISTRY
 from dl_core.core.registry import print_registry_info
+from dl_core.sweep.template import ensure_tracking_experiment_name
 from dl_core.utils.config_validator import validate_config
 from dl_core.utils.logging import setup_logging
 
@@ -162,17 +164,31 @@ Typical first use:
     print(f"   Mode: {args.mode}")
     print(f"   Run name: {run_name}")
 
+    tracking_config = run_config.get("tracking", {})
+    if not isinstance(tracking_config, dict):
+        tracking_config = {}
+    tracking_payload = dict(tracking_config)
+    single_run_tracking = {
+        "tracking": tracking_payload,
+        "experiment": run_config.get("experiment", {}),
+        "sweep_file": str(config_path),
+    }
+    experiment_name = ensure_tracking_experiment_name(
+        single_run_tracking,
+        config_path=config_path,
+    )
+
     # Create minimal sweep config for executor initialization
     # (executors expect sweep_config even for single runs)
     sweep_config = {
         "sweep_file": str(config_path),
+        "tracking": tracking_payload,
         "executor": {"mode": args.mode},
         "accelerator": run_config.get("accelerator", {}),
         "grid": {},  # Empty grid for single run
     }
 
     # Create executor
-    experiment_name = f"run_{run_name}"
     run_id = f"run_{int(time.time())}"
 
     executor = EXECUTOR_REGISTRY.get(
