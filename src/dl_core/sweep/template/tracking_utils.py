@@ -23,10 +23,13 @@ def generate_experiment_name(sweep_config: dict, timestamp: str) -> str:
     """
     tracking_config = sweep_config.get("tracking", {})
     if isinstance(tracking_config, dict):
-        if "group" in tracking_config:
-            return tracking_config["group"]
-        if "experiment_name" in tracking_config:
-            return tracking_config["experiment_name"]
+        sweep_name = tracking_config.get("sweep_name")
+        if isinstance(sweep_name, str) and sweep_name:
+            return sweep_name
+
+        experiment_name = tracking_config.get("experiment_name")
+        if isinstance(experiment_name, str) and experiment_name:
+            return experiment_name
 
     # Fallback to template name if no tracking config
     if "template_name" in sweep_config:

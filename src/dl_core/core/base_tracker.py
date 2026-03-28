@@ -65,7 +65,7 @@ class BaseTracker(ABC):
             sweep_id: Sweep identifier
             sweep_config: Full sweep configuration
             total_runs: Number of concrete runs in the sweep
-            tracking_context: Existing tracker-specific parent or group context
+            tracking_context: Existing tracker-specific parent or sweep context
             tracking_uri: Existing tracker endpoint or workspace URI
             resume: Whether the sweep is resuming an existing context
 
@@ -100,7 +100,7 @@ class BaseTracker(ABC):
         Args:
             result: Executor result payload
             run_name: Generated run name
-            tracking_context: Tracker-specific parent or group context
+            tracking_context: Tracker-specific parent or sweep context
             tracking_uri: Tracker endpoint or workspace URI
 
         Returns:
@@ -147,7 +147,7 @@ class BaseTracker(ABC):
         Args:
             config: Run configuration to modify in place
             run_name: Optional generated run name
-            tracking_context: Optional tracker-specific group or parent context
+            tracking_context: Optional tracker-specific sweep or parent context
             tracking_uri: Optional tracker endpoint or workspace URI
         """
         tracking = config.setdefault("tracking", {})

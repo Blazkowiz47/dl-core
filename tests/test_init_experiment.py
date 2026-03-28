@@ -51,9 +51,12 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     sweep_config = yaml.safe_load(
         (target_dir / "configs" / "base_sweep.yaml").read_text()
     )
+    base_sweep_text = (target_dir / "configs" / "base_sweep.yaml").read_text()
     assert list(sweep_config["fixed"]["trainer"].keys()) == [component_name]
     assert sweep_config["fixed"]["trainer"][component_name]["name"] == component_name
     assert sweep_config["default_grid"] == {}
+    assert "# sweep_name: my_custom_sweep" in base_sweep_text
+    assert "Optional override. Defaults to the sweep filename." in base_sweep_text
 
     lr_sweep_text = (target_dir / "experiments" / "lr_sweep.yaml").read_text()
     lr_sweep = yaml.safe_load(lr_sweep_text)

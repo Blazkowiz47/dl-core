@@ -19,7 +19,7 @@ class SweepTracker:
 
         Args:
             sweep_path: Path to sweep YAML file
-            experiment_name: Sweep-level experiment or group name
+            experiment_name: Sweep-level experiment or sweep name
             sweep_id: Unique sweep identifier
         """
         self.sweep_path = Path(sweep_path)
@@ -69,7 +69,7 @@ class SweepTracker:
         Args:
             total_runs: Total number of runs in sweep
             user: Username running the sweep
-            tracking_context: Optional tracker-specific parent or group context
+            tracking_context: Optional tracker-specific parent or sweep context
             tracking_uri: Optional tracker endpoint or workspace URI
             tracking_backend: Tracker backend name for this sweep
             metrics_source_backend: Metrics source backend name for this sweep
@@ -210,7 +210,7 @@ class SweepTracker:
         Update external tracking context in sweep JSON.
 
         Args:
-            tracking_context: Tracker-specific parent or group context
+            tracking_context: Tracker-specific parent or sweep context
             tracking_uri: Optional tracker endpoint or workspace URI
         """
         with self._lock:

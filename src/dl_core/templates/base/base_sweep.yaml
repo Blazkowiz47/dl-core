@@ -16,7 +16,8 @@ fixed:
 default_grid: {}
 
 tracking:
-  group: my_experiment
+  # sweep_name: my_custom_sweep
+  # Optional override. Defaults to the sweep filename.
   run_name_template: "lr_{optimizers.lr}"
   description_template: "learning_rate={optimizers.lr}"
   auto_tags:

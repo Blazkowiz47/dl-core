@@ -692,7 +692,7 @@ class BaseExecutor(ABC):
 
         Args:
             config: Configuration to modify (modified in-place)
-            tracking_context: Tracker-specific group or parent identifier
+            tracking_context: Tracker-specific sweep or parent identifier
             tracking_uri: Tracker endpoint or workspace URI
             run_name: Name for the run
         """

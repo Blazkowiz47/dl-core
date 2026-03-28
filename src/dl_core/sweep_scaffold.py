@@ -14,6 +14,11 @@ _TRACKING_BACKENDS = {
     "azure_mlflow": "  backend: azure_mlflow\n",
 }
 
+_SWEEP_NAME_COMMENT = (
+    "  # sweep_name: custom_sweep_name\n"
+    "  # Optional override. Defaults to the sweep filename.\n"
+)
+
 
 def list_supported_tracking_backends() -> list[str]:
     """Return supported tracking backend names for sweep scaffolds."""
@@ -81,6 +86,7 @@ def _render_sweep(sweep_name: str, tracking_backend: str) -> str:
         "  executors: preset:executors.local\n\n"
         "grid: {}\n\n"
         "tracking:\n"
+        f"{_SWEEP_NAME_COMMENT}"
         f"{_TRACKING_BACKENDS[tracking_backend]}"
     )
 

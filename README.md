@@ -227,7 +227,8 @@ Generated sweep files:
 - extend `../configs/base_sweep.yaml`
 - include runnable defaults in `fixed`
 - start with `grid: {}`
-- let the tracker derive group/parent naming from the sweep filename
+- let the tracker derive sweep naming from the filename unless
+  `tracking.sweep_name` overrides it
 
 You can inspect registered components and built-in base classes directly from
 the CLI:
