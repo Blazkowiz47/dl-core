@@ -24,11 +24,18 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert (target_dir / "experiments" / "experiments.log").exists()
     assert (target_dir / "AGENTS.md").exists()
     assert (target_dir / "pyrightconfig.json").exists()
+    assert (target_dir / "scripts" / "temporary" / "README.md").exists()
+    assert (target_dir / "scripts" / "temporary" / "test_dataset.py").exists()
+    assert (target_dir / "scripts" / "temporary" / "test_model.py").exists()
     assert not (target_dir / "configs" / "sweeps").exists()
 
     config = yaml.safe_load((target_dir / "configs" / "base.yaml").read_text())
     base_text = (target_dir / "configs" / "base.yaml").read_text()
     presets = yaml.safe_load((target_dir / "configs" / "presets.yaml").read_text())
+    readme_text = (target_dir / "README.md").read_text()
+    helper_readme_text = (
+        target_dir / "scripts" / "temporary" / "README.md"
+    ).read_text()
     assert list(config["models"].keys()) == ["resnet_example"]
     assert config["models"]["resnet_example"]["name"] == "resnet_example"
     assert config["dataset"]["name"] == component_name
@@ -76,10 +83,16 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
     assert "uv run dl-run --config configs/base.yaml" in agents_text
+    assert "uv run python scripts/temporary/test_dataset.py" in agents_text
+    assert "uv run python scripts/temporary/test_model.py" in agents_text
     assert "uv run dl-sweep experiments/lr_sweep.yaml --dry-run" in agents_text
     assert "uv run dl-analyze --sweep experiments/lr_sweep.yaml" in agents_text
     assert "uv run dl-core add dataset ExtraDataset" in agents_text
     assert "uv run dl-core describe class dl_core.core.FrameWrapper" in agents_text
+    assert "scripts/temporary/test_dataset.py" in readme_text
+    assert "scripts/temporary/test_model.py" in readme_text
+    assert "uv run python scripts/temporary/test_dataset.py" in helper_readme_text
+    assert "uv run python scripts/temporary/test_model.py" in helper_readme_text
 
 def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> None:
     """Omitting --name should initialize the provided directory in place."""

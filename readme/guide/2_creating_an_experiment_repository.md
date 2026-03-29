@@ -40,6 +40,11 @@ my-exp/
   experiments/
     lr_sweep.yaml
     experiments.log
+  scripts/
+    temporary/
+      README.md
+      test_dataset.py
+      test_model.py
   src/
     bootstrap.py
     datasets/
@@ -67,9 +72,19 @@ By default:
 ## First Files To Edit
 
 - `configs/base.yaml`
+- `scripts/temporary/test_dataset.py`
+- `scripts/temporary/test_model.py`
 - `configs/base_sweep.yaml`
 - `configs/presets.yaml`
 - `experiments/lr_sweep.yaml`
 - `experiments/experiments.log`
 
-Start there before editing the wrapper classes.
+Start there before editing the wrapper classes. After updating the dataset or
+model wrapper, use:
+
+```bash
+uv run python scripts/temporary/test_dataset.py
+uv run python scripts/temporary/test_model.py
+```
+
+before committing to a full `dl-run`.

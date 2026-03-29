@@ -161,11 +161,20 @@ Then:
 1. open these generated files first:
    - `src/datasets/my_exp.py`
    - `configs/base.yaml`
+   - `scripts/temporary/test_dataset.py`
+   - `scripts/temporary/test_model.py`
    - `experiments/lr_sweep.yaml`
    - `AGENTS.md`
 2. implement the generated dataset wrapper under `src/datasets/my_exp.py`
 3. adjust `configs/base.yaml` so it points at the dataset/model/trainer you want
-4. start with:
+4. smoke-check the generated helpers:
+
+```bash
+uv run python scripts/temporary/test_dataset.py
+uv run python scripts/temporary/test_model.py
+```
+
+5. start with:
 
 ```bash
 uv run dl-run --config configs/base.yaml

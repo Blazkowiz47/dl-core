@@ -68,6 +68,13 @@ uv run dl-init-experiment --root-dir .
 uv run dl-run --config configs/base.yaml
 ```
 
+### Smoke-check generated dataset and model helpers
+
+```bash
+uv run python scripts/temporary/test_dataset.py
+uv run python scripts/temporary/test_model.py
+```
+
 ### Run a sweep
 
 ```bash

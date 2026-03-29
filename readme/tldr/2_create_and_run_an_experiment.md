@@ -38,12 +38,23 @@ The scaffold gives you:
 - `configs/presets.yaml`
 - `experiments/lr_sweep.yaml`
 - `experiments/experiments.log`
+- `scripts/temporary/test_dataset.py`
+- `scripts/temporary/test_model.py`
 - `src/datasets/my_exp.py`
 - `src/trainers/my_exp.py`
 - `src/models/resnet_example.py`
 - `src/bootstrap.py`
 
 ## 4. Run Locally
+
+Start with the smoke helpers:
+
+```bash
+uv run python scripts/temporary/test_dataset.py
+uv run python scripts/temporary/test_model.py
+```
+
+Then move on to the full commands:
 
 ```bash
 uv run dl-run --config configs/base.yaml
