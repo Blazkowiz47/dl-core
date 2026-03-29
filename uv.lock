@@ -1143,7 +1143,7 @@ wheels = [
 
 [[package]]
 name = "deep-learning-azure"
-version = "0.0.2a10"
+version = "0.0.2a12"
 source = { editable = "../dl-azure" }
 dependencies = [
     { name = "azure-ai-ml" },
@@ -1168,7 +1168,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.0.2a11"
+version = "0.0.2a12"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },
@@ -1218,7 +1218,7 @@ provides-extras = ["azure", "mlflow", "wandb", "dev"]
 
 [[package]]
 name = "deep-learning-mlflow"
-version = "0.0.2a9"
+version = "0.0.2a12"
 source = { editable = "../dl-mlflow" }
 dependencies = [
     { name = "deep-learning-core" },
@@ -1235,7 +1235,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-wandb"
-version = "0.0.2a9"
+version = "0.0.2a12"
 source = { editable = "../dl-wandb" }
 dependencies = [
     { name = "deep-learning-core" },
