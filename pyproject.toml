@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deep-learning-core"
-version = "0.0.2a9"
+version = "0.0.2a10"
 description = "Reusable deep learning framework core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -49,7 +49,7 @@ dependencies = [
 
 [project.optional-dependencies]
 azure = [
-    "deep-learning-azure==0.0.2a9",
+    "deep-learning-azure==0.0.2a10",
 ]
 mlflow = [
     "deep-learning-mlflow==0.0.2a9",
