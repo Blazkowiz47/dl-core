@@ -75,6 +75,9 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert lr_sweep["tracking"]["run_name_template"] == "lr_{optimizers.lr}"
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
+    assert "uv run dl-run --config configs/base.yaml" in agents_text
+    assert "uv run dl-sweep experiments/lr_sweep.yaml --dry-run" in agents_text
+    assert "uv run dl-analyze --sweep experiments/lr_sweep.yaml" in agents_text
     assert "uv run dl-core add dataset ExtraDataset" in agents_text
     assert "uv run dl-core describe class dl_core.core.FrameWrapper" in agents_text
 

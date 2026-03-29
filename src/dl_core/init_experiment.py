@@ -137,6 +137,33 @@ def _project_agents_md(project_name: str) -> str:
     return f"""<agent_spec>
   <title>{project_name} Experiment Repository Guidelines</title>
 
+  <cli_guide>
+    <rule>
+      Use `uv run dl-run --config configs/base.yaml` for one concrete training
+      run from a single config file.
+    </rule>
+    <rule>
+      Use `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` first when
+      checking how a sweep will expand without starting runs.
+    </rule>
+    <rule>
+      Use `uv run dl-sweep experiments/lr_sweep.yaml` after a single run works
+      and you want to execute the generated sweep runs.
+    </rule>
+    <rule>
+      Use `uv run dl-analyze --sweep experiments/lr_sweep.yaml` after a sweep
+      finishes to summarize results from the configured metrics backend.
+    </rule>
+    <rule>
+      Use `uv run dl-core add ...` when you need a new local component or sweep
+      scaffold inside this repository.
+    </rule>
+    <rule>
+      Use `uv run dl-core describe ...` when you need to inspect a registered
+      component or built-in base class contract before editing code.
+    </rule>
+  </cli_guide>
+
   <workflow>
     <rule>
       Start with `configs/base.yaml` and `src/datasets/{project_component}.py`.
@@ -165,6 +192,21 @@ def _project_agents_md(project_name: str) -> str:
   </workflow>
 
   <cli_examples>
+    <rule>
+      `uv run dl-run --config configs/base.yaml` runs the current base config
+      once.
+    </rule>
+    <rule>
+      `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` previews the sweep
+      expansion and executor settings without starting runs.
+    </rule>
+    <rule>
+      `uv run dl-sweep experiments/lr_sweep.yaml` executes the sweep.
+    </rule>
+    <rule>
+      `uv run dl-analyze --sweep experiments/lr_sweep.yaml` summarizes sweep
+      results after execution.
+    </rule>
     <rule>
       `uv run dl-core add dataset ExtraDataset` creates a local dataset scaffold.
     </rule>
