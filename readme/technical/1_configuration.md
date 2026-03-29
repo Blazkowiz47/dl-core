@@ -99,11 +99,12 @@ which builds on the epoch-based `dl_core.core.EpochTrainer`.
 
 ## Runtime
 
-`runtime.name` is the run identifier used for artifact naming.
+`runtime.name` is optional. If it is omitted, `dl-core` falls back to the
+config filename stem for the run identifier used in artifact naming.
 
 ```yaml
 runtime:
-  name: my_exp_baseline
+  # name: my_exp_baseline
   output_dir: artifacts
   log_level: INFO
   tags: []

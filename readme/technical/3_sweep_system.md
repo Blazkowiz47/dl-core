@@ -55,10 +55,11 @@ When you run a sweep, `dl-core`:
 3. applies fixed parameters
 4. expands the grid across seeds
 5. writes concrete configs next to the sweep file under `experiments/<sweep_name>/`
-6. sets `runtime.name` per generated run
+6. resolves a concrete run name for each generated config
+   using `tracking.run_name_template` when present, otherwise the config filename stem
 
 That last step is important because it prevents artifact collisions between run
-directories.
+directories without requiring an explicit `runtime.name` in the scaffold.
 
 During execution, the local sweep path also writes:
 

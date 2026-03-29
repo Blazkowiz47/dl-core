@@ -97,5 +97,6 @@ Generated sweep configs are saved under:
 experiments/<sweep_name>/
 ```
 
-Each generated config gets its own `runtime.name`, so artifact directories do
-not collide.
+Each generated config gets its own filename, and run naming falls back to that
+config stem unless `runtime.name` overrides it, so artifact directories do not
+collide.
