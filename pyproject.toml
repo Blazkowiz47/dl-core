@@ -70,6 +70,7 @@ Issues = "https://github.com/Blazkowiz47/dl-core/issues"
 [project.scripts]
 dl-core = "dl_core.cli:main"
 dl-init-experiment = "dl_core.init_experiment:main"
+dl-analyze = "dl_core.analysis.sweep_analyzer:main"
 dl-analyze-sweep = "dl_core.analysis.sweep_analyzer:main"
 dl-run = "dl_core.single_run:main"
 dl-sweep = "dl_core.sweep.runner:main"

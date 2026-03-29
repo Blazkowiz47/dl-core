@@ -158,13 +158,13 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
 def main(argv: list[str] | None = None) -> int:
     """Run the local sweep analyzer CLI."""
     parser = argparse.ArgumentParser(
-        prog="dl-analyze-sweep",
+        prog="dl-analyze",
         description="Inspect local sweep results from saved artifact summaries.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  dl-analyze-sweep --sweep experiments/lr_sweep.yaml\n"
-            "  dl-analyze-sweep --sweep experiments/lr_sweep.yaml --json\n\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml --json\n\n"
             "This command reads the generated experiments/<sweep_name>/"
             "sweep_tracking.json plus the per-run metric summaries."
         ),

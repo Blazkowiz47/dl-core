@@ -142,7 +142,7 @@ that repository in editable mode, then run:
 ```bash
 uv run dl-run --config configs/base.yaml
 uv run dl-sweep experiments/lr_sweep.yaml
-uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml
 ```
 
 ## First Run Workflow
@@ -175,7 +175,7 @@ Once that works, move on to:
 
 ```bash
 uv run dl-sweep experiments/lr_sweep.yaml
-uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml
 ```
 
 If Azure support is installed, `dl-init-experiment --with-azure` will also

@@ -79,13 +79,13 @@ Useful flags:
 - `--compute`
 - `--environment`
 
-## `dl-analyze-sweep`
+## `dl-analyze`
 
 Reads local sweep tracking plus per-run metric summaries and prints a compact
 ranking/report.
 
 ```bash
-uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml
 ```
 
 Useful flags:

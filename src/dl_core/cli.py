@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-core             Add components and describe registered types.\n"
             "  dl-run              Run one config locally.\n"
             "  dl-sweep            Expand and execute a sweep config.\n"
-            "  dl-analyze-sweep    Inspect saved sweep results.\n"
+            "  dl-analyze          Inspect saved sweep results.\n"
             "  dl-train-worker     Execute one worker config directly.\n\n"
             "Common first steps:\n"
             "  dl-init-experiment --name my-exp --root-dir .\n"
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
             "  uv run dl-core add callback MyMetrics\n"
             "  uv run dl-run --config configs/base.yaml\n"
             "  uv run dl-sweep experiments/lr_sweep.yaml\n"
-            "  uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml"
+            "  uv run dl-analyze --sweep experiments/lr_sweep.yaml"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

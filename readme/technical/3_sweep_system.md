@@ -67,7 +67,7 @@ During execution, the local sweep path also writes:
 - `artifacts/<experiment>/<sweep>/<run>/metrics/history.json`
 - `artifacts/<experiment>/<sweep>/<run>/run_info.json`
 
-That local artifact contract is what powers `dl-analyze-sweep`.
+That local artifact contract is what powers `dl-analyze`.
 
 ## Tracking Metadata
 
@@ -91,7 +91,7 @@ directory, and the sweep tracker records where those files live.
 That means local analysis is always:
 
 ```bash
-uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml
 ```
 
 Cloud-specific adapters can override how metrics are fetched later, but the

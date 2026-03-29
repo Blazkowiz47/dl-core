@@ -159,7 +159,7 @@ def _project_agents_md(project_name: str) -> str:
     </rule>
     <rule>
       After a single run works, use `uv run dl-sweep
-      experiments/lr_sweep.yaml` and then `uv run dl-analyze-sweep --sweep
+      experiments/lr_sweep.yaml` and then `uv run dl-analyze --sweep
       experiments/lr_sweep.yaml`.
     </rule>
   </workflow>

@@ -16,7 +16,7 @@ class BaseMetricsSource(ABC):
     Abstract base class for sweep analyzer metrics sources.
 
     Metrics sources translate backend-specific tracking data into the normalized
-    run records consumed by ``dl-analyze-sweep``.
+    run records consumed by ``dl-analyze``.
     """
 
     def __init__(self, **kwargs: Any):
