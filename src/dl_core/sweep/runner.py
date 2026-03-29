@@ -57,7 +57,7 @@ def main():
             "  dl-sweep experiments/lr_sweep.yaml\n"
             "  dl-sweep experiments/lr_sweep.yaml --dry-run\n"
             "  dl-sweep experiments/lr_sweep.yaml --resume\n"
-            "  dl-sweep --sweep experiments/lr_sweep.yaml\n\n"
+            "  dl-sweep --sweep experiments/lr_sweep.yaml  # compatibility alias\n\n"
             "The sweep file normally lives under experiments/ and points at\n"
             "configs/base.yaml via base_config."
         ),

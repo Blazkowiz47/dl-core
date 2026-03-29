@@ -205,7 +205,7 @@ def test_scaffold_smoke_repo_runs_dl_run_and_dl_sweep() -> None:
             cwd=repo_dir,
         )
         analyzer_output = _run_entrypoint(
-            "dl-analyze-sweep",
+            "dl-analyze",
             "--sweep",
             "experiments/lr_sweep.yaml",
             cwd=repo_dir,
