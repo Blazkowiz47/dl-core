@@ -36,6 +36,13 @@ def main(argv: list[str] | None = None) -> int:
         description="Utilities for working with dl-core experiment repositories.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
+            "Top-level CLIs:\n"
+            "  dl-init-experiment  Initialize an experiment repository scaffold.\n"
+            "  dl-core             Add components and describe registered types.\n"
+            "  dl-run              Run one config locally.\n"
+            "  dl-sweep            Expand and execute a sweep config.\n"
+            "  dl-analyze-sweep    Inspect saved sweep results.\n"
+            "  dl-train-worker     Execute one worker config directly.\n\n"
             "Common first steps:\n"
             "  dl-init-experiment --name my-exp --root-dir .\n"
             "  cd my-exp\n"
@@ -44,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
             "  uv run dl-core describe dataset LocalDataset --root-dir .\n"
             "  uv run dl-core add model MyResNet\n"
             "  uv run dl-core add callback MyMetrics\n"
-            "  uv run dl-run --config configs/base.yaml"
+            "  uv run dl-run --config configs/base.yaml\n"
+            "  uv run dl-sweep experiments/lr_sweep.yaml\n"
+            "  uv run dl-analyze-sweep --sweep experiments/lr_sweep.yaml"
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
