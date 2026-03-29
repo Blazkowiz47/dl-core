@@ -74,7 +74,7 @@ for this package. With `uv`'s default `first-index` strategy, that can pull unre
 dependency names from TestPyPI instead of PyPI.
 
 `deep-learning-core` intentionally ships with the full public runtime
-dependencies, including `torch`, `torchvision`, and `opencv-python`. The Azure
+dependencies, including `torch`, `torchvision`, and `opencv-python-headless`. The Azure
 extra pulls in `deep-learning-azure`, which pins the Azure package versions
 used by the validated Azure packaging stack. The MLflow extra pulls in
 `deep-learning-mlflow` for local MLflow tracking. The W&B extra pulls in
