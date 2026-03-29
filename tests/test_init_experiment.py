@@ -72,6 +72,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert 'extends_template: "../configs/base_sweep.yaml"' in lr_sweep_text
     assert lr_sweep["fixed"]["accelerators"] == "preset:accelerators.cpu"
     assert lr_sweep["fixed"]["executors"] == "preset:executors.local"
+    assert lr_sweep["tracking"]["run_name_template"] == "lr_{optimizers.lr}"
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
     assert "uv run dl-core add dataset ExtraDataset" in agents_text

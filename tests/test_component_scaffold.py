@@ -291,6 +291,7 @@ def test_cli_add_sweep_creates_local_sweep_file(tmp_path: Path) -> None:
     assert "  accelerators: preset:accelerators.cpu" in sweep_text
     assert "  executors: preset:executors.local" in sweep_text
     assert "grid: {}" in sweep_text
+    assert "run_name_template: null" in sweep_text
     assert "# experiment_name: my_project" in sweep_text
     assert "Defaults to experiment.name or the" in sweep_text
     assert "# sweep_name: custom_sweep_name" in sweep_text
@@ -318,6 +319,7 @@ def test_cli_add_sweep_supports_tracking_backend(tmp_path: Path) -> None:
     sweep_text = sweep_path.read_text()
 
     assert "backend: azure_mlflow" in sweep_text
+    assert "run_name_template: null" in sweep_text
     assert "# experiment_name: my_project" in sweep_text
     assert "Defaults to experiment.name or the" in sweep_text
     assert "# sweep_name: custom_sweep_name" in sweep_text

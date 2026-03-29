@@ -15,6 +15,8 @@ _TRACKING_BACKENDS = {
 }
 
 _SWEEP_NAME_COMMENT = (
+    "  # Override per-sweep run naming when the base template is too generic.\n"
+    "  run_name_template: null\n"
     "  # experiment_name: my_project\n"
     "  # Optional tracker destination override. Defaults to experiment.name or the\n"
     "  # repository root name.\n"
