@@ -241,6 +241,10 @@ Generated sweep files:
 - let the tracker derive sweep grouping from the filename unless
   `tracking.sweep_name` overrides it
 
+Generated experiment repositories also include empty local
+`src/criterions/`, `src/optimizers/`, and `src/schedulers/` packages so
+project-specific components can be added there later without extra setup.
+
 You can inspect registered components and built-in base classes directly from
 the CLI:
 
