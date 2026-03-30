@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import dl_core.component_scaffold as component_scaffold
@@ -137,7 +138,11 @@ def test_cli_add_callback_supports_registered_base(tmp_path: Path) -> None:
     assert "class MetricMirrorCallback(MetricLoggerCallback):" in component_text
 
     load_builtin_components()
-    load_local_components(target_dir / "configs" / "base.yaml")
+    spec = importlib.util.spec_from_file_location("metricmirror_scaffold", component_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
 
     assert CALLBACK_REGISTRY.get_class("metricmirror").__name__ == (
         "MetricMirrorCallback"
