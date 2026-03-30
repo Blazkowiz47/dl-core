@@ -179,7 +179,7 @@ def test_scaffold_smoke_repo_runs_dl_run_and_dl_sweep() -> None:
         dataset_name = "smoke_e2e"
 
         _run_entrypoint(
-            "dl-init-experiment",
+            "dl-init",
             "--name",
             repo_name,
             "--root-dir",

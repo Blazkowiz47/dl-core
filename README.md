@@ -86,7 +86,7 @@ pip install deep-learning-wandb
 - Built-in augmentations
 - Local execution and sweep orchestration
 - Local sweep analysis from saved artifact summaries
-- Experiment repository scaffolding via `dl-init-experiment`
+- Experiment repository scaffolding via `dl-init`
 
 ## Out Of Scope
 
@@ -99,13 +99,13 @@ pip install deep-learning-wandb
 
 ```bash
 uv run dl-core list
-uv run dl-init-experiment --name my-exp --root-dir .
+uv run dl-init --name my-exp --root-dir .
 ```
 
 To initialize the current directory in place, omit `--name`:
 
 ```bash
-uv run dl-init-experiment --root-dir .
+uv run dl-init --root-dir .
 ```
 
 The generated experiment repository is the normal consumer entry point. Inside
@@ -123,7 +123,7 @@ If you are starting from scratch, the minimum path is:
 
 ```bash
 pip install deep-learning-core
-uv run dl-init-experiment --name my-exp --root-dir .
+uv run dl-init --name my-exp --root-dir .
 cd my-exp
 uv sync
 ```
@@ -159,14 +159,14 @@ uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 ```
 
-If Azure support is installed, `uv run dl-init-experiment --with-azure` will
+If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.
 
 If local MLflow support is installed,
-`uv run dl-init-experiment --with-mlflow` will also scaffold an `mlflow`
+`uv run dl-init --with-mlflow` will also scaffold an `mlflow`
 callback block and local tracking defaults.
 
-If W&B support is installed, `uv run dl-init-experiment --with-wandb` will also
+If W&B support is installed, `uv run dl-init --with-wandb` will also
 scaffold a `wandb` callback block, W&B tracking defaults, and `.env.example`.
 
 ## Companion Packages

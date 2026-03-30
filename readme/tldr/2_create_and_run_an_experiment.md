@@ -10,14 +10,14 @@ The default path is:
 ## 1. Create the Experiment Repository
 
 ```bash
-uv run dl-init-experiment --name my-exp --root-dir .
+uv run dl-init --name my-exp --root-dir .
 cd my-exp
 ```
 
 Or, if you are already inside the empty target directory:
 
 ```bash
-uv run dl-init-experiment --root-dir .
+uv run dl-init --root-dir .
 ```
 
 ## 2. Install the Experiment Repository

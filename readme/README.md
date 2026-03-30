@@ -53,13 +53,13 @@ uv run dl-core list
 ### Scaffold a new experiment repository
 
 ```bash
-uv run dl-init-experiment --name my-exp --root-dir .
+uv run dl-init --name my-exp --root-dir .
 ```
 
 To scaffold the current directory in place:
 
 ```bash
-uv run dl-init-experiment --root-dir .
+uv run dl-init --root-dir .
 ```
 
 ### Run a local training job

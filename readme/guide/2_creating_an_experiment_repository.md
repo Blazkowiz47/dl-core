@@ -6,26 +6,26 @@ The experiment repository is the user-facing workspace built on top of
 ## Create It
 
 ```bash
-uv run dl-init-experiment --name my-exp --root-dir .
+uv run dl-init --name my-exp --root-dir .
 ```
 
 To initialize the current directory itself:
 
 ```bash
-uv run dl-init-experiment --root-dir .
+uv run dl-init --root-dir .
 ```
 
 Optional Azure dependency wiring, available when `dl-core[azure]` is installed:
 
 ```bash
-uv run dl-init-experiment --name my-exp --root-dir . --with-azure
+uv run dl-init --name my-exp --root-dir . --with-azure
 ```
 
 Optional local MLflow dependency wiring, available when `dl-core[mlflow]` is
 installed:
 
 ```bash
-uv run dl-init-experiment --name my-exp --root-dir . --with-mlflow
+uv run dl-init --name my-exp --root-dir . --with-mlflow
 ```
 
 ## What Gets Generated

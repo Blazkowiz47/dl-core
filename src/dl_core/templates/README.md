@@ -1,6 +1,6 @@
 # dl-core Templates
 
-These files back the `dl-init-experiment` command.
+These files back the `dl-init` command.
 
 They are intentionally generic:
 

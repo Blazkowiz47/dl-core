@@ -5,7 +5,7 @@ configs and datasets. It is the reusable framework package. The normal workflow
 is:
 
 1. develop and version `dl-core`
-2. create a separate experiment repository with `dl-init-experiment`
+2. create a separate experiment repository with `dl-init`
 3. install `dl-core` into that repository
 4. keep your configs and local wrappers in the experiment repository
 
@@ -35,13 +35,13 @@ uv run --extra dev pytest
 ## Step 4: Scaffold a Consumer Repository
 
 ```bash
-uv run dl-init-experiment --name my-exp --root-dir .
+uv run dl-init --name my-exp --root-dir .
 ```
 
 To initialize the current directory in place:
 
 ```bash
-uv run dl-init-experiment --root-dir .
+uv run dl-init --root-dir .
 ```
 
 The generated repository becomes your working area for experiments. That is

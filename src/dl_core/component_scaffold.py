@@ -340,7 +340,7 @@ def create_component_scaffold(
     if project_root is None:
         raise FileNotFoundError(
             "Could not find an experiment repository from the provided root. "
-            "Run this inside a repository created by dl-init-experiment or pass "
+            "Run this inside a repository created by dl-init or pass "
             "--root-dir."
         )
 

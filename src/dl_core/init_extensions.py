@@ -1,4 +1,4 @@
-"""Init extension discovery and scaffold hooks for dl-init-experiment."""
+"""Init extension discovery and scaffold hooks for dl-init."""
 
 from __future__ import annotations
 

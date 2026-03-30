@@ -42,14 +42,14 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Top-level CLIs:\n"
-            "  dl-init-experiment  Initialize an experiment repository scaffold.\n"
+            "  dl-init             Initialize an experiment repository scaffold.\n"
             "  dl-core             Add, list, and describe registered types.\n"
             "  dl-run              Run one config locally.\n"
             "  dl-sweep            Expand and execute a sweep config.\n"
             "  dl-analyze          Inspect saved sweep results.\n"
             "  dl-train-worker     Execute one worker config directly.\n\n"
             "Common first steps:\n"
-            "  dl-init-experiment --name my-exp --root-dir .\n"
+            "  dl-init --name my-exp --root-dir .\n"
             "  cd my-exp\n"
             "  uv run dl-core list metric_manager\n"
             "  uv run dl-core add dataset LocalDataset\n"
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Create a local component or sweep scaffold inside an experiment repository.",
         description=(
             "Create a local component or sweep scaffold inside an experiment "
-            "repository.\n\nUse this after dl-init-experiment when you want an "
+            "repository.\n\nUse this after dl-init when you want an "
             "extra local dataset, model, callback, trainer, or another sweep "
             "file.\nComponent generation writes the module and updates the "
             "matching src/<package>/__init__.py export list for you."

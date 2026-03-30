@@ -44,7 +44,7 @@ Examples:
   dl-run --show-registry
 
 Typical first use:
-  1. Run dl-init-experiment
+  1. Run dl-init
   2. Implement your dataset wrapper under src/datasets/
   3. Update configs/base.yaml
   4. Run dl-run --config configs/base.yaml

@@ -1,6 +1,6 @@
 # Technical: 2. Entry Points
 
-`dl-core` exposes six console entrypoints.
+`dl-core` exposes several console entrypoints.
 
 ## `dl-core`
 
@@ -30,19 +30,19 @@ Dataset scaffold bases:
   `azure_compute_frame`, `azure_streaming_frame`,
   `azure_compute_multiframe`, `azure_streaming_multiframe`
 
-## `dl-init-experiment`
+## `dl-init`
 
 Creates a standalone experiment repository scaffold.
 
 ```bash
-uv run dl-init-experiment --name my-exp --root-dir .
+uv run dl-init --name my-exp --root-dir .
 ```
 
 To initialize the target directory itself instead of creating a nested
 subdirectory, omit `--name`:
 
 ```bash
-uv run dl-init-experiment --root-dir .
+uv run dl-init --root-dir .
 ```
 
 Important arguments:
@@ -51,6 +51,8 @@ Important arguments:
 - `--root-dir`
 - dynamically added extension flags such as `--with-azure`, `--with-mlflow`,
   and `--with-wandb` when the relevant extra package is installed
+
+`dl-init-experiment` remains available as a compatibility alias.
 
 ## `dl-run`
 
