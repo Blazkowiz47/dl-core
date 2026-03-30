@@ -24,6 +24,7 @@ _BUILTIN_COMPONENT_MODULES = (
     "metrics",
     "models",
     "optimizers",
+    "samplers",
     "schedulers",
     "trackers",
     "trainers",

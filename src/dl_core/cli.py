@@ -8,7 +8,12 @@ from dl_core.component_describer import (
     describe_component,
     format_description,
     format_description_json,
+    format_registry_listing,
+    format_registry_listing_json,
+    list_registered_components,
+    list_supported_list_types,
     list_supported_describe_types,
+    normalize_list_type,
     normalize_describe_type,
 )
 from dl_core.component_scaffold import (
@@ -38,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog=(
             "Top-level CLIs:\n"
             "  dl-init-experiment  Initialize an experiment repository scaffold.\n"
-            "  dl-core             Add components and describe registered types.\n"
+            "  dl-core             Add, list, and describe registered types.\n"
             "  dl-run              Run one config locally.\n"
             "  dl-sweep            Expand and execute a sweep config.\n"
             "  dl-analyze          Inspect saved sweep results.\n"
@@ -46,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
             "Common first steps:\n"
             "  dl-init-experiment --name my-exp --root-dir .\n"
             "  cd my-exp\n"
+            "  uv run dl-core list metric_manager\n"
             "  uv run dl-core add dataset LocalDataset\n"
             "  uv run dl-core add sweep DebugSweep\n"
             "  uv run dl-core describe dataset LocalDataset --root-dir .\n"
@@ -183,6 +189,48 @@ def main(argv: list[str] | None = None) -> int:
         help="Print the description as JSON instead of human-readable text.",
     )
 
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List registered built-in or local components by type.",
+        description=(
+            "List registered components for one registry or all registries.\n\n"
+            "Use this when you want to see the built-in defaults available in "
+            "the current environment before choosing a component name in "
+            "config or on the CLI."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  dl-core list\n"
+            "  dl-core list sampler\n"
+            "  dl-core list metric_manager --json\n"
+            "  dl-core list trainer --root-dir ."
+        ),
+    )
+    list_parser.add_argument(
+        "component_type",
+        nargs="?",
+        default="all",
+        help=(
+            "Registry target to list. Supported values: "
+            f"{', '.join(list_supported_list_types())}. "
+            "Defaults to all."
+        ),
+    )
+    list_parser.add_argument(
+        "--root-dir",
+        default=".",
+        help=(
+            "Path inside the target experiment repository. "
+            "Defaults to the current directory."
+        ),
+    )
+    list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the registry listing as JSON instead of human-readable text.",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "add":
         normalized_add_target = args.component_type.strip().lower().replace(
@@ -232,6 +280,18 @@ def main(argv: list[str] | None = None) -> int:
             print(format_description_json(description))
         else:
             print(format_description(description))
+        return 0
+
+    if args.command == "list":
+        normalize_list_type(args.component_type)
+        listing = list_registered_components(
+            args.component_type,
+            root_dir=args.root_dir,
+        )
+        if args.json:
+            print(format_registry_listing_json(listing))
+        else:
+            print(format_registry_listing(listing))
         return 0
 
     parser.error(f"Unsupported command: {args.command}")

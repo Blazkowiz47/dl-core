@@ -172,6 +172,10 @@ def _project_agents_md(project_name: str) -> str:
       Use `uv run dl-core describe ...` when you need to inspect a registered
       component or built-in base class contract before editing code.
     </rule>
+    <rule>
+      Use `uv run dl-core list ...` when you want a quick list of available
+      built-in or local component names for one registry.
+    </rule>
   </cli_guide>
 
   <workflow>
@@ -199,8 +203,9 @@ def _project_agents_md(project_name: str) -> str:
       base classes before editing code.
     </rule>
     <rule>
-      Use `uv run dl-run --show-registry` when you want a quick list of
-      registered component names.
+      Use `uv run dl-core list metric_manager`, `uv run dl-core list sampler`,
+      or plain `uv run dl-core list` when you want a quick list of registered
+      component names.
     </rule>
     <rule>
       After a single run works, use `uv run dl-sweep

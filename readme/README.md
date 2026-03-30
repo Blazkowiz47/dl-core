@@ -47,7 +47,7 @@ mechanics.
 ### Verify the package
 
 ```bash
-uv run dl-run --show-registry
+uv run dl-core list
 ```
 
 ### Scaffold a new experiment repository

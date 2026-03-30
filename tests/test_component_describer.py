@@ -9,6 +9,29 @@ from dl_core.cli import main as cli_main
 from dl_core.init_experiment import create_experiment_scaffold
 
 
+def test_cli_list_metric_managers_prints_registered_names(capsys) -> None:
+    """The list command should print built-in metric manager names."""
+    exit_code = cli_main(["list", "metric_manager"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Registered metric manager" in output
+    assert "- standard" in output
+    assert "- standard_act" in output
+
+
+def test_cli_list_supports_json_output(capsys) -> None:
+    """Registry listings should be serializable for tooling and agents."""
+    exit_code = cli_main(["list", "sampler", "--json"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    listing = json.loads(output)
+
+    assert "sampler" in listing
+    assert "attack" in listing["sampler"]
+
+
 def test_cli_describe_dataset_prints_registered_component_details(
     tmp_path: Path,
     capsys,

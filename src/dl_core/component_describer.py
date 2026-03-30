@@ -104,6 +104,11 @@ def list_supported_describe_types() -> list[str]:
     return sorted(set(_DESCRIBE_TYPE_ALIASES.values()))
 
 
+def list_supported_list_types() -> list[str]:
+    """Return the registry target types supported by the CLI."""
+    return ["all", *sorted(_COMPONENT_REGISTRIES.keys())]
+
+
 def normalize_describe_type(component_type: str) -> str:
     """Normalize a user-provided describe target type string."""
     key = component_type.strip().lower().replace("-", "_").replace(" ", "_")
@@ -112,6 +117,22 @@ def normalize_describe_type(component_type: str) -> str:
         supported = ", ".join(list_supported_describe_types())
         raise ValueError(
             f"Unsupported describe target '{component_type}'. Supported types: "
+            f"{supported}"
+        )
+    return canonical_name
+
+
+def normalize_list_type(component_type: str) -> str:
+    """Normalize a user-provided registry list target string."""
+    key = component_type.strip().lower().replace("-", "_").replace(" ", "_")
+    if key == "all":
+        return "all"
+
+    canonical_name = _DESCRIBE_TYPE_ALIASES.get(key)
+    if canonical_name is None or canonical_name == "class":
+        supported = ", ".join(list_supported_list_types())
+        raise ValueError(
+            f"Unsupported list target '{component_type}'. Supported types: "
             f"{supported}"
         )
     return canonical_name
@@ -143,6 +164,28 @@ def describe_component(
         requested_name=name,
         registered_names=registered_names,
     )
+
+
+def list_registered_components(
+    component_type: str = "all",
+    *,
+    root_dir: str = ".",
+) -> dict[str, list[str]]:
+    """List registered component names for one registry or all registries."""
+    canonical_type = normalize_list_type(component_type)
+
+    load_builtin_components()
+    load_local_components(root_dir)
+
+    if canonical_type == "all":
+        target_types = list(_COMPONENT_REGISTRIES.keys())
+    else:
+        target_types = [canonical_type]
+
+    return {
+        target_type: sorted(_COMPONENT_REGISTRIES[target_type].list_registered())
+        for target_type in target_types
+    }
 
 
 def format_description(description: dict[str, Any]) -> str:
@@ -217,6 +260,42 @@ def format_description(description: dict[str, Any]) -> str:
 def format_description_json(description: dict[str, Any]) -> str:
     """Serialize a component description as pretty JSON."""
     return json.dumps(description, indent=2, sort_keys=True)
+
+
+def format_registry_listing(listing: dict[str, list[str]]) -> str:
+    """Format a registry listing as readable text."""
+    if len(listing) == 1:
+        component_type, names = next(iter(listing.items()))
+        label = component_type.replace("_", " ")
+        lines = [
+            f"Registered {label}",
+            "=" * (11 + len(label)),
+        ]
+        if names:
+            lines.extend(f"- {name}" for name in names)
+        else:
+            lines.append("(none registered)")
+        return "\n".join(lines)
+
+    total = sum(len(names) for names in listing.values())
+    lines = [
+        "Registered components",
+        "=" * 21,
+    ]
+    for component_type, names in listing.items():
+        lines.append(f"{component_type}:")
+        if names:
+            lines.extend(f"  - {name}" for name in names)
+        else:
+            lines.append("  (none registered)")
+        lines.append("")
+    lines.append(f"Total components: {total}")
+    return "\n".join(lines).rstrip()
+
+
+def format_registry_listing_json(listing: dict[str, list[str]]) -> str:
+    """Serialize a registry listing as pretty JSON."""
+    return json.dumps(listing, indent=2, sort_keys=True)
 
 
 def _load_class_from_path(class_path: str) -> type[Any]:

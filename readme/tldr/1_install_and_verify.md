@@ -16,7 +16,7 @@ uv sync
 ## Verify Registry Loading
 
 ```bash
-uv run dl-run --show-registry
+uv run dl-core list
 ```
 
 You should see built-in accelerators, datasets, trainers, metrics, and models

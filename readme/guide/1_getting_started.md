@@ -19,11 +19,12 @@ uv sync
 ## Step 2: Verify the Built-In Components
 
 ```bash
-uv run dl-run --show-registry
+uv run dl-core list
+uv run dl-core list sampler
 ```
 
 This confirms the package entrypoints work and the built-in registries are
-populated.
+populated. The sampler listing should include the built-in `attack` sampler.
 
 ## Step 3: Run the Package Tests
 

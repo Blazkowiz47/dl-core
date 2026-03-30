@@ -98,7 +98,7 @@ pip install deep-learning-wandb
 ## Quick Start
 
 ```bash
-uv run dl-run --show-registry
+uv run dl-core list
 uv run dl-init-experiment --name my-exp --root-dir .
 ```
 
@@ -222,12 +222,18 @@ You can inspect registered components and built-in base classes directly from
 the CLI:
 
 ```bash
+uv run dl-core list
+uv run dl-core list sampler
+uv run dl-core list metric_manager --json
 uv run dl-core describe dataset my_dataset --root-dir .
 uv run dl-core describe model my_resnet --root-dir .
 uv run dl-core describe class dl_core.core.FrameWrapper
 uv run dl-core describe class dl_azure.datasets.AzureComputeMultiFrameWrapper
 uv run dl-core describe dataset my_dataset --root-dir . --json
 ```
+
+The built-in sampler list now includes `attack`, which balances PAD samples
+from the `attack` key in each data dictionary.
 
 The describe command shows:
 

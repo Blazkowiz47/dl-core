@@ -4,9 +4,12 @@
 
 ## `dl-core`
 
-Creates local component scaffolds inside an experiment repository.
+Creates local component scaffolds inside an experiment repository and lists or
+describes registered components.
 
 ```bash
+uv run dl-core list
+uv run dl-core list sampler
 uv run dl-core add augmentation Custom1
 uv run dl-core add dataset LocalDataset
 uv run dl-core add dataset FrameDataset --base frame
@@ -14,6 +17,8 @@ uv run dl-core add dataset FrameDataset --base frame
 
 Useful flags:
 
+- `--json` on `dl-core list`
+- `--root-dir` on `dl-core list`
 - `--base` for dataset scaffolds
 - `--root-dir`
 - `--force`
