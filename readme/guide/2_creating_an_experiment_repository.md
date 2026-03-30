@@ -47,16 +47,10 @@ my-exp/
       test_model.py
   src/
     bootstrap.py
-    criterions/
-      __init__.py
     datasets/
       my_exp.py
     models/
       resnet_example.py
-    optimizers/
-      __init__.py
-    schedulers/
-      __init__.py
     trainers/
       my_exp.py
 ```
