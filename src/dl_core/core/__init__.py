@@ -20,6 +20,7 @@ from .base_model import BaseModel
 from .base_sampler import BaseSampler
 from .base_tracker import BaseTracker
 from .adaptive_computation_trainer import AdaptiveComputationTrainer
+from .base_callback import Callback
 from .base_trainer import BaseTrainer
 from .epoch_trainer import EpochTrainer
 from .sequence_trainer import SequenceTrainer
@@ -81,6 +82,7 @@ __all__ = [
     "BaseMetricsSource",
     "BaseMetricManager",
     "BaseSampler",
+    "Callback",
     "BaseTrainer",
     "EpochTrainer",
     "SequenceTrainer",

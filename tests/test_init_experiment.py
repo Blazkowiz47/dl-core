@@ -44,7 +44,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert config["dataset"]["name"] == component_name
     assert list(config["trainer"].keys()) == [component_name]
     assert "name" not in config["trainer"][component_name]
-    assert "name" not in config["criterions"]["crossentropy"]
+    assert config["criterions"]["crossentropy"] is None
     assert "name" not in config["metric_managers"]["standard"]
     assert "name" not in config["runtime"]
     assert "name" not in config["experiment"]
