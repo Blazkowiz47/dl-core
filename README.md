@@ -9,10 +9,7 @@ extras and companion extension packages.
 
 ## Install
 
-The package is now available on PyPI under the `deep-learning-core` name.
-TestPyPI remains available for validation flows.
-
-PyPI install target:
+Install from PyPI:
 
 ```bash
 pip install deep-learning-core
@@ -42,36 +39,11 @@ Install with multiple variants:
 pip install "deep-learning-core[azure,wandb]"
 ```
 
-Install today from TestPyPI with `pip`:
-
-```bash
-pip install \
-  --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  deep-learning-core
-```
-
-Install today from TestPyPI in a `uv` project:
-
-```toml
-[tool.uv.sources]
-"deep-learning-core" = { index = "testpypi" }
-
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-explicit = true
-```
-
-Then run:
+Install in a `uv` project:
 
 ```bash
 uv add deep-learning-core
 ```
-
-Do not use `uv add --index https://test.pypi.org/simple/ deep-learning-core`
-for this package. With `uv`'s default `first-index` strategy, that can pull unrelated
-dependency names from TestPyPI instead of PyPI.
 
 `deep-learning-core` intentionally ships with the full public runtime
 dependencies, including `torch`, `torchvision`, and `opencv-python-headless`. The Azure
@@ -302,7 +274,6 @@ provided through `dl-azure`.
 
 ## Releases
 
-- `Publish TestPyPI` is the manual validation workflow for TestPyPI.
 - `Publish` is the production workflow for PyPI.
 - Trusted publishing is configured through GitHub Actions environments rather
   than long-lived API tokens.
