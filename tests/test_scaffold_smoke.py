@@ -230,7 +230,7 @@ def test_scaffold_smoke_repo_runs_dl_run_and_dl_sweep() -> None:
 
         summary_path = Path(tracked_run["metrics_summary_path"])
         history_path = Path(tracked_run["metrics_history_path"])
-        run_info_path = Path(tracked_run["artifact_dir"]) / "run_info.json"
+        run_info_path = Path(tracked_run["artifact_dir"]) / "final" / "run_info.json"
         assert summary_path.exists()
         assert history_path.exists()
         assert run_info_path.exists()

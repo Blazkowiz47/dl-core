@@ -88,6 +88,7 @@ class CheckpointCallback(Callback):
 
             # Trigger checkpoint save in trainer
             self.trainer.save_checkpoint(epoch)
+            self.trainer.save_checkpoint(epoch, filename="best.pth")
 
         elif not self.save_best_only:
             # Save checkpoint even if not best

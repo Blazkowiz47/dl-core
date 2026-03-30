@@ -156,7 +156,7 @@ class LocalMetricsSource(BaseMetricsSource):
         Args:
             run_data: Sweep tracker entry for one run
             artifact_dir: Resolved artifact directory, if available
-            filename: File expected under ``metrics/``
+            filename: File expected under ``final/metrics/``
             tracker_key: Explicit tracker key for the artifact
 
         Returns:
@@ -169,7 +169,7 @@ class LocalMetricsSource(BaseMetricsSource):
         if artifact_dir is None:
             return None
 
-        return artifact_dir / "metrics" / filename
+        return artifact_dir / "final" / "metrics" / filename
 
     def _resolve_selection_value(self, summary: dict[str, Any]) -> Any:
         """

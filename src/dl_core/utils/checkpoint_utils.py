@@ -95,10 +95,13 @@ def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
         # Construct checkpoint dir path (matches ArtifactManager structure)
         if sweep_file:
             checkpoint_dir = (
-                f"{output_dir}/{experiment_name}/{sweep_file}/{run_name}/checkpoints"
+                f"{output_dir}/{experiment_name}/{sweep_file}/{run_name}/"
+                "final/checkpoints"
             )
         else:
-            checkpoint_dir = f"{output_dir}/{experiment_name}/{run_name}/checkpoints"
+            checkpoint_dir = (
+                f"{output_dir}/{experiment_name}/{run_name}/final/checkpoints"
+            )
 
         if os.path.exists(checkpoint_dir):
             return checkpoint_dir

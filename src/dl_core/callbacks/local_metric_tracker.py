@@ -98,7 +98,7 @@ class LocalMetricTrackerCallback(Callback):
                 "value": value,
             }
             filename = f"{_sanitize_metric_filename(metric_name)}.jsonl"
-            self.trainer.artifact_manager.append_jsonl(
+            self.trainer.artifact_manager.append_final_jsonl(
                 Path("metrics") / "series" / filename,
                 payload,
             )

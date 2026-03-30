@@ -123,8 +123,12 @@ class LocalExecutor(BaseExecutor):
                 "success": True,
                 "tracking_run_name": run_name,
                 "artifact_dir": str(artifact_dir),
-                "metrics_summary_path": str(artifact_dir / "metrics" / "summary.json"),
-                "metrics_history_path": str(artifact_dir / "metrics" / "history.json"),
+                "metrics_summary_path": str(
+                    artifact_dir / "final" / "metrics" / "summary.json"
+                ),
+                "metrics_history_path": str(
+                    artifact_dir / "final" / "metrics" / "history.json"
+                ),
             }
 
         result = subprocess.run(cmd, check=False)
@@ -153,8 +157,12 @@ class LocalExecutor(BaseExecutor):
             ),
             "tracking_run_ref": tracking_session,
             "artifact_dir": str(artifact_dir),
-            "metrics_summary_path": str(artifact_dir / "metrics" / "summary.json"),
-            "metrics_history_path": str(artifact_dir / "metrics" / "history.json"),
+            "metrics_summary_path": str(
+                artifact_dir / "final" / "metrics" / "summary.json"
+            ),
+            "metrics_history_path": str(
+                artifact_dir / "final" / "metrics" / "history.json"
+            ),
         }
 
     def _load_tracking_session(self, artifact_dir: Path) -> Dict[str, Any] | None:
@@ -167,7 +175,7 @@ class LocalExecutor(BaseExecutor):
         Returns:
             Parsed tracking session metadata when available.
         """
-        session_path = artifact_dir / "tracking" / "session.json"
+        session_path = artifact_dir / "final" / "tracking" / "session.json"
         if not session_path.exists():
             return None
 

@@ -335,16 +335,9 @@ def _render_component(
             ),
         )
     if spec.canonical_name == "callback":
-        return _wrapper_component(
-            module_docstring="Local callback scaffold.",
-            register_name="register_callback",
+        return _callback_component(
             registry_literal=registry_literal,
-            import_path="dl_core.callbacks.metric_logger",
-            base_class="MetricLoggerCallback",
             class_name=class_name,
-            class_docstring=(
-                "Thin local wrapper around the built-in metric logger callback."
-            ),
         )
     if spec.canonical_name == "criterion":
         return _wrapper_component(
@@ -598,6 +591,30 @@ class {class_name}({base_class}):
     \"\"\"{class_docstring}\"\"\"
 
     # TODO: override the built-in behavior here when needed.
+    pass
+"""
+
+
+def _callback_component(*, registry_literal: str, class_name: str) -> str:
+    """Render a callback scaffold with artifact layout guidance."""
+    return f"""\"\"\"Local callback scaffold.\"\"\"
+
+from dl_core.core import register_callback
+from dl_core.callbacks.metric_logger import MetricLoggerCallback
+
+
+@register_callback({registry_literal})
+class {class_name}(MetricLoggerCallback):
+    \"\"\"Thin local wrapper around the built-in metric logger callback.\"\"\"
+
+    # TODO: Override the built-in behavior here when needed.
+    # TODO: Store epoch-scoped artifacts under
+    # ``self.trainer.artifact_manager.get_epoch_dir(epoch)`` or a more specific
+    # helper like ``get_epoch_training_plots_dir(epoch)``.
+    # TODO: Store end-of-run artifacts under
+    # ``self.trainer.artifact_manager.get_final_dir()``.
+    # TODO: The MLflow callback uploads ``epoch_<n>/`` after each epoch and
+    # ``final/`` plus ``config.yaml`` at training end.
     pass
 """
 

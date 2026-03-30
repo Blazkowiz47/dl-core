@@ -508,7 +508,7 @@ class EpochTrainer(ABC):
             sweep_name=sweep_file,
         )
         self.checkpoint_dir = str(self.artifact_manager.get_checkpoints_dir())
-        self.visualization_dir = str(self.artifact_manager.get_plots_dir())
+        self.visualization_dir = str(self.artifact_manager.run_dir)
 
         # Persist the full, merged configuration into artifacts for reproducibility
         try:
@@ -746,12 +746,15 @@ class EpochTrainer(ABC):
         if not self.accelerator.is_main_process():
             return
 
-        # Create checkpoint directory if it doesn't exist
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
-
         checkpoint_dict = self._get_current_checkpoint(epoch)
-        checkpoint_name = filename or f"epoch_{epoch}.pth"
-        checkpoint_path = os.path.join(self.checkpoint_dir, checkpoint_name)
+        if filename is None:
+            checkpoint_path = self.artifact_manager.get_epoch_checkpoint_path(epoch)
+        else:
+            checkpoint_path = self.artifact_manager.get_final_checkpoint_path(
+                filename
+            )
+
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(checkpoint_dict, checkpoint_path)
 
         self.logger.debug(f"Saved checkpoint for epoch {epoch}: {checkpoint_path}")
@@ -1481,12 +1484,8 @@ class EpochTrainer(ABC):
             "sweep_name": self.artifact_manager.sweep_name,
             "artifact_dir": str(self.artifact_manager.run_dir),
             "config_path": str(self.artifact_manager.run_dir / "config.yaml"),
-            "metrics_summary_path": str(
-                self.artifact_manager.get_metrics_summary_path()
-            ),
-            "metrics_history_path": str(
-                self.artifact_manager.get_metrics_history_path()
-            ),
+            "metrics_summary_path": str(self.artifact_manager.get_metrics_summary_path()),
+            "metrics_history_path": str(self.artifact_manager.get_metrics_history_path()),
             "current_epoch": self.current_epoch,
             "total_epochs": self.epochs,
         }
