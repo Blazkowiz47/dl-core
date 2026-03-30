@@ -49,13 +49,13 @@ dependencies = [
 
 [project.optional-dependencies]
 azure = [
-    "deep-learning-azure>=0.0.3,<0.1",
+    "deep-learning-azure>=0.0.4,<0.1",
 ]
 mlflow = [
-    "deep-learning-mlflow>=0.0.3,<0.1",
+    "deep-learning-mlflow>=0.0.4,<0.1",
 ]
 wandb = [
-    "deep-learning-wandb>=0.0.3,<0.1",
+    "deep-learning-wandb>=0.0.4,<0.1",
 ]
 dev = [
     "pytest",
