@@ -4,10 +4,25 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+import inspect
+from importlib import import_module
 import importlib.util
 import re
 from pathlib import Path
 
+from dl_core import load_builtin_components, load_local_components
+from dl_core.core import (
+    AUGMENTATION_REGISTRY,
+    CALLBACK_REGISTRY,
+    CRITERION_REGISTRY,
+    EXECUTOR_REGISTRY,
+    METRIC_MANAGER_REGISTRY,
+    METRIC_REGISTRY,
+    MODEL_REGISTRY,
+    SAMPLER_REGISTRY,
+    TRAINER_REGISTRY,
+    ComponentRegistry,
+)
 from dl_core.project import find_local_component_root_dir, find_project_root
 
 
@@ -19,6 +34,17 @@ class ComponentSpec:
     package_dir: str
     class_suffix: str
     init_docstring: str
+    register_name: str
+
+
+@dataclass(frozen=True)
+class ComponentBaseSpec:
+    """Resolved import metadata for one scaffold base class."""
+
+    canonical_name: str
+    import_path: str
+    base_class: str
+    class_docstring: str
 
 
 @dataclass(frozen=True)
@@ -39,60 +65,141 @@ _COMPONENT_SPECS = {
         package_dir="augmentations",
         class_suffix="Augmentation",
         init_docstring="Local augmentation extensions.",
+        register_name="register_augmentation",
     ),
     "callback": ComponentSpec(
         canonical_name="callback",
         package_dir="callbacks",
         class_suffix="Callback",
         init_docstring="Local callback extensions.",
+        register_name="register_callback",
     ),
     "criterion": ComponentSpec(
         canonical_name="criterion",
         package_dir="criterions",
         class_suffix="Criterion",
         init_docstring="Local criterion extensions.",
+        register_name="register_criterion",
     ),
     "dataset": ComponentSpec(
         canonical_name="dataset",
         package_dir="datasets",
         class_suffix="Dataset",
         init_docstring="Local dataset extensions.",
+        register_name="register_dataset",
     ),
     "executor": ComponentSpec(
         canonical_name="executor",
         package_dir="executors",
         class_suffix="Executor",
         init_docstring="Local executor extensions.",
+        register_name="register_executor",
     ),
     "metric": ComponentSpec(
         canonical_name="metric",
         package_dir="metrics",
         class_suffix="Metric",
         init_docstring="Local metric extensions.",
+        register_name="register_metric",
     ),
     "metric_manager": ComponentSpec(
         canonical_name="metric_manager",
         package_dir="metric_managers",
         class_suffix="MetricManager",
         init_docstring="Local metric manager extensions.",
+        register_name="register_metric_manager",
     ),
     "model": ComponentSpec(
         canonical_name="model",
         package_dir="models",
         class_suffix="Model",
         init_docstring="Local model extensions.",
+        register_name="register_model",
     ),
     "sampler": ComponentSpec(
         canonical_name="sampler",
         package_dir="samplers",
         class_suffix="Sampler",
         init_docstring="Local sampler extensions.",
+        register_name="register_sampler",
     ),
     "trainer": ComponentSpec(
         canonical_name="trainer",
         package_dir="trainers",
         class_suffix="Trainer",
         init_docstring="Local trainer extensions.",
+        register_name="register_trainer",
+    ),
+}
+
+_COMPONENT_BASE_REGISTRIES: dict[str, ComponentRegistry] = {
+    "augmentation": AUGMENTATION_REGISTRY,
+    "callback": CALLBACK_REGISTRY,
+    "criterion": CRITERION_REGISTRY,
+    "executor": EXECUTOR_REGISTRY,
+    "metric": METRIC_REGISTRY,
+    "metric_manager": METRIC_MANAGER_REGISTRY,
+    "model": MODEL_REGISTRY,
+    "sampler": SAMPLER_REGISTRY,
+    "trainer": TRAINER_REGISTRY,
+}
+
+_DEFAULT_COMPONENT_BASE_SPECS = {
+    "augmentation": ComponentBaseSpec(
+        canonical_name="augmentation",
+        import_path="dl_core.core",
+        base_class="BaseTransform",
+        class_docstring="Local augmentation scaffold based on BaseTransform.",
+    ),
+    "callback": ComponentBaseSpec(
+        canonical_name="callback",
+        import_path="dl_core.core",
+        base_class="Callback",
+        class_docstring="Local callback scaffold based on Callback.",
+    ),
+    "criterion": ComponentBaseSpec(
+        canonical_name="criterion",
+        import_path="dl_core.core",
+        base_class="BaseCriterion",
+        class_docstring="Local criterion scaffold based on BaseCriterion.",
+    ),
+    "executor": ComponentBaseSpec(
+        canonical_name="executor",
+        import_path="dl_core.core",
+        base_class="BaseExecutor",
+        class_docstring="Local executor scaffold based on BaseExecutor.",
+    ),
+    "metric": ComponentBaseSpec(
+        canonical_name="metric",
+        import_path="dl_core.core",
+        base_class="BaseMetric",
+        class_docstring="Local metric scaffold based on BaseMetric.",
+    ),
+    "metric_manager": ComponentBaseSpec(
+        canonical_name="metric_manager",
+        import_path="dl_core.core",
+        base_class="BaseMetricManager",
+        class_docstring=(
+            "Local metric manager scaffold based on BaseMetricManager."
+        ),
+    ),
+    "model": ComponentBaseSpec(
+        canonical_name="model",
+        import_path="dl_core.core",
+        base_class="BaseModel",
+        class_docstring="Local model scaffold based on BaseModel.",
+    ),
+    "sampler": ComponentBaseSpec(
+        canonical_name="sampler",
+        import_path="dl_core.core",
+        base_class="BaseSampler",
+        class_docstring="Local sampler scaffold based on BaseSampler.",
+    ),
+    "trainer": ComponentBaseSpec(
+        canonical_name="trainer",
+        import_path="dl_core.core",
+        base_class="BaseTrainer",
+        class_docstring="Local trainer scaffold based on BaseTrainer.",
     ),
 }
 
@@ -221,13 +328,12 @@ def create_component_scaffold(
     component_type: str,
     name: str,
     root_dir: str = ".",
-    dataset_base: str | None = None,
+    base_name: str | None = None,
     force: bool = False,
 ) -> Path:
     """Create a new local component scaffold inside an experiment repository."""
     canonical_type = normalize_component_type(component_type)
     spec = _COMPONENT_SPECS[canonical_type]
-    canonical_dataset_base = _resolve_dataset_base(canonical_type, dataset_base)
 
     search_root = Path(root_dir).resolve()
     project_root = find_project_root(search_root)
@@ -237,6 +343,13 @@ def create_component_scaffold(
             "Run this inside a repository created by dl-init-experiment or pass "
             "--root-dir."
         )
+
+    canonical_dataset_base = _resolve_dataset_base(canonical_type, base_name)
+    component_base = _resolve_component_base(
+        canonical_type,
+        base_name,
+        project_root,
+    )
 
     component_root_dir = find_local_component_root_dir(project_root)
     package_component_dir = component_root_dir / spec.package_dir
@@ -263,6 +376,7 @@ def create_component_scaffold(
             registry_names,
             class_name,
             dataset_base=canonical_dataset_base,
+            component_base=component_base,
         ),
         encoding="utf-8",
     )
@@ -318,38 +432,18 @@ def _render_component(
     class_name: str,
     *,
     dataset_base: str | None,
+    component_base: ComponentBaseSpec | None,
 ) -> str:
     """Render the generated component source code."""
     registry_literal = _registry_literal(registry_names)
 
-    if spec.canonical_name == "augmentation":
-        return _wrapper_component(
-            module_docstring="Local augmentation scaffold.",
-            register_name="register_augmentation",
-            registry_literal=registry_literal,
-            import_path="dl_core.augmentations.minimal",
-            base_class="MinimalTransform",
-            class_name=class_name,
-            class_docstring=(
-                "Thin local wrapper around the built-in minimal augmentation."
-            ),
-        )
     if spec.canonical_name == "callback":
         return _callback_component(
+            import_path=_component_base_required(component_base).import_path,
+            base_class=_component_base_required(component_base).base_class,
             registry_literal=registry_literal,
             class_name=class_name,
-        )
-    if spec.canonical_name == "criterion":
-        return _wrapper_component(
-            module_docstring="Local criterion scaffold.",
-            register_name="register_criterion",
-            registry_literal=registry_literal,
-            import_path="dl_core.criterions.crossentropy",
-            base_class="CrossEntropy",
-            class_name=class_name,
-            class_docstring=(
-                "Thin local wrapper around the built-in cross-entropy criterion."
-            ),
+            class_docstring=_component_base_required(component_base).class_docstring,
         )
     if spec.canonical_name == "dataset":
         if dataset_base is None:
@@ -359,65 +453,29 @@ def _render_component(
             registry_literal=registry_literal,
             class_name=class_name,
         )
-    if spec.canonical_name == "executor":
-        return _wrapper_component(
-            module_docstring="Local executor scaffold.",
-            register_name="register_executor",
-            registry_literal=registry_literal,
-            import_path="dl_core.executors.local",
-            base_class="LocalExecutor",
-            class_name=class_name,
-            class_docstring="Thin local wrapper around the built-in local executor.",
-        )
-    if spec.canonical_name == "metric":
-        return _wrapper_component(
-            module_docstring="Local metric scaffold.",
-            register_name="register_metric",
-            registry_literal=registry_literal,
-            import_path="dl_core.metrics.accuracy",
-            base_class="AccuracyMetric",
-            class_name=class_name,
-            class_docstring="Thin local wrapper around the built-in accuracy metric.",
-        )
-    if spec.canonical_name == "metric_manager":
-        return _wrapper_component(
-            module_docstring="Local metric manager scaffold.",
-            register_name="register_metric_manager",
-            registry_literal=registry_literal,
-            import_path="dl_core.metric_managers.standard_manager",
-            base_class="StandardMetricManager",
-            class_name=class_name,
-            class_docstring=(
-                "Thin local wrapper around the built-in standard metric manager."
-            ),
-        )
-    if spec.canonical_name == "model":
-        return _wrapper_component(
-            module_docstring="Local model scaffold.",
-            register_name="register_model",
-            registry_literal=registry_literal,
-            import_path="dl_core.models.resnet",
-            base_class="ResNet",
-            class_name=class_name,
-            class_docstring="Thin local wrapper around the built-in ResNet model.",
-        )
-    if spec.canonical_name == "trainer":
-        return _wrapper_component(
-            module_docstring="Local trainer scaffold.",
-            register_name="register_trainer",
-            registry_literal=registry_literal,
-            import_path="dl_core.trainers.standard_trainer",
-            base_class="StandardTrainer",
-            class_name=class_name,
-            class_docstring="Thin local wrapper around the built-in standard trainer.",
-        )
     if spec.canonical_name == "sampler":
-        return _sampler_component(
-            registry_literal=registry_literal,
-            class_name=class_name,
-        )
+        sampler_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, sampler_base):
+            return _sampler_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=sampler_base.import_path,
+                base_class=sampler_base.base_class,
+                class_docstring=sampler_base.class_docstring,
+            )
 
-    raise ValueError(f"Unsupported component type: {spec.canonical_name}")
+    resolved_base = _component_base_required(component_base)
+    return _wrapper_component(
+        module_docstring=(
+            f"Local {spec.canonical_name.replace('_', ' ')} scaffold."
+        ),
+        register_name=spec.register_name,
+        registry_literal=registry_literal,
+        import_path=resolved_base.import_path,
+        base_class=resolved_base.base_class,
+        class_name=class_name,
+        class_docstring=resolved_base.class_docstring,
+    )
 
 
 def _update_package_init(
@@ -595,19 +653,26 @@ class {class_name}({base_class}):
 """
 
 
-def _callback_component(*, registry_literal: str, class_name: str) -> str:
+def _callback_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
     """Render a callback scaffold with artifact layout guidance."""
     return f"""\"\"\"Local callback scaffold.\"\"\"
 
 from dl_core.core import register_callback
-from dl_core.callbacks.metric_logger import MetricLoggerCallback
+from {import_path} import {base_class}
 
 
 @register_callback({registry_literal})
-class {class_name}(MetricLoggerCallback):
-    \"\"\"Thin local wrapper around the built-in metric logger callback.\"\"\"
+class {class_name}({base_class}):
+    \"\"\"{class_docstring}\"\"\"
 
-    # TODO: Override the built-in behavior here when needed.
+    # TODO: Override the base behavior here when needed.
     # TODO: Store epoch-scoped artifacts under
     # ``self.trainer.artifact_manager.get_epoch_dir(epoch)`` or a more specific
     # helper like ``get_epoch_training_plots_dir(epoch)``.
@@ -625,10 +690,136 @@ def _resolve_dataset_base(
 ) -> str | None:
     """Validate dataset base usage for the requested component type."""
     if component_type != "dataset":
-        if dataset_base is not None:
-            raise ValueError("--base is only supported for dataset components.")
         return None
     return normalize_dataset_base(dataset_base)
+
+
+def _resolve_component_base(
+    component_type: str,
+    base_name: str | None,
+    root_dir: Path,
+) -> ComponentBaseSpec | None:
+    """Resolve the base class used by a generated scaffold."""
+    if component_type == "dataset":
+        return None
+
+    default_base = _DEFAULT_COMPONENT_BASE_SPECS[component_type]
+    normalized_base_name = _normalize_base_name(base_name)
+    if normalized_base_name in {None, "base"}:
+        return default_base
+    if normalized_base_name == _normalize_base_name(default_base.base_class):
+        return default_base
+
+    if base_name is None:
+        return default_base
+
+    if "." in base_name:
+        return _resolve_importable_component_base(component_type, base_name)
+
+    load_builtin_components()
+    load_local_components(root_dir)
+    registry = _COMPONENT_BASE_REGISTRIES[component_type]
+    resolved_class = registry.get_class(base_name)
+    return _resolve_registered_component_base(component_type, resolved_class)
+
+
+def _normalize_base_name(base_name: str | None) -> str | None:
+    """Normalize a scaffold base name for comparison."""
+    if base_name is None:
+        return None
+    return (
+        base_name.strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+
+
+def _resolve_registered_component_base(
+    component_type: str,
+    resolved_class: type,
+) -> ComponentBaseSpec:
+    """Build scaffold base metadata from a registered component class."""
+    return _build_component_base_spec(component_type, resolved_class)
+
+
+def _resolve_importable_component_base(
+    component_type: str,
+    class_path: str,
+) -> ComponentBaseSpec:
+    """Build scaffold base metadata from an importable class path."""
+    module_path, _, class_name = class_path.rpartition(".")
+    if not module_path or not class_name:
+        raise ValueError(
+            f"Invalid class path '{class_path}'. Expected package.module.ClassName."
+        )
+
+    module = import_module(module_path)
+    resolved_class = getattr(module, class_name, None)
+    if not inspect.isclass(resolved_class):
+        raise ValueError(
+            f"Class '{class_name}' could not be imported from '{module_path}'."
+        )
+
+    _validate_component_base_class(component_type, resolved_class)
+    return _build_component_base_spec(component_type, resolved_class)
+
+
+def _build_component_base_spec(
+    component_type: str,
+    resolved_class: type,
+) -> ComponentBaseSpec:
+    """Build scaffold base metadata for a resolved class."""
+    _validate_component_base_class(component_type, resolved_class)
+    class_docstring = inspect.getdoc(resolved_class)
+    if not class_docstring:
+        class_docstring = (
+            "Local "
+            f"{component_type.replace('_', ' ')} scaffold based on "
+            f"{resolved_class.__name__}."
+        )
+    return ComponentBaseSpec(
+        canonical_name=component_type,
+        import_path=resolved_class.__module__,
+        base_class=resolved_class.__name__,
+        class_docstring=class_docstring,
+    )
+
+
+def _validate_component_base_class(
+    component_type: str,
+    resolved_class: type,
+) -> None:
+    """Validate that a resolved base class matches the scaffold type."""
+    default_base = _DEFAULT_COMPONENT_BASE_SPECS[component_type]
+    base_module = import_module(default_base.import_path)
+    expected_base = getattr(base_module, default_base.base_class)
+    if not issubclass(resolved_class, expected_base):
+        raise ValueError(
+            f"Base class '{resolved_class.__module__}.{resolved_class.__name__}' "
+            f"is not a subclass of {expected_base.__module__}.{expected_base.__name__}."
+        )
+
+
+def _component_base_required(
+    component_base: ComponentBaseSpec | None,
+) -> ComponentBaseSpec:
+    """Return a resolved component base or raise a helpful error."""
+    if component_base is None:
+        raise ValueError("A resolved scaffold base is required for this component.")
+    return component_base
+
+
+def _is_default_component_base(
+    component_type: str,
+    component_base: ComponentBaseSpec,
+) -> bool:
+    """Return whether a resolved scaffold base matches the default base."""
+    default_base = _DEFAULT_COMPONENT_BASE_SPECS[component_type]
+    return (
+        component_base.import_path == default_base.import_path
+        and component_base.base_class == default_base.base_class
+    )
 
 
 def _dataset_base_specs() -> dict[str, DatasetBaseSpec]:
@@ -965,16 +1156,24 @@ class {class_name}({base_spec.base_class}):
 '''
 
 
-def _sampler_component(*, registry_literal: str, class_name: str) -> str:
+def _sampler_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
     """Render a simple pass-through sampler scaffold."""
     return f"""\"\"\"Local sampler scaffold.\"\"\"
 
-from dl_core.core import BaseSampler, register_sampler
+from dl_core.core import register_sampler
+from {import_path} import {base_class}
 
 
 @register_sampler({registry_literal})
-class {class_name}(BaseSampler):
-    \"\"\"Simple sampler scaffold that leaves the file list unchanged.\"\"\"
+class {class_name}({base_class}):
+    \"\"\"{class_docstring}\"\"\"
 
     def sample_data(self, files: list[dict], split: str) -> list[dict]:
         \"\"\"Return the incoming file list unchanged.\"\"\"

@@ -91,7 +91,9 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-core add model MyResNet\n"
             "  dl-core add trainer MyTrainer\n"
             "  dl-core add callback MyMetrics\n"
+            "  dl-core add callback MyLogger --base metric_logger\n"
             "  dl-core add metric_manager MyManager\n"
+            "  dl-core add metric_manager MyPadManager --base standard\n"
             "  dl-core add sampler MySampler\n"
             "  dl-core add criterion MyLoss\n"
             "  dl-core add augmentation MyAugmentation\n"
@@ -113,9 +115,11 @@ def main(argv: list[str] | None = None) -> int:
     add_parser.add_argument(
         "--base",
         help=(
-            "Dataset scaffold base to use when component_type is 'dataset'. "
-            "Supported values in this environment: "
-            f"{', '.join(list_supported_dataset_bases())}."
+            "Optional base implementation to scaffold from. Datasets support "
+            "shortcut values like "
+            f"{', '.join(list_supported_dataset_bases())}. Other component "
+            "types accept a registered component name or a fully qualified "
+            "class path. When omitted, the plain base class is used."
         ),
     )
     add_parser.add_argument(
@@ -239,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         if normalized_add_target == "sweep":
             if args.base:
                 parser.error(
-                    "--base is only supported when component_type is 'dataset'."
+                    "--base is not supported when component_type is 'sweep'."
                 )
             normalize_tracking_backend(args.tracking)
             sweep_path = create_sweep_scaffold(
@@ -256,14 +260,11 @@ def main(argv: list[str] | None = None) -> int:
                 "--tracking is only supported when component_type is 'sweep'."
             )
 
-        if args.base and normalize_component_type(args.component_type) != "dataset":
-            parser.error("--base is only supported when component_type is 'dataset'.")
-
         component_path = create_component_scaffold(
             component_type=args.component_type,
             name=args.name,
             root_dir=args.root_dir,
-            dataset_base=args.base,
+            base_name=args.base,
             force=args.force,
         )
         print(f"Created component scaffold: {component_path}")

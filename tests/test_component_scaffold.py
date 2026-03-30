@@ -7,7 +7,12 @@ from pathlib import Path
 import dl_core.component_scaffold as component_scaffold
 from dl_core import load_builtin_components, load_local_components
 from dl_core.cli import main as cli_main
-from dl_core.core import AUGMENTATION_REGISTRY, SAMPLER_REGISTRY
+from dl_core.core import (
+    AUGMENTATION_REGISTRY,
+    CALLBACK_REGISTRY,
+    METRIC_MANAGER_REGISTRY,
+    SAMPLER_REGISTRY,
+)
 from dl_core.init_experiment import create_experiment_scaffold
 
 
@@ -73,6 +78,100 @@ def test_cli_add_sampler_from_nested_path_creates_importable_package(
 
     assert SAMPLER_REGISTRY.get_class("passthrough1").__name__ == (
         "Passthrough1Sampler"
+    )
+
+
+def test_cli_add_callback_defaults_to_plain_base(tmp_path: Path) -> None:
+    """Callback scaffolds should default to the plain Callback base class."""
+    target_dir = create_experiment_scaffold("callback-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "callback",
+            "ArtifactLogger",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "callbacks" / "artifactlogger.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import register_callback" in component_text
+    assert "from dl_core.core import Callback" in component_text
+    assert "class ArtifactLoggerCallback(Callback):" in component_text
+    assert "MetricLoggerCallback" not in component_text
+
+
+def test_cli_add_callback_supports_registered_base(tmp_path: Path) -> None:
+    """Callback scaffolds should support explicit built-in bases via --base."""
+    target_dir = create_experiment_scaffold(
+        "callback-base-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "callback",
+            "MetricMirror",
+            "--base",
+            "metric_logger",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "callbacks" / "metricmirror.py"
+    component_text = component_path.read_text()
+
+    assert (
+        "from dl_core.callbacks.metric_logger import MetricLoggerCallback"
+        in component_text
+    )
+    assert "class MetricMirrorCallback(MetricLoggerCallback):" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert CALLBACK_REGISTRY.get_class("metricmirror").__name__ == (
+        "MetricMirrorCallback"
+    )
+
+
+def test_cli_add_metric_manager_defaults_to_plain_base(tmp_path: Path) -> None:
+    """Metric manager scaffolds should default to BaseMetricManager."""
+    target_dir = create_experiment_scaffold(
+        "metric-manager-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "metric_manager",
+            "PadManager",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "metric_managers" / "padmanager.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import BaseMetricManager" in component_text
+    assert "class PadManagerMetricManager(BaseMetricManager):" in component_text
+    assert "StandardMetricManager" not in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert METRIC_MANAGER_REGISTRY.get_class("padmanager").__name__ == (
+        "PadManagerMetricManager"
     )
 
 
