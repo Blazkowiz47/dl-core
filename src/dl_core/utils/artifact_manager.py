@@ -26,7 +26,7 @@ class ArtifactManager:
         output_dir/experiment_name/sweep_file/run_name/
         ├── config.yaml                # Saved run config
         ├── epoch_1/                   # Epoch-scoped artifacts
-        │   ├── checkpoints/
+        │   ├── checkpoint.pth
         │   ├── metrics/
         │   ├── plots/
         │   ├── raw/
@@ -156,10 +156,6 @@ class ArtifactManager:
     def get_epoch_dir(self, epoch: int) -> Path:
         """Get the root directory for one epoch's artifacts."""
         return self.run_dir / f"epoch_{epoch}"
-
-    def get_epoch_checkpoints_dir(self, epoch: int) -> Path:
-        """Get the checkpoint directory for one epoch's artifacts."""
-        return self.get_epoch_dir(epoch) / "checkpoints"
 
     def get_epoch_metrics_dir(self, epoch: int) -> Path:
         """Get the metrics directory for one epoch's artifacts."""
@@ -465,9 +461,9 @@ class ArtifactManager:
         epoch: int,
         filename: str | None = None,
     ) -> Path:
-        """Get one epoch checkpoint path under ``epoch_<n>/checkpoints``."""
-        checkpoint_name = filename or f"epoch_{epoch}.pth"
-        return self.get_epoch_checkpoints_dir(epoch) / checkpoint_name
+        """Get one epoch checkpoint path under ``epoch_<n>/``."""
+        checkpoint_name = filename or "checkpoint.pth"
+        return self.get_epoch_dir(epoch) / checkpoint_name
 
     def save_run_info(self, run_info: dict[str, Any]) -> None:
         """
