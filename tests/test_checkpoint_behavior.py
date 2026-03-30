@@ -74,7 +74,7 @@ def test_checkpoint_callback_resolves_monitor_aliases() -> None:
 
     callback.on_epoch_end(1, {"validation/accuracy": 0.75})
 
-    assert trainer.saved_epochs == [(1, None)]
+    assert trainer.saved_epochs == [(1, None), (1, "best.pth")]
 
 
 def test_early_stopping_resolves_monitor_aliases() -> None:
