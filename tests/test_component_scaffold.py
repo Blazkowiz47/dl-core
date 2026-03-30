@@ -11,7 +11,9 @@ from dl_core.core import (
     AUGMENTATION_REGISTRY,
     CALLBACK_REGISTRY,
     METRIC_MANAGER_REGISTRY,
+    OPTIMIZER_REGISTRY,
     SAMPLER_REGISTRY,
+    SCHEDULER_REGISTRY,
 )
 from dl_core.init_experiment import create_experiment_scaffold
 
@@ -172,6 +174,64 @@ def test_cli_add_metric_manager_defaults_to_plain_base(tmp_path: Path) -> None:
 
     assert METRIC_MANAGER_REGISTRY.get_class("padmanager").__name__ == (
         "PadManagerMetricManager"
+    )
+
+
+def test_cli_add_optimizer_defaults_to_plain_base(tmp_path: Path) -> None:
+    """Optimizer scaffolds should default to the plain Optimizer base class."""
+    target_dir = create_experiment_scaffold("optimizer-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "optimizer",
+            "MyOptimizer",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "optimizers" / "myoptimizer.py"
+    component_text = component_path.read_text()
+
+    assert "from torch.optim import Optimizer" in component_text
+    assert "class MyOptimizerOptimizer(Optimizer):" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert OPTIMIZER_REGISTRY.get_class("myoptimizer").__name__ == (
+        "MyOptimizerOptimizer"
+    )
+
+
+def test_cli_add_scheduler_defaults_to_plain_base(tmp_path: Path) -> None:
+    """Scheduler scaffolds should default to the plain LRScheduler base class."""
+    target_dir = create_experiment_scaffold("scheduler-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "scheduler",
+            "MyScheduler",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "schedulers" / "myscheduler.py"
+    component_text = component_path.read_text()
+
+    assert "from torch.optim.lr_scheduler import LRScheduler" in component_text
+    assert "class MySchedulerScheduler(LRScheduler):" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert SCHEDULER_REGISTRY.get_class("myscheduler").__name__ == (
+        "MySchedulerScheduler"
     )
 
 

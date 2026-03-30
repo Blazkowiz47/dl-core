@@ -40,10 +40,12 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
         target_dir / "scripts" / "temporary" / "README.md"
     ).read_text()
     assert list(config["models"].keys()) == ["resnet_example"]
-    assert config["models"]["resnet_example"]["name"] == "resnet_example"
+    assert "name" not in config["models"]["resnet_example"]
     assert config["dataset"]["name"] == component_name
     assert list(config["trainer"].keys()) == [component_name]
-    assert config["trainer"][component_name]["name"] == component_name
+    assert "name" not in config["trainer"][component_name]
+    assert "name" not in config["criterions"]["crossentropy"]
+    assert "name" not in config["metric_managers"]["standard"]
     assert "name" not in config["runtime"]
     assert "name" not in config["experiment"]
     assert "# name: named-demo" in base_text
@@ -66,7 +68,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     )
     base_sweep_text = (target_dir / "configs" / "base_sweep.yaml").read_text()
     assert list(sweep_config["fixed"]["trainer"].keys()) == [component_name]
-    assert sweep_config["fixed"]["trainer"][component_name]["name"] == component_name
+    assert "name" not in sweep_config["fixed"]["trainer"][component_name]
     assert sweep_config["default_grid"] == {}
     assert "# experiment_name: my_project" in base_sweep_text
     assert "Defaults to experiment.name or the" in base_sweep_text
@@ -91,6 +93,8 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "uv run dl-sweep experiments/lr_sweep.yaml --dry-run" in agents_text
     assert "uv run dl-analyze --sweep experiments/lr_sweep.yaml" in agents_text
     assert "uv run dl-core add dataset ExtraDataset" in agents_text
+    assert "uv run dl-core add optimizer MyOptimizer" in agents_text
+    assert "uv run dl-core add scheduler MyScheduler" in agents_text
     assert "uv run dl-core describe class dl_core.core.FrameWrapper" in agents_text
     assert "scripts/temporary/test_dataset.py" in readme_text
     assert "scripts/temporary/test_model.py" in readme_text

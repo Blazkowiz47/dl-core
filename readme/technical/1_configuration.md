@@ -31,7 +31,6 @@ Generated experiment repos default to a local `resnet_example` wrapper:
 ```yaml
 models:
   resnet_example:
-    name: resnet_example
     variant: resnet18
     pretrained: false
     num_classes: 2
@@ -90,12 +89,42 @@ Generated repos default to a project-named trainer wrapper:
 ```yaml
 trainer:
   my_exp:
-    name: my_exp
     epochs: 3
 ```
 
 That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`,
 which builds on the epoch-based `dl_core.core.EpochTrainer`.
+
+## Name Key Rules
+
+`name` is only needed in sections where the config uses the flat single-item
+shape and the loader needs an explicit selector inside the section itself.
+
+Keep `name` in:
+
+- `dataset.name`
+- `optimizers.name`
+- `schedulers.name`
+
+Do not repeat `name` inside keyed mappings where the outer key already selects
+the registered component:
+
+```yaml
+models:
+  resnet_example:
+    variant: resnet18
+
+trainer:
+  my_exp:
+    epochs: 3
+
+criterions:
+  crossentropy:
+
+metric_managers:
+  standard:
+    num_classes: 2
+```
 
 ## Runtime
 

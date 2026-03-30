@@ -18,7 +18,6 @@ fixed:
     log_level: INFO
   trainer:
     my_exp:
-      name: my_exp
       epochs: 1
 
 default_grid:

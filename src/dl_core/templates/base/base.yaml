@@ -18,7 +18,6 @@ accelerator:
 
 models:
   resnet:
-    name: resnet
     variant: resnet18
     pretrained: false
     num_classes: 2
@@ -50,17 +49,14 @@ optimizers:
 
 trainer:
   standard:
-    name: standard
     epochs: 3
     log_weights: false
 
 criterions:
   crossentropy:
-    name: crossentropy
 
 metric_managers:
   standard:
-    name: standard
     num_classes: 2
     best_metric_key: accuracy
 

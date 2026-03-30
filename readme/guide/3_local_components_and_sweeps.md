@@ -36,6 +36,8 @@ Example:
 uv run dl-core add augmentation Custom1
 uv run dl-core add callback EpochLogger
 uv run dl-core add sampler PassThroughSampler
+uv run dl-core add optimizer MyOptimizer
+uv run dl-core add scheduler MyScheduler
 uv run dl-core add dataset LocalDataset
 uv run dl-core add dataset FrameDataset --base frame
 uv run dl-core add dataset TextDataset --base text_sequence
@@ -52,7 +54,9 @@ Supported component types:
 - `metric`
 - `metric_manager`
 - `model`
+- `optimizer`
 - `sampler`
+- `scheduler`
 - `trainer`
 
 The command creates the right component package on demand under `src/` and
@@ -70,6 +74,10 @@ installed in the current environment:
 
 The generated dataset stub includes the abstract methods required by the
 selected base class so the implementation contract is visible immediately.
+
+For non-dataset components, `--base` can point at a registered component such
+as `metric_logger`, `standard`, `adamw`, or `cosine`, or a fully qualified
+class path. If you omit `--base`, the scaffold uses the plain base class.
 
 The core dataset bases are intended for different data shapes:
 

@@ -10,7 +10,6 @@ fixed:
     log_level: INFO
   trainer:
     standard:
-      name: standard
       epochs: 1
 
 default_grid: {}

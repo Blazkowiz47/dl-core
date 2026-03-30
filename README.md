@@ -188,6 +188,8 @@ uv run dl-core add trainer MyTrainer
 uv run dl-core add callback MyMetrics
 uv run dl-core add metric_manager MyManager
 uv run dl-core add sampler MySampler
+uv run dl-core add optimizer MyOptimizer
+uv run dl-core add scheduler MyScheduler
 uv run dl-core add criterion MyLoss
 uv run dl-core add augmentation MyAugmentation
 uv run dl-core add metric MyMetric
@@ -247,13 +249,17 @@ The describe command shows:
 It does not discover instance attributes created dynamically inside `__init__`
 without constructing the class.
 
-Dataset scaffolds can target a specific wrapper base:
+Scaffolds can target a specific base when you need one:
 
 ```bash
 uv run dl-core add dataset MyDataset
 uv run dl-core add dataset FrameSet --base frame
 uv run dl-core add dataset TextSet --base text_sequence
 uv run dl-core add dataset ActSet --base adaptive_computation
+uv run dl-core add callback EpochLogger --base metric_logger
+uv run dl-core add metric_manager PadMetrics --base standard
+uv run dl-core add optimizer AdamwWrapper --base adamw
+uv run dl-core add scheduler CosineWrapper --base cosine
 ```
 
 When `dl-azure` is importable, the dataset scaffold also exposes Azure bases:

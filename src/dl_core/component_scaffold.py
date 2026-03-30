@@ -19,7 +19,9 @@ from dl_core.core import (
     METRIC_MANAGER_REGISTRY,
     METRIC_REGISTRY,
     MODEL_REGISTRY,
+    OPTIMIZER_REGISTRY,
     SAMPLER_REGISTRY,
+    SCHEDULER_REGISTRY,
     TRAINER_REGISTRY,
     ComponentRegistry,
 )
@@ -116,12 +118,26 @@ _COMPONENT_SPECS = {
         init_docstring="Local model extensions.",
         register_name="register_model",
     ),
+    "optimizer": ComponentSpec(
+        canonical_name="optimizer",
+        package_dir="optimizers",
+        class_suffix="Optimizer",
+        init_docstring="Local optimizer extensions.",
+        register_name="register_optimizer",
+    ),
     "sampler": ComponentSpec(
         canonical_name="sampler",
         package_dir="samplers",
         class_suffix="Sampler",
         init_docstring="Local sampler extensions.",
         register_name="register_sampler",
+    ),
+    "scheduler": ComponentSpec(
+        canonical_name="scheduler",
+        package_dir="schedulers",
+        class_suffix="Scheduler",
+        init_docstring="Local scheduler extensions.",
+        register_name="register_scheduler",
     ),
     "trainer": ComponentSpec(
         canonical_name="trainer",
@@ -140,7 +156,9 @@ _COMPONENT_BASE_REGISTRIES: dict[str, ComponentRegistry] = {
     "metric": METRIC_REGISTRY,
     "metric_manager": METRIC_MANAGER_REGISTRY,
     "model": MODEL_REGISTRY,
+    "optimizer": OPTIMIZER_REGISTRY,
     "sampler": SAMPLER_REGISTRY,
+    "scheduler": SCHEDULER_REGISTRY,
     "trainer": TRAINER_REGISTRY,
 }
 
@@ -189,11 +207,23 @@ _DEFAULT_COMPONENT_BASE_SPECS = {
         base_class="BaseModel",
         class_docstring="Local model scaffold based on BaseModel.",
     ),
+    "optimizer": ComponentBaseSpec(
+        canonical_name="optimizer",
+        import_path="torch.optim",
+        base_class="Optimizer",
+        class_docstring="Local optimizer scaffold based on Optimizer.",
+    ),
     "sampler": ComponentBaseSpec(
         canonical_name="sampler",
         import_path="dl_core.core",
         base_class="BaseSampler",
         class_docstring="Local sampler scaffold based on BaseSampler.",
+    ),
+    "scheduler": ComponentBaseSpec(
+        canonical_name="scheduler",
+        import_path="torch.optim.lr_scheduler",
+        base_class="LRScheduler",
+        class_docstring="Local scheduler scaffold based on LRScheduler.",
     ),
     "trainer": ComponentBaseSpec(
         canonical_name="trainer",
@@ -222,8 +252,12 @@ _COMPONENT_TYPE_ALIASES = {
     "metricmanagers": "metric_manager",
     "model": "model",
     "models": "model",
+    "optimizer": "optimizer",
+    "optimizers": "optimizer",
     "sampler": "sampler",
     "samplers": "sampler",
+    "scheduler": "scheduler",
+    "schedulers": "scheduler",
     "trainer": "trainer",
     "trainers": "trainer",
 }
@@ -462,6 +496,26 @@ def _render_component(
                 import_path=sampler_base.import_path,
                 base_class=sampler_base.base_class,
                 class_docstring=sampler_base.class_docstring,
+            )
+    if spec.canonical_name == "optimizer":
+        optimizer_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, optimizer_base):
+            return _optimizer_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=optimizer_base.import_path,
+                base_class=optimizer_base.base_class,
+                class_docstring=optimizer_base.class_docstring,
+            )
+    if spec.canonical_name == "scheduler":
+        scheduler_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, scheduler_base):
+            return _scheduler_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=scheduler_base.import_path,
+                base_class=scheduler_base.base_class,
+                class_docstring=scheduler_base.class_docstring,
             )
 
     resolved_base = _component_base_required(component_base)
@@ -1179,3 +1233,75 @@ class {class_name}({base_class}):
         \"\"\"Return the incoming file list unchanged.\"\"\"
         return files
 """
+
+
+def _optimizer_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a minimal optimizer scaffold."""
+    return f'''"""Local optimizer scaffold."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import Any
+
+import torch
+
+from dl_core.core import register_optimizer
+from {import_path} import {base_class}
+
+
+@register_optimizer({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def __init__(
+        self,
+        params: Iterable[torch.nn.Parameter],
+        lr: float = 1e-3,
+    ) -> None:
+        defaults = {{"lr": lr}}
+        super().__init__(params, defaults)
+
+    def step(self, closure: Any = None) -> torch.Tensor | None:
+        """Perform one optimization step."""
+        raise NotImplementedError("TODO: implement the optimizer update rule.")
+'''
+
+
+def _scheduler_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a minimal scheduler scaffold."""
+    return f'''"""Local scheduler scaffold."""
+
+from __future__ import annotations
+
+from torch.optim import Optimizer
+
+from dl_core.core import register_scheduler
+from {import_path} import {base_class}
+
+
+@register_scheduler({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def __init__(self, optimizer: Optimizer, last_epoch: int = -1) -> None:
+        super().__init__(optimizer, last_epoch=last_epoch)
+
+    def get_lr(self) -> list[float]:
+        """Return one learning rate per optimizer parameter group."""
+        raise NotImplementedError("TODO: implement the scheduler update rule.")
+'''
