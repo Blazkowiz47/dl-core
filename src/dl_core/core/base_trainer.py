@@ -299,6 +299,13 @@ class EpochTrainer(ABC):
                     f"Failed to upload artifacts after training failure: {upload_error}"
                 )
             self.finalize_training()
+            try:
+                self.callbacks.on_training_finalized(final_logs)
+            except Exception as upload_error:
+                self.logger.error(
+                    "Failed to upload finalized artifacts after training "
+                    f"failure: {upload_error}"
+                )
 
     def _inject_seed_into_configs(self) -> None:
         # Trainer configs
@@ -508,7 +515,7 @@ class EpochTrainer(ABC):
             sweep_name=sweep_file,
         )
         self.checkpoint_dir = str(self.artifact_manager.get_checkpoints_dir())
-        self.visualization_dir = str(self.artifact_manager.run_dir)
+        self.visualization_dir = str(self.artifact_manager.get_plots_dir())
 
         # Persist the full, merged configuration into artifacts for reproducibility
         try:

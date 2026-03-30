@@ -141,6 +141,21 @@ class Callback(ABC):
         if not self.is_main_process():
             return
 
+    def on_training_finalized(self, logs: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Called after trainer finalization and cleanup completes.
+
+        This hook is intended for end-of-run artifact handling that should see the
+        fully finalized run directory, such as complete log files. It runs after
+        accelerator cleanup, so callbacks must not assume distributed
+        synchronization is still available here.
+
+        Args:
+            logs: Dictionary of final run metadata
+        """
+        if not self.is_main_process():
+            return
+
     def on_train_start(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """
         Called at the beginning of each training epoch.
@@ -439,6 +454,17 @@ class CallbackList:
                     self._handle_callback_error(callback, "on_training_end", e)
             # Synchronize after each callback to prevent rank drift
             self.trainer.accelerator.wait_for_everyone()
+
+    def on_training_finalized(self, logs: Optional[Dict[str, Any]] = None) -> None:
+        """Call on_training_finalized for all callbacks."""
+        for callback in self.callbacks:
+            if callback.enabled:
+                try:
+                    callback.on_training_finalized(logs)
+                except Exception as e:
+                    self._handle_callback_error(
+                        callback, "on_training_finalized", e
+                    )
 
     def on_train_start(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_train_start for all callbacks."""
