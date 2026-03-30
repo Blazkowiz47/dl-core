@@ -48,7 +48,7 @@ Do not fork the scaffold.
 
 There should be:
 
-- one `dl-init-experiment`
+- one `dl-init`
 - one base experiment template
 - one extension hook system
 
@@ -71,7 +71,7 @@ Each installed extension package registers one plugin object under that group.
 An init extension should be able to:
 
 - declare its feature name, for example `azure` or `wandb`
-- expose CLI flags to `dl-init-experiment`
+- expose CLI flags to `dl-init`
 - patch generated config files
 - add extra scaffold files
 - add optional README sections or notes
@@ -93,11 +93,11 @@ Plugins should only modify:
 - generated config content
 - generated optional metadata
 
-## `dl-init-experiment` Behavior
+## `dl-init` Behavior
 
 ### Core Behavior
 
-`dl-init-experiment` remains the only scaffold entrypoint.
+`dl-init` remains the scaffold entrypoint.
 
 It should:
 
@@ -223,7 +223,7 @@ That implementation should remain small and declarative.
 - add a minimal extension interface
 - keep current scaffold behavior unchanged when no extension is installed
 
-### Phase 2: Make `dl-init-experiment` Extension-Aware
+### Phase 2: Make `dl-init` Extension-Aware
 
 - allow extensions to register CLI options
 - add explicit feature selection flow
@@ -308,7 +308,7 @@ Mitigation:
 ## Recommended Execution Order
 
 1. implement extension discovery in `dl-core`
-2. refactor `dl-init-experiment` around a scaffold context
+2. refactor `dl-init` around a scaffold context
 3. add the Azure plugin first
 4. create the W&B plugin second
 5. add runtime plugin auto-loading

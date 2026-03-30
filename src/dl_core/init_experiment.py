@@ -137,7 +137,7 @@ dataset so local customization stays isolated from `deep-learning-core`.
 
 Extensions can be added later by installing the relevant
 `deep-learning-core[...]`
-extras and re-running the scaffold in a new repository.
+extras and re-running `uv run dl-init --root-dir .` inside the repository.
 """
 
 
@@ -148,6 +148,10 @@ def _project_agents_md(project_name: str) -> str:
   <title>{project_name} Experiment Repository Guidelines</title>
 
   <cli_guide>
+    <rule>
+      Use `uv run dl-init --root-dir .` if you want to refresh missing scaffold
+      files in this repository after installing new extras.
+    </rule>
     <rule>
       Use `uv run dl-run --config configs/base.yaml` for one concrete training
       run from a single config file.

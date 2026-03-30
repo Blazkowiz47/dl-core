@@ -52,7 +52,8 @@ Important arguments:
 - dynamically added extension flags such as `--with-azure`, `--with-mlflow`,
   and `--with-wandb` when the relevant extra package is installed
 
-`dl-init-experiment` remains available as a compatibility alias.
+`dl-init-experiment` remains available as a compatibility alias for older
+scripts.
 
 ## `dl-run`
 
