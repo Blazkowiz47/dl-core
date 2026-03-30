@@ -14,6 +14,7 @@ The common top-level sections are:
 - `models`
 - `dataset`
 - `optimizers`
+- optional `ema`
 - `trainer`
 - `criterions`
 - `metric_managers`
@@ -80,6 +81,22 @@ optimizers:
   name: adamw
   lr: 0.0001
   weight_decay: 0.01
+```
+
+## EMA
+
+EMA is optional and disabled by default. When enabled, it targets runtime model
+keys, not the outer YAML keys under `models`.
+
+With the standard trainer, the single prepared model is exposed as `main`, so
+the commented scaffold example uses:
+
+```yaml
+ema:
+  enabled: true
+  decay: 0.9999
+  eval_with_ema: true
+  models: [main]
 ```
 
 ## Trainer

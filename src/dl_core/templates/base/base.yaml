@@ -47,6 +47,17 @@ optimizers:
 #   T_max: 50
 #   eta_min: 1e-6
 
+# ema:
+#   enabled: true
+#   decay: 0.9999
+#   update_after_step: 0
+#   update_every: 1
+#   eval_with_ema: true
+#   save_in_checkpoint: true
+#   # EMA tracks runtime model keys, not the outer config key under models.
+#   # The standard trainer exposes its single prepared model as "main".
+#   models: [main]
+
 trainer:
   standard:
     epochs: 3
