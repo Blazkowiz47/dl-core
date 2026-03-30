@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deep-learning-core"
-version = "0.0.6"
+version = "0.0.7"
 description = "Reusable deep learning framework core."
 readme = "README.md"
 requires-python = ">=3.10"
