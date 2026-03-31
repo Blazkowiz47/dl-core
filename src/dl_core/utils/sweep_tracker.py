@@ -1,11 +1,15 @@
 """Sweep progress tracker with JSON-based state management."""
 
+from contextlib import contextmanager
+import fcntl
 import json
 import logging
+import os
+from pathlib import Path
+import tempfile
 import threading
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,7 @@ class SweepTracker:
         # Store JSON inside the generated sweep directory next to run configs.
         sweep_dir = self.sweep_path.parent / self.sweep_path.stem
         self.json_path = sweep_dir / "sweep_tracking.json"
+        self.lock_path = sweep_dir / "sweep_tracking.lock"
         self.experiment_name = experiment_name
         self.sweep_id = sweep_id
         self._lock = threading.Lock()
@@ -75,10 +80,7 @@ class SweepTracker:
             metrics_source_backend: Metrics source backend name for this sweep
             metadata: Additional metadata to store (optional)
         """
-        with self._lock:
-            # Create parent directory if needed
-            self.json_path.parent.mkdir(parents=True, exist_ok=True)
-
+        with self._locked_access():
             # Initialize sweep data structure
             sweep_data = {
                 "experiment_name": self.experiment_name,
@@ -133,7 +135,7 @@ class SweepTracker:
         metrics_history_path: Optional[str] = None,
     ) -> None:
         """
-        Update status of a specific run (thread-safe).
+        Update status of a specific run.
 
         Args:
             run_index: Index of run in sweep
@@ -147,7 +149,7 @@ class SweepTracker:
             metrics_summary_path: Path to the local metrics summary file
             metrics_history_path: Path to the local metrics history file
         """
-        with self._lock:
+        with self._locked_access():
             # Load current data
             sweep_data = self._read_json()
 
@@ -213,7 +215,7 @@ class SweepTracker:
             tracking_context: Tracker-specific parent or sweep context
             tracking_uri: Optional tracker endpoint or workspace URI
         """
-        with self._lock:
+        with self._locked_access():
             sweep_data = self._read_json()
 
             if not sweep_data:
@@ -236,8 +238,20 @@ class SweepTracker:
         Returns:
             Sweep data dictionary, or empty dict if file doesn't exist
         """
-        with self._lock:
+        with self._locked_access():
             return self._read_json()
+
+    @contextmanager
+    def _locked_access(self) -> Iterator[None]:
+        """Acquire thread and process locks for sweep tracking file access."""
+        with self._lock:
+            self.json_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.lock_path, "a+", encoding="utf-8") as lock_handle:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
     def get_completed_runs(self) -> List[int]:
         """
@@ -342,8 +356,23 @@ class SweepTracker:
         Args:
             data: Sweep data to write
         """
+        temp_path: Optional[Path] = None
         try:
-            with open(self.json_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, sort_keys=False)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=self.json_path.parent,
+                prefix=f"{self.json_path.stem}_",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                json.dump(data, handle, indent=2, sort_keys=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+
+            temp_path.replace(self.json_path)
         except Exception as e:
             logger.error(f"Failed to write sweep JSON: {e}")
+            if temp_path and temp_path.exists():
+                temp_path.unlink(missing_ok=True)
