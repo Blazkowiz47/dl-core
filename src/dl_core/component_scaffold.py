@@ -228,8 +228,8 @@ _DEFAULT_COMPONENT_BASE_SPECS = {
     "trainer": ComponentBaseSpec(
         canonical_name="trainer",
         import_path="dl_core.core",
-        base_class="BaseTrainer",
-        class_docstring="Local trainer scaffold based on BaseTrainer.",
+        base_class="EpochTrainer",
+        class_docstring="Local trainer scaffold based on EpochTrainer.",
     ),
 }
 
@@ -297,6 +297,29 @@ _CORE_DATASET_BASE_SPECS = {
     ),
 }
 
+_CORE_TRAINER_BASE_SPECS = {
+    "epochtrainer": ComponentBaseSpec(
+        canonical_name="epochtrainer",
+        import_path="dl_core.core",
+        base_class="EpochTrainer",
+        class_docstring="Local trainer scaffold based on EpochTrainer.",
+    ),
+    "nlptrainer": ComponentBaseSpec(
+        canonical_name="nlptrainer",
+        import_path="dl_core.core",
+        base_class="SequenceTrainer",
+        class_docstring="Local trainer scaffold based on SequenceTrainer.",
+    ),
+    "acttrainer": ComponentBaseSpec(
+        canonical_name="acttrainer",
+        import_path="dl_core.core",
+        base_class="AdaptiveComputationTrainer",
+        class_docstring=(
+            "Local trainer scaffold based on AdaptiveComputationTrainer."
+        ),
+    ),
+}
+
 _DATASET_BASE_ALIASES = {
     "base": "base",
     "base_wrapper": "base",
@@ -318,6 +341,27 @@ _DATASET_BASE_ALIASES = {
     "act": "adaptive_computation",
 }
 
+_TRAINER_BASE_ALIASES = {
+    "base_trainer": "epochtrainer",
+    "basetrainer": "epochtrainer",
+    "epoch": "epochtrainer",
+    "epoch_trainer": "epochtrainer",
+    "epochtrainer": "epochtrainer",
+    "nlp": "nlptrainer",
+    "nlp_trainer": "nlptrainer",
+    "nlptrainer": "nlptrainer",
+    "sequence": "nlptrainer",
+    "sequence_trainer": "nlptrainer",
+    "sequencetrainer": "nlptrainer",
+    "act": "acttrainer",
+    "act_trainer": "acttrainer",
+    "acttrainer": "acttrainer",
+    "adaptive": "acttrainer",
+    "adaptive_computation": "acttrainer",
+    "adaptive_computation_trainer": "acttrainer",
+    "adaptivecomputationtrainer": "acttrainer",
+}
+
 
 def list_supported_component_types() -> list[str]:
     """Return the canonical component types supported by the scaffold CLI."""
@@ -327,6 +371,11 @@ def list_supported_component_types() -> list[str]:
 def list_supported_dataset_bases() -> list[str]:
     """Return dataset scaffold bases supported in the current environment."""
     return list(_dataset_base_specs().keys())
+
+
+def list_supported_trainer_bases() -> list[str]:
+    """Return trainer scaffold bases supported in the current environment."""
+    return list(_trainer_base_specs().keys())
 
 
 def normalize_component_type(component_type: str) -> str:
@@ -353,6 +402,25 @@ def normalize_dataset_base(dataset_base: str | None) -> str:
         supported = ", ".join(list_supported_dataset_bases())
         raise ValueError(
             f"Unsupported dataset base '{dataset_base}'. Supported bases: "
+            f"{supported}"
+        )
+    return canonical_name
+
+
+def normalize_trainer_base(trainer_base: str | None) -> str:
+    """Normalize a user-provided trainer base string."""
+    if trainer_base is None:
+        return "epochtrainer"
+
+    key = _normalize_base_name(trainer_base)
+    if key is None:
+        return "epochtrainer"
+
+    canonical_name = _TRAINER_BASE_ALIASES.get(key, key)
+    if canonical_name not in _trainer_base_specs():
+        supported = ", ".join(list_supported_trainer_bases())
+        raise ValueError(
+            f"Unsupported trainer base '{trainer_base}'. Supported bases: "
             f"{supported}"
         )
     return canonical_name
@@ -756,6 +824,8 @@ def _resolve_component_base(
     """Resolve the base class used by a generated scaffold."""
     if component_type == "dataset":
         return None
+    if component_type == "trainer":
+        return _resolve_trainer_component_base(base_name, root_dir)
 
     default_base = _DEFAULT_COMPONENT_BASE_SPECS[component_type]
     normalized_base_name = _normalize_base_name(base_name)
@@ -775,6 +845,51 @@ def _resolve_component_base(
     registry = _COMPONENT_BASE_REGISTRIES[component_type]
     resolved_class = registry.get_class(base_name)
     return _resolve_registered_component_base(component_type, resolved_class)
+
+
+def _resolve_trainer_component_base(
+    base_name: str | None,
+    root_dir: Path,
+) -> ComponentBaseSpec:
+    """Resolve the base class used by a generated trainer scaffold."""
+    builtin_base = _resolve_builtin_trainer_base(base_name)
+    if builtin_base is not None:
+        return builtin_base
+
+    if base_name is None:
+        return _DEFAULT_COMPONENT_BASE_SPECS["trainer"]
+
+    if "." in base_name:
+        return _resolve_importable_component_base("trainer", base_name)
+
+    load_builtin_components()
+    load_local_components(root_dir)
+    registry = _COMPONENT_BASE_REGISTRIES["trainer"]
+    resolved_class = registry.get_class(base_name)
+    return _resolve_registered_component_base("trainer", resolved_class)
+
+
+def _resolve_builtin_trainer_base(
+    base_name: str | None,
+) -> ComponentBaseSpec | None:
+    """Return a built-in trainer scaffold base when one is requested."""
+    if base_name is None:
+        return _DEFAULT_COMPONENT_BASE_SPECS["trainer"]
+
+    normalized_base_name = _normalize_base_name(base_name)
+    if normalized_base_name is None:
+        return _DEFAULT_COMPONENT_BASE_SPECS["trainer"]
+
+    if normalized_base_name == _normalize_base_name(
+        _DEFAULT_COMPONENT_BASE_SPECS["trainer"].base_class
+    ):
+        return _DEFAULT_COMPONENT_BASE_SPECS["trainer"]
+
+    trainer_base_name = _TRAINER_BASE_ALIASES.get(normalized_base_name)
+    if trainer_base_name is None:
+        return None
+
+    return _trainer_base_specs()[trainer_base_name]
 
 
 def _normalize_base_name(base_name: str | None) -> str | None:
@@ -882,6 +997,11 @@ def _dataset_base_specs() -> dict[str, DatasetBaseSpec]:
         **_CORE_DATASET_BASE_SPECS,
         **_load_optional_dataset_base_specs(),
     }
+
+
+def _trainer_base_specs() -> dict[str, ComponentBaseSpec]:
+    """Return the trainer scaffold bases available in the current environment."""
+    return dict(_CORE_TRAINER_BASE_SPECS)
 
 
 def _load_optional_dataset_base_specs() -> dict[str, DatasetBaseSpec]:

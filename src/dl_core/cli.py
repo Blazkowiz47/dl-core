@@ -20,6 +20,7 @@ from dl_core.component_scaffold import (
     create_component_scaffold,
     list_supported_dataset_bases,
     list_supported_component_types,
+    list_supported_trainer_bases,
     normalize_component_type,
 )
 from dl_core.sweep_scaffold import (
@@ -90,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             "Other component examples:\n"
             "  dl-core add model MyResNet\n"
             "  dl-core add trainer MyTrainer\n"
+            "  dl-core add trainer TextTrainer --base nlptrainer\n"
+            "  dl-core add trainer RecursiveTrainer --base acttrainer\n"
             "  dl-core add callback MyMetrics\n"
             "  dl-core add callback MyLogger --base metric_logger\n"
             "  dl-core add metric_manager MyManager\n"
@@ -121,9 +124,11 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Optional base implementation to scaffold from. Datasets support "
             "shortcut values like "
-            f"{', '.join(list_supported_dataset_bases())}. Other component "
+            f"{', '.join(list_supported_dataset_bases())}. Trainers support "
+            "built-in scaffold bases "
+            f"{', '.join(list_supported_trainer_bases())}. Other component "
             "types accept a registered component name or a fully qualified "
-            "class path. When omitted, the plain base class is used."
+            "class path. When omitted, the plain scaffold base is used."
         ),
     )
     add_parser.add_argument(

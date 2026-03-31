@@ -15,6 +15,7 @@ from dl_core.core import (
     OPTIMIZER_REGISTRY,
     SAMPLER_REGISTRY,
     SCHEDULER_REGISTRY,
+    TRAINER_REGISTRY,
 )
 from dl_core.init_experiment import create_experiment_scaffold
 
@@ -237,6 +238,126 @@ def test_cli_add_scheduler_defaults_to_plain_base(tmp_path: Path) -> None:
 
     assert SCHEDULER_REGISTRY.get_class("myscheduler").__name__ == (
         "MySchedulerScheduler"
+    )
+
+
+def test_supported_trainer_scaffold_bases_are_available() -> None:
+    """Trainer scaffolds should expose the built-in peer base flavors."""
+
+    assert component_scaffold.list_supported_trainer_bases() == [
+        "epochtrainer",
+        "nlptrainer",
+        "acttrainer",
+    ]
+
+
+def test_cli_add_trainer_defaults_to_epoch_trainer(tmp_path: Path) -> None:
+    """Trainer scaffolds should default to the epoch-based trainer base."""
+    target_dir = create_experiment_scaffold("trainer-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "trainer",
+            "ArcVein",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "trainers" / "arcvein.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import EpochTrainer" in component_text
+    assert "class ArcVeinTrainer(EpochTrainer):" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert TRAINER_REGISTRY.get_class("arcvein").__name__ == "ArcVeinTrainer"
+
+
+def test_cli_add_trainer_supports_explicit_epoch_base(tmp_path: Path) -> None:
+    """Trainer scaffolds should accept the explicit epochtrainer base."""
+    target_dir = create_experiment_scaffold(
+        "trainer-epoch-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "trainer",
+            "EpochArc",
+            "--base",
+            "epochtrainer",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "trainers" / "epocharc.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import EpochTrainer" in component_text
+    assert "class EpochArcTrainer(EpochTrainer):" in component_text
+
+
+def test_cli_add_trainer_supports_nlp_base(tmp_path: Path) -> None:
+    """Trainer scaffolds should support the sequence-oriented NLP base."""
+    target_dir = create_experiment_scaffold(
+        "trainer-nlp-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "trainer",
+            "TextFlow",
+            "--base",
+            "nlptrainer",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "trainers" / "textflow.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import SequenceTrainer" in component_text
+    assert "class TextFlowTrainer(SequenceTrainer):" in component_text
+
+
+def test_cli_add_trainer_supports_act_base(tmp_path: Path) -> None:
+    """Trainer scaffolds should support the adaptive-computation base."""
+    target_dir = create_experiment_scaffold(
+        "trainer-act-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "trainer",
+            "AdaptiveFlow",
+            "--base",
+            "acttrainer",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "trainers" / "adaptiveflow.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import AdaptiveComputationTrainer" in component_text
+    assert "class AdaptiveFlowTrainer(AdaptiveComputationTrainer):" in (
+        component_text
     )
 
 
