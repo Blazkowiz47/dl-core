@@ -547,6 +547,15 @@ def _render_component(
             class_name=class_name,
             class_docstring=_component_base_required(component_base).class_docstring,
         )
+    if spec.canonical_name == "trainer":
+        trainer_base = _component_base_required(component_base)
+        return _trainer_component(
+            registry_literal=registry_literal,
+            class_name=class_name,
+            import_path=trainer_base.import_path,
+            base_class=trainer_base.base_class,
+            class_docstring=trainer_base.class_docstring,
+        )
     if spec.canonical_name == "dataset":
         if dataset_base is None:
             raise ValueError("Dataset scaffolds require a resolved dataset base.")
@@ -804,6 +813,268 @@ class {class_name}({base_class}):
     # ``final/`` plus ``config.yaml`` at training end.
     pass
 """
+
+
+def _trainer_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a trainer scaffold tailored to the selected trainer base."""
+
+    if base_class == "SequenceTrainer":
+        return _sequence_trainer_component(
+            registry_literal=registry_literal,
+            class_name=class_name,
+            import_path=import_path,
+            base_class=base_class,
+            class_docstring=class_docstring,
+        )
+    if base_class == "AdaptiveComputationTrainer":
+        return _adaptive_trainer_component(
+            registry_literal=registry_literal,
+            class_name=class_name,
+            import_path=import_path,
+            base_class=base_class,
+            class_docstring=class_docstring,
+        )
+    return _epoch_trainer_component(
+        registry_literal=registry_literal,
+        class_name=class_name,
+        import_path=import_path,
+        base_class=base_class,
+        class_docstring=class_docstring,
+    )
+
+
+def _epoch_trainer_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render an epoch-oriented trainer scaffold."""
+
+    return f'''"""Local trainer scaffold."""
+
+from __future__ import annotations
+
+import torch
+
+from dl_core.core import register_trainer
+from {import_path} import {base_class}
+
+
+@register_trainer({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def setup_model(self) -> None:
+        """Initialize models and store them in ``self.models``."""
+        raise NotImplementedError("TODO: populate self.models in setup_model().")
+
+    def setup_criterion(self) -> None:
+        """Initialize criterions and store them in ``self.criterions``."""
+        raise NotImplementedError(
+            "TODO: populate self.criterions in setup_criterion()."
+        )
+
+    def setup_optimizer(self) -> None:
+        """Initialize optimizers and store them in ``self.optimizers``."""
+        raise NotImplementedError(
+            "TODO: populate self.optimizers in setup_optimizer()."
+        )
+
+    def setup_scheduler(self) -> None:
+        """Initialize schedulers and store them in ``self.schedulers``."""
+        raise NotImplementedError(
+            "TODO: populate self.schedulers in setup_scheduler()."
+        )
+
+    def train_step(
+        self,
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> dict[str, float]:
+        """Run one training step and return scalar metrics."""
+        raise NotImplementedError("TODO: implement train_step().")
+
+    def test_step(self, batch_data: dict[str, torch.Tensor]) -> dict[str, float]:
+        """Run one test step and return scalar metrics."""
+        raise NotImplementedError("TODO: implement test_step().")
+
+    def validation_step(
+        self,
+        batch_data: dict[str, torch.Tensor],
+    ) -> dict[str, float]:
+        """Run one validation step and return scalar metrics."""
+        raise NotImplementedError("TODO: implement validation_step().")
+'''
+
+
+def _sequence_trainer_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a sequence-oriented trainer scaffold."""
+
+    return f'''"""Local sequence trainer scaffold."""
+
+from __future__ import annotations
+
+import torch
+
+from dl_core.core import SequenceStepOutput, register_trainer
+from {import_path} import {base_class}
+
+
+@register_trainer({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def setup_model(self) -> None:
+        """Initialize models and store them in ``self.models``."""
+        raise NotImplementedError("TODO: populate self.models in setup_model().")
+
+    def setup_criterion(self) -> None:
+        """Initialize criterions and store them in ``self.criterions``."""
+        raise NotImplementedError(
+            "TODO: populate self.criterions in setup_criterion()."
+        )
+
+    def setup_optimizer(self) -> None:
+        """Initialize optimizers and store them in ``self.optimizers``."""
+        raise NotImplementedError(
+            "TODO: populate self.optimizers in setup_optimizer()."
+        )
+
+    def setup_scheduler(self) -> None:
+        """Initialize schedulers and store them in ``self.schedulers``."""
+        raise NotImplementedError(
+            "TODO: populate self.schedulers in setup_scheduler()."
+        )
+
+    def sequence_train_step(
+        self,
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> SequenceStepOutput:
+        """Run one sequence-specific training step."""
+        raise NotImplementedError(
+            "TODO: build model inputs with build_sequence_model_inputs(), "
+            "compute probabilities, and return SequenceStepOutput(...)."
+        )
+
+    def sequence_test_step(
+        self,
+        batch_data: dict[str, torch.Tensor],
+    ) -> SequenceStepOutput:
+        """Run one sequence-specific test step."""
+        raise NotImplementedError(
+            "TODO: implement sequence_test_step() and return "
+            "SequenceStepOutput(...)."
+        )
+
+    def sequence_validation_step(
+        self,
+        batch_data: dict[str, torch.Tensor],
+    ) -> SequenceStepOutput:
+        """Run one sequence-specific validation step."""
+        raise NotImplementedError(
+            "TODO: implement sequence_validation_step() and return "
+            "SequenceStepOutput(...)."
+        )
+'''
+
+
+def _adaptive_trainer_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render an adaptive-computation trainer scaffold."""
+
+    return f'''"""Local adaptive-computation trainer scaffold."""
+
+from __future__ import annotations
+
+from dl_core.core import (
+    AdaptiveComputationStepOutput,
+    CarryState,
+    register_trainer,
+)
+from {import_path} import {base_class}
+
+
+@register_trainer({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def setup_model(self) -> None:
+        """Initialize models and store them in ``self.models``."""
+        raise NotImplementedError("TODO: populate self.models in setup_model().")
+
+    def setup_criterion(self) -> None:
+        """Initialize criterions and store them in ``self.criterions``."""
+        raise NotImplementedError(
+            "TODO: populate self.criterions in setup_criterion()."
+        )
+
+    def setup_optimizer(self) -> None:
+        """Initialize optimizers and store them in ``self.optimizers``."""
+        raise NotImplementedError(
+            "TODO: populate self.optimizers in setup_optimizer()."
+        )
+
+    def setup_scheduler(self) -> None:
+        """Initialize schedulers and store them in ``self.schedulers``."""
+        raise NotImplementedError(
+            "TODO: populate self.schedulers in setup_scheduler()."
+        )
+
+    def adaptive_train_step(
+        self,
+        carry_state: CarryState,
+        batch_idx: int,
+    ) -> AdaptiveComputationStepOutput:
+        """Run one adaptive-computation training step."""
+        raise NotImplementedError(
+            "TODO: update carry_state, compute probabilities, and return "
+            "AdaptiveComputationStepOutput(...)."
+        )
+
+    def adaptive_test_step(
+        self,
+        carry_state: CarryState,
+    ) -> AdaptiveComputationStepOutput:
+        """Run one adaptive-computation test step."""
+        raise NotImplementedError(
+            "TODO: implement adaptive_test_step() and return "
+            "AdaptiveComputationStepOutput(...)."
+        )
+
+    def adaptive_validation_step(
+        self,
+        carry_state: CarryState,
+    ) -> AdaptiveComputationStepOutput:
+        """Run one adaptive-computation validation step."""
+        raise NotImplementedError(
+            "TODO: implement adaptive_validation_step() and return "
+            "AdaptiveComputationStepOutput(...)."
+        )
+'''
 
 
 def _resolve_dataset_base(

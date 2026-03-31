@@ -271,6 +271,9 @@ def test_cli_add_trainer_defaults_to_epoch_trainer(tmp_path: Path) -> None:
 
     assert "from dl_core.core import EpochTrainer" in component_text
     assert "class ArcVeinTrainer(EpochTrainer):" in component_text
+    assert "def setup_model(self) -> None:" in component_text
+    assert "def train_step(" in component_text
+    assert "def validation_step(" in component_text
 
     load_builtin_components()
     load_local_components(target_dir / "configs" / "base.yaml")
@@ -303,6 +306,7 @@ def test_cli_add_trainer_supports_explicit_epoch_base(tmp_path: Path) -> None:
 
     assert "from dl_core.core import EpochTrainer" in component_text
     assert "class EpochArcTrainer(EpochTrainer):" in component_text
+    assert "def train_step(" in component_text
 
 
 def test_cli_add_trainer_supports_nlp_base(tmp_path: Path) -> None:
@@ -329,7 +333,12 @@ def test_cli_add_trainer_supports_nlp_base(tmp_path: Path) -> None:
     component_text = component_path.read_text()
 
     assert "from dl_core.core import SequenceTrainer" in component_text
+    assert "from dl_core.core import SequenceStepOutput, register_trainer" in (
+        component_text
+    )
     assert "class TextFlowTrainer(SequenceTrainer):" in component_text
+    assert "def sequence_train_step(" in component_text
+    assert "-> SequenceStepOutput:" in component_text
 
 
 def test_cli_add_trainer_supports_act_base(tmp_path: Path) -> None:
@@ -355,10 +364,14 @@ def test_cli_add_trainer_supports_act_base(tmp_path: Path) -> None:
     component_path = target_dir / "src" / "trainers" / "adaptiveflow.py"
     component_text = component_path.read_text()
 
-    assert "from dl_core.core import AdaptiveComputationTrainer" in component_text
+    assert "AdaptiveComputationStepOutput" in component_text
+    assert "CarryState" in component_text
+    assert "from dl_core.core import (" in component_text
     assert "class AdaptiveFlowTrainer(AdaptiveComputationTrainer):" in (
         component_text
     )
+    assert "def adaptive_train_step(" in component_text
+    assert "-> AdaptiveComputationStepOutput:" in component_text
 
 
 def test_cli_add_dataset_defaults_to_base_wrapper(tmp_path: Path) -> None:

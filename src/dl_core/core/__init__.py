@@ -19,11 +19,15 @@ from .base_biometric_model import BaseBiometricModel
 from .base_model import BaseModel
 from .base_sampler import BaseSampler
 from .base_tracker import BaseTracker
-from .adaptive_computation_trainer import AdaptiveComputationTrainer
+from .adaptive_computation_trainer import (
+    AdaptiveComputationStepOutput,
+    AdaptiveComputationTrainer,
+    CarryState,
+)
 from .base_callback import Callback
 from .base_trainer import BaseTrainer
 from .epoch_trainer import EpochTrainer
-from .sequence_trainer import SequenceTrainer
+from .sequence_trainer import SequenceStepOutput, SequenceTrainer
 from .base_transform import BaseTransform
 
 # Registry system
@@ -86,7 +90,10 @@ __all__ = [
     "BaseTrainer",
     "EpochTrainer",
     "SequenceTrainer",
+    "SequenceStepOutput",
     "AdaptiveComputationTrainer",
+    "AdaptiveComputationStepOutput",
+    "CarryState",
     "BaseTransform",
     "BaseFaceDetector",
     "FaceDetection",
