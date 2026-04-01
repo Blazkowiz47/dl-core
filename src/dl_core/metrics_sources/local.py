@@ -39,7 +39,8 @@ class LocalMetricsSource(BaseMetricsSource):
         Returns:
             Normalized run record for the analyzer.
         """
-        artifact_dir = self._infer_artifact_dir(run_data)
+        config_path = self._resolve_config_path(run_index, run_data, sweep_data)
+        artifact_dir = self._infer_artifact_dir(run_data, config_path)
         summary_path = self._resolve_metrics_path(
             run_data,
             artifact_dir,
@@ -60,7 +61,7 @@ class LocalMetricsSource(BaseMetricsSource):
         run_name = (
             run_data.get("tracking_run_name")
             or summary.get("run_name")
-            or Path(run_data.get("config_path", f"run_{run_index}.yaml")).stem
+            or Path(config_path or f"run_{run_index}.yaml").stem
         )
 
         return {
@@ -80,7 +81,7 @@ class LocalMetricsSource(BaseMetricsSource):
             ),
             "tracking_run_ref": run_data.get("tracking_run_ref"),
             "artifact_dir": str(artifact_dir) if artifact_dir else None,
-            "config_path": run_data.get("config_path"),
+            "config_path": str(config_path) if config_path is not None else None,
             "metrics_summary_path": (
                 str(summary_path) if summary_path is not None else None
             ),
@@ -97,12 +98,56 @@ class LocalMetricsSource(BaseMetricsSource):
             "final_metrics": summary.get("final_metrics", {}),
         }
 
-    def _infer_artifact_dir(self, run_data: dict[str, Any]) -> Path | None:
+    def _resolve_config_path(
+        self,
+        run_index: int,
+        run_data: dict[str, Any],
+        sweep_data: dict[str, Any],
+    ) -> Path | None:
+        """
+        Resolve the local generated config path for one tracked run.
+
+        Args:
+            run_index: Sweep run index
+            run_data: Sweep tracker entry for one run
+            sweep_data: Full sweep tracker payload
+
+        Returns:
+            Local config path when it can be resolved.
+        """
+        config_path_value = run_data.get("config_path")
+        if isinstance(config_path_value, str) and config_path_value:
+            return Path(config_path_value)
+
+        tracking_dir_value = sweep_data.get("_tracking_dir")
+        if not isinstance(tracking_dir_value, str) or not tracking_dir_value:
+            return None
+
+        tracking_dir = Path(tracking_dir_value)
+        run_name = run_data.get("tracking_run_name")
+        candidate_names = []
+        if isinstance(run_name, str) and run_name:
+            candidate_names.append(f"{run_name}.yaml")
+        candidate_names.append(f"run_{run_index}.yaml")
+
+        for candidate_name in candidate_names:
+            candidate_path = tracking_dir / candidate_name
+            if candidate_path.exists():
+                return candidate_path
+
+        return None
+
+    def _infer_artifact_dir(
+        self,
+        run_data: dict[str, Any],
+        config_path: Path | None,
+    ) -> Path | None:
         """
         Resolve the local artifact directory for a tracked run.
 
         Args:
             run_data: Sweep tracker entry for one run
+            config_path: Resolved local config path for the run
 
         Returns:
             Path to the artifact directory, if it can be resolved.
@@ -111,11 +156,8 @@ class LocalMetricsSource(BaseMetricsSource):
         if isinstance(artifact_dir, str) and artifact_dir:
             return Path(artifact_dir)
 
-        config_path_value = run_data.get("config_path")
-        if not isinstance(config_path_value, str) or not config_path_value:
+        if config_path is None:
             return None
-
-        config_path = Path(config_path_value)
         if not config_path.exists():
             return None
 
@@ -168,6 +210,39 @@ class LocalMetricsSource(BaseMetricsSource):
             return None
 
         return artifact_dir / "final" / "metrics" / filename
+
+    def _resolve_selection_config(
+        self,
+        config_path: Path | None,
+    ) -> tuple[str | None, str | None]:
+        """
+        Resolve the configured ranking metric and mode from a run config.
+
+        Args:
+            config_path: Local config path for the run
+
+        Returns:
+            Tuple of selection metric and selection mode.
+        """
+        if config_path is None or not config_path.exists():
+            return None, None
+
+        config = self.load_yaml(config_path)
+        callbacks_config = config.get("callbacks", {})
+        if not isinstance(callbacks_config, dict):
+            return None, None
+
+        checkpoint_config = callbacks_config.get("checkpoint")
+        if not isinstance(checkpoint_config, dict):
+            return None, None
+
+        monitor = checkpoint_config.get("monitor")
+        mode = checkpoint_config.get("mode", "min")
+        if not isinstance(monitor, str) or not monitor:
+            return None, None
+        if mode not in {"min", "max"}:
+            mode = "min"
+        return monitor, mode
 
     def _resolve_selection_value(self, summary: dict[str, Any]) -> Any:
         """

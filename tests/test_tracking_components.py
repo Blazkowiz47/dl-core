@@ -6,9 +6,14 @@ import json
 from pathlib import Path
 
 import yaml
+from pytest import CaptureFixture
 
 import dl_core
-from dl_core.analysis.sweep_analyzer import collect_sweep_runs
+from dl_core.analysis.sweep_analyzer import (
+    collect_sweep_runs,
+    get_sweep_analysis_markdown_path,
+    main,
+)
 from dl_core.core import METRICS_SOURCE_REGISTRY, TRACKER_REGISTRY
 from dl_core.executors.local import LocalExecutor
 from dl_core.sweep.template import generate_experiment_name
@@ -151,6 +156,162 @@ def test_collect_sweep_runs_uses_local_metrics_source(tmp_path: Path) -> None:
     assert runs[0]["selection_metric"] == "validation_accuracy"
     assert runs[0]["selection_value"] == 0.91
     assert runs[0]["metrics_summary_path"] == str(summary_path)
+
+
+def test_collect_sweep_runs_recovers_generated_config_path(tmp_path: Path) -> None:
+    """Analyzer should recover the generated local run config when tracker data omits it."""
+    dl_core.load_builtin_components()
+
+    experiments_dir = tmp_path / "experiments"
+    sweep_path = experiments_dir / "remote_sweep.yaml"
+    tracking_dir = experiments_dir / "remote_sweep"
+    tracking_path = tracking_dir / "sweep_tracking.json"
+    config_path = tracking_dir / "azure_run.yaml"
+    summary_path = tmp_path / "summary.json"
+    history_path = tmp_path / "history.json"
+
+    tracking_dir.mkdir(parents=True)
+    sweep_path.write_text("grid:\n  optimizers.lr: [0.001]\n", encoding="utf-8")
+    config_path.write_text(
+        yaml.dump(
+            {
+                "experiment": {"name": "demo-exp"},
+                "runtime": {"output_dir": "artifacts"},
+                "callbacks": {
+                    "checkpoint": {"monitor": "test/accuracy", "mode": "max"}
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        json.dumps(
+            {
+                "run_name": "azure_run",
+                "selection_metric": "test/accuracy",
+                "selection_mode": "max",
+                "selection_value": 0.8,
+                "best_epoch": 1,
+                "final_metrics": {"test/accuracy": 0.8},
+                "best_metrics": {"test/accuracy": 0.8},
+            }
+        ),
+        encoding="utf-8",
+    )
+    history_path.write_text(json.dumps({"epochs": []}), encoding="utf-8")
+    tracking_path.write_text(
+        json.dumps(
+            {
+                "experiment_name": "demo-exp",
+                "sweep_config": sweep_path.name,
+                "sweep_id": "demo-remote",
+                "user": "tester",
+                "total_runs": 1,
+                "tracking_backend": "local",
+                "metrics_source_backend": "local",
+                "runs": {
+                    "0": {
+                        "tracking_run_name": "azure_run",
+                        "config_path": None,
+                        "artifact_dir": None,
+                        "metrics_summary_path": str(summary_path),
+                        "metrics_history_path": str(history_path),
+                        "status": "completed",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    runs = collect_sweep_runs(sweep_path)
+
+    assert runs[0]["config_path"] == str(config_path)
+
+
+def test_dl_analyze_writes_markdown_report(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    """Analyzer CLI should always write analysis.md next to the sweep outputs."""
+    dl_core.load_builtin_components()
+
+    experiments_dir = tmp_path / "experiments"
+    sweep_path = experiments_dir / "lr_sweep.yaml"
+    tracking_dir = experiments_dir / "lr_sweep"
+    tracking_path = tracking_dir / "sweep_tracking.json"
+    config_path = tracking_dir / "demo_run.yaml"
+    summary_path = tmp_path / "summary.json"
+    history_path = tmp_path / "history.json"
+
+    tracking_dir.mkdir(parents=True)
+    sweep_path.write_text("grid:\n  optimizers.lr: [0.001]\n", encoding="utf-8")
+    config_path.write_text(
+        yaml.dump(
+            {
+                "experiment": {"name": "demo-exp"},
+                "runtime": {"output_dir": "artifacts"},
+                "callbacks": {
+                    "checkpoint": {"monitor": "validation/accuracy", "mode": "max"}
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        json.dumps(
+            {
+                "run_name": "demo_run",
+                "selection_metric": "validation/accuracy",
+                "selection_mode": "max",
+                "selection_value": 0.91,
+                "best_epoch": 2,
+                "final_epoch": 3,
+                "best_metrics": {"validation/accuracy": 0.91},
+                "final_metrics": {"validation/accuracy": 0.88},
+            }
+        ),
+        encoding="utf-8",
+    )
+    history_path.write_text(json.dumps({"epochs": []}), encoding="utf-8")
+    tracking_path.write_text(
+        json.dumps(
+            {
+                "experiment_name": "demo-exp",
+                "sweep_config": sweep_path.name,
+                "sweep_id": "demo-sweep",
+                "user": "tester",
+                "total_runs": 1,
+                "tracking_backend": "local",
+                "metrics_source_backend": "local",
+                "runs": {
+                    "0": {
+                        "tracking_run_name": "demo_run",
+                        "config_path": str(config_path),
+                        "artifact_dir": None,
+                        "metrics_summary_path": str(summary_path),
+                        "metrics_history_path": str(history_path),
+                        "status": "completed",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(["--sweep", str(sweep_path)])
+    stdout = capsys.readouterr().out
+    markdown_path = get_sweep_analysis_markdown_path(sweep_path)
+
+    assert exit_code == 0
+    assert "Wrote Markdown report to" in stdout
+    assert markdown_path.exists()
+    report = markdown_path.read_text(encoding="utf-8")
+    assert "# Sweep Analysis" in report
+    assert "demo_run" in report
+    assert "validation/accuracy" in report
 
 
 def test_generate_experiment_name_defaults_to_project_root(tmp_path: Path) -> None:

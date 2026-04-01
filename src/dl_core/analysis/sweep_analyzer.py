@@ -24,6 +24,16 @@ def get_sweep_tracking_path(sweep_path: Path) -> Path:
     return sweep_path.parent / sweep_path.stem / "sweep_tracking.json"
 
 
+def get_sweep_analysis_markdown_path(sweep_path: Path) -> Path:
+    """Resolve the default Markdown analysis report path for a sweep."""
+    return sweep_path.parent / sweep_path.stem / "analysis.md"
+
+
+def get_sweep_analysis_json_path(sweep_path: Path) -> Path:
+    """Resolve the optional JSON analysis report path for a sweep."""
+    return sweep_path.parent / sweep_path.stem / "analysis.json"
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     """Load a JSON file into a dictionary."""
     with open(path, "r") as f:
@@ -73,6 +83,8 @@ def collect_sweep_runs(sweep_path: str | Path) -> list[dict[str, Any]]:
     load_builtin_components()
     load_local_components(resolved_sweep_path)
     sweep_data = _load_json(tracking_path)
+    sweep_data["_tracking_dir"] = str(tracking_path.parent)
+    sweep_data["_sweep_path"] = str(resolved_sweep_path)
     runs = sweep_data.get("runs", {})
     collected_runs: list[dict[str, Any]] = []
 
@@ -145,6 +157,8 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
                 ]
             )
         )
+        if run.get("config_path"):
+            lines.append(f"  config: {run['config_path']}")
         if run.get("artifact_dir"):
             lines.append(f"  artifact_dir: {run['artifact_dir']}")
         if run.get("metrics_summary_path"):
@@ -155,18 +169,79 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
+    """Render a Markdown report for one collected sweep."""
+    lines = [
+        "# Sweep Analysis",
+        "",
+        f"- Sweep: `{sweep_path.name}`",
+        f"- Tracked runs: {len(runs)}",
+        "",
+    ]
+
+    for run in _sort_runs_for_display(runs):
+        lines.extend(
+            [
+                f"## [{run['run_index']}] {run['run_name']}",
+                "",
+                f"- Status: `{run['status']}`",
+                f"- Metric: `{run.get('selection_metric') or '-'}`",
+                f"- Mode: `{run.get('selection_mode') or '-'}`",
+                f"- Value: `{_format_metric_value(run.get('selection_value'))}`",
+                f"- Best epoch: `{run.get('best_epoch', '-')}`",
+            ]
+        )
+        if run.get("config_path"):
+            lines.append(f"- Config: `{run['config_path']}`")
+        if run.get("artifact_dir"):
+            lines.append(f"- Artifact dir: `{run['artifact_dir']}`")
+        if run.get("metrics_summary_path"):
+            lines.append(f"- Summary: `{run['metrics_summary_path']}`")
+        if run.get("error_message"):
+            lines.append(f"- Error: `{run['error_message']}`")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_analysis_reports(
+    sweep_path: Path,
+    runs: list[dict[str, Any]],
+    *,
+    write_json_report: bool,
+) -> tuple[Path, Path | None]:
+    """Write Markdown and optional JSON analysis reports next to the sweep."""
+    markdown_path = get_sweep_analysis_markdown_path(sweep_path)
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text(
+        _render_markdown_report(sweep_path, runs),
+        encoding="utf-8",
+    )
+
+    json_path: Path | None = None
+    if write_json_report:
+        json_path = get_sweep_analysis_json_path(sweep_path)
+        json_path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+
+    return markdown_path, json_path
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the local sweep analyzer CLI."""
     parser = argparse.ArgumentParser(
         prog="dl-analyze",
-        description="Inspect local sweep results from saved artifact summaries.",
+        description=(
+            "Inspect sweep results and write experiments/<sweep>/analysis.md "
+            "by default."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml --json\n\n"
             "This command reads the generated experiments/<sweep_name>/"
-            "sweep_tracking.json plus the per-run metric summaries."
+            "sweep_tracking.json and writes experiments/<sweep_name>/"
+            "analysis.md. Use --json to also write analysis.json."
         ),
     )
     parser.add_argument(
@@ -177,17 +252,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Print the normalized run records as JSON.",
+        help="Also write analysis.json and print the normalized run records.",
     )
     args = parser.parse_args(argv)
 
     sweep_path = Path(args.sweep).resolve()
     runs = collect_sweep_runs(sweep_path)
+    markdown_path, json_path = _write_analysis_reports(
+        sweep_path,
+        runs,
+        write_json_report=args.json,
+    )
 
     if args.json:
         print(json.dumps(runs, indent=2))
     else:
         print(_render_text_report(sweep_path, runs))
+        print(f"\nWrote Markdown report to {markdown_path}")
 
     return 0
 
