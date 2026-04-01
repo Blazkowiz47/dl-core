@@ -48,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-run              Run one config locally.\n"
             "  dl-sweep            Expand and execute a sweep config.\n"
             "  dl-analyze          Inspect saved sweep results.\n"
+            "  dl-migrate          Reorganize local artifact directories.\n"
             "  dl-train-worker     Execute one worker config directly.\n\n"
             "Common first steps:\n"
             "  dl-init --name my-exp --root-dir .\n"
