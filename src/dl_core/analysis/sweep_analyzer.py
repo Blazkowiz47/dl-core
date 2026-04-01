@@ -150,71 +150,249 @@ def _sort_runs_for_display(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return metric_sorted + runs_without_metric
 
 
+def _summarize_status_counts(runs: list[dict[str, Any]]) -> dict[str, int]:
+    """Count runs by analyzer status."""
+    counts: dict[str, int] = {}
+    for run in runs:
+        status = str(run.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _resolve_primary_metric(runs: list[dict[str, Any]]) -> tuple[str, str]:
+    """Resolve the main selection metric and mode for one sweep report."""
+    for run in runs:
+        metric = run.get("selection_metric")
+        mode = run.get("selection_mode")
+        if isinstance(metric, str) and metric:
+            return metric, mode if isinstance(mode, str) and mode else "-"
+    return "-", "-"
+
+
+def _select_common_best_metric_columns(
+    runs: list[dict[str, Any]],
+    *,
+    primary_metric: str,
+    max_columns: int = 4,
+) -> list[str]:
+    """Select a small set of common best-epoch metrics for report tables."""
+    metric_sets: list[set[str]] = []
+    for run in runs:
+        best_metrics = run.get("best_metrics")
+        if not isinstance(best_metrics, dict) or not best_metrics:
+            continue
+        run_metric_names = {
+            metric_name
+            for metric_name, value in best_metrics.items()
+            if isinstance(metric_name, str)
+            and metric_name
+            and isinstance(value, (int, float))
+        }
+        if run_metric_names:
+            metric_sets.append(run_metric_names)
+
+    if not metric_sets:
+        return []
+
+    common_metrics = set.intersection(*metric_sets)
+    common_metrics.discard(primary_metric)
+    ordered_metrics = sorted(common_metrics)
+    return ordered_metrics[:max_columns]
+
+
+def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
+    """Render one compact monospace table as plain text lines."""
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+
+    def _format_row(row: list[str]) -> str:
+        return " | ".join(
+            cell.ljust(widths[index]) for index, cell in enumerate(row)
+        )
+
+    separator = "-+-".join("-" * width for width in widths)
+    return [_format_row(headers), separator, *(_format_row(row) for row in rows)]
+
+
 def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     """Render a human-readable text report for the collected sweep runs."""
+    sorted_runs = _sort_runs_for_display(runs)
+    primary_metric, primary_mode = _resolve_primary_metric(sorted_runs)
+    status_counts = _summarize_status_counts(sorted_runs)
     lines = [
         f"Sweep: {sweep_path.name}",
-        f"Tracked runs: {len(runs)}",
+        f"Tracked runs: {len(sorted_runs)}",
+        f"Primary metric: {primary_metric}",
+        f"Mode: {primary_mode}",
+        (
+            "Status summary: "
+            + ", ".join(
+                f"{status}={count}"
+                for status, count in sorted(status_counts.items())
+            )
+        ),
         "",
     ]
 
-    for run in _sort_runs_for_display(runs):
-        metric_name = run.get("selection_metric") or "-"
-        metric_value = _format_metric_value(run.get("selection_value"))
-        lines.append(
-            " | ".join(
+    ranking_rows = [
+        [
+            str(rank),
+            run["run_name"],
+            str(run.get("status", "-")),
+            _format_metric_value(run.get("selection_value")),
+            str(run.get("best_epoch", "-")),
+        ]
+        for rank, run in enumerate(sorted_runs, start=1)
+    ]
+    lines.extend(
+        [
+            "Ranking",
+            *(
+                _render_table(
+                    ["Rank", "Run", "Status", "Value", "Best Epoch"],
+                    ranking_rows,
+                )
+            ),
+        ]
+    )
+
+    metric_columns = _select_common_best_metric_columns(
+        sorted_runs,
+        primary_metric=primary_metric,
+    )
+    if metric_columns:
+        metric_rows = []
+        for run in sorted_runs:
+            best_metrics = run.get("best_metrics")
+            if not isinstance(best_metrics, dict):
+                continue
+            metric_rows.append(
                 [
-                    f"[{run['run_index']}]",
-                    f"status={run['status']}",
-                    f"name={run['run_name']}",
-                    f"metric={metric_name}",
-                    f"value={metric_value}",
-                    f"best_epoch={run.get('best_epoch', '-')}",
+                    run["run_name"],
+                    *[
+                        _format_metric_value(best_metrics.get(metric_name))
+                        for metric_name in metric_columns
+                    ],
                 ]
             )
-        )
-        if run.get("config_path"):
-            lines.append(f"  config: {run['config_path']}")
-        if run.get("artifact_dir"):
-            lines.append(f"  artifact_dir: {run['artifact_dir']}")
-        if run.get("metrics_summary_path"):
-            lines.append(f"  summary: {run['metrics_summary_path']}")
-        if run.get("error_message"):
-            lines.append(f"  error: {run['error_message']}")
+        if metric_rows:
+            lines.extend(
+                [
+                    "",
+                    "Common Best-Epoch Metrics",
+                    *(_render_table(["Run", *metric_columns], metric_rows)),
+                ]
+            )
+
+    failures = [run for run in sorted_runs if run.get("error_message")]
+    if failures:
+        lines.extend(["", "Failures"])
+        for run in failures:
+            lines.append(f"- {run['run_name']}: {run['error_message']}")
+
+    warnings = [run for run in sorted_runs if run.get("metrics_source_warning")]
+    if warnings:
+        lines.extend(["", "Warnings"])
+        for run in warnings:
+            lines.append(
+                f"- {run['run_name']}: {run['metrics_source_warning']}"
+            )
 
     return "\n".join(lines)
 
 
+def _render_markdown_table(headers: list[str], rows: list[list[str]]) -> list[str]:
+    """Render one Markdown table."""
+    separator = ["---"] * len(headers)
+    markdown_rows = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(separator) + " |",
+    ]
+    markdown_rows.extend("| " + " | ".join(row) + " |" for row in rows)
+    return markdown_rows
+
+
 def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     """Render a Markdown report for one collected sweep."""
+    sorted_runs = _sort_runs_for_display(runs)
+    primary_metric, primary_mode = _resolve_primary_metric(sorted_runs)
+    status_counts = _summarize_status_counts(sorted_runs)
     lines = [
         "# Sweep Analysis",
         "",
         f"- Sweep: `{sweep_path.name}`",
-        f"- Tracked runs: {len(runs)}",
+        f"- Tracked runs: {len(sorted_runs)}",
+        f"- Primary metric: `{primary_metric}`",
+        f"- Mode: `{primary_mode}`",
+        f"- Status summary: "
+        + ", ".join(
+            f"`{status}={count}`" for status, count in sorted(status_counts.items())
+        ),
+        "",
+        "## Ranking",
         "",
     ]
 
-    for run in _sort_runs_for_display(runs):
-        lines.extend(
-            [
-                f"## [{run['run_index']}] {run['run_name']}",
-                "",
-                f"- Status: `{run['status']}`",
-                f"- Metric: `{run.get('selection_metric') or '-'}`",
-                f"- Mode: `{run.get('selection_mode') or '-'}`",
-                f"- Value: `{_format_metric_value(run.get('selection_value'))}`",
-                f"- Best epoch: `{run.get('best_epoch', '-')}`",
-            ]
+    ranking_rows = [
+        [
+            str(rank),
+            run["run_name"],
+            str(run.get("status", "-")),
+            _format_metric_value(run.get("selection_value")),
+            str(run.get("best_epoch", "-")),
+        ]
+        for rank, run in enumerate(sorted_runs, start=1)
+    ]
+    lines.extend(
+        _render_markdown_table(
+            ["Rank", "Run", "Status", "Value", "Best Epoch"],
+            ranking_rows,
         )
-        if run.get("config_path"):
-            lines.append(f"- Config: `{run['config_path']}`")
-        if run.get("artifact_dir"):
-            lines.append(f"- Artifact dir: `{run['artifact_dir']}`")
-        if run.get("metrics_summary_path"):
-            lines.append(f"- Summary: `{run['metrics_summary_path']}`")
-        if run.get("error_message"):
-            lines.append(f"- Error: `{run['error_message']}`")
+    )
+    lines.append("")
+
+    metric_columns = _select_common_best_metric_columns(
+        sorted_runs,
+        primary_metric=primary_metric,
+    )
+    if metric_columns:
+        metric_rows = []
+        for run in sorted_runs:
+            best_metrics = run.get("best_metrics")
+            if not isinstance(best_metrics, dict):
+                continue
+            metric_rows.append(
+                [
+                    run["run_name"],
+                    *[
+                        _format_metric_value(best_metrics.get(metric_name))
+                        for metric_name in metric_columns
+                    ],
+                ]
+            )
+        if metric_rows:
+            lines.extend(["## Common Best-Epoch Metrics", ""])
+            lines.extend(
+                _render_markdown_table(["Run", *metric_columns], metric_rows)
+            )
+            lines.append("")
+
+    failures = [run for run in sorted_runs if run.get("error_message")]
+    if failures:
+        lines.extend(["## Failures", ""])
+        for run in failures:
+            lines.append(f"- `{run['run_name']}`: {run['error_message']}")
+        lines.append("")
+
+    warnings = [run for run in sorted_runs if run.get("metrics_source_warning")]
+    if warnings:
+        lines.extend(["## Warnings", ""])
+        for run in warnings:
+            lines.append(
+                f"- `{run['run_name']}`: {run['metrics_source_warning']}"
+            )
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
