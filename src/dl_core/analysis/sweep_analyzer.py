@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 from dl_core import load_builtin_components, load_local_components
@@ -38,6 +39,11 @@ def _load_json(path: Path) -> dict[str, Any]:
     """Load a JSON file into a dictionary."""
     with open(path, "r") as f:
         return json.load(f)
+
+
+def _emit_progress(message: str) -> None:
+    """Write one short analyzer progress message to stderr."""
+    print(message, file=sys.stderr)
 
 
 def _resolve_metrics_source_backend(
@@ -80,6 +86,7 @@ def collect_sweep_runs(sweep_path: str | Path) -> list[dict[str, Any]]:
     if not tracking_path.exists():
         raise FileNotFoundError(f"Sweep tracking file not found: {tracking_path}")
 
+    _emit_progress(f"Loading sweep tracker: {tracking_path}")
     load_builtin_components()
     load_local_components(resolved_sweep_path)
     sweep_data = _load_json(tracking_path)
@@ -87,11 +94,20 @@ def collect_sweep_runs(sweep_path: str | Path) -> list[dict[str, Any]]:
     sweep_data["_sweep_path"] = str(resolved_sweep_path)
     runs = sweep_data.get("runs", {})
     collected_runs: list[dict[str, Any]] = []
+    _emit_progress(
+        f"Collecting {len(runs)} tracked runs from {resolved_sweep_path.name}"
+    )
 
+    total_runs = len(runs)
     for run_index_str, run_data in sorted(runs.items(), key=lambda item: int(item[0])):
         run_index = int(run_index_str)
         metrics_source_backend = _resolve_metrics_source_backend(sweep_data, run_data)
         metrics_source = METRICS_SOURCE_REGISTRY.get(metrics_source_backend)
+        run_name = run_data.get("tracking_run_name") or f"run_{run_index}"
+        _emit_progress(
+            f"[{run_index + 1}/{total_runs}] Collecting {run_name} "
+            f"via {metrics_source_backend}"
+        )
         collected_runs.append(
             metrics_source.collect_run(
                 run_index=run_index,
@@ -263,12 +279,14 @@ def main(argv: list[str] | None = None) -> int:
         runs,
         write_json_report=args.json,
     )
+    _emit_progress(f"Wrote Markdown report to {markdown_path}")
+    if json_path is not None:
+        _emit_progress(f"Wrote JSON report to {json_path}")
 
     if args.json:
         print(json.dumps(runs, indent=2))
     else:
         print(_render_text_report(sweep_path, runs))
-        print(f"\nWrote Markdown report to {markdown_path}")
 
     return 0
 
