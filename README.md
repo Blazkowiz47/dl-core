@@ -7,6 +7,17 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
+## What's New?
+
+- `dl-init` is now the primary scaffold command
+- `dl-core list` makes built-in and local registry discovery easier
+- `dl-core add` defaults to plain base classes unless `--base` is given
+- `dl-analyze` is the primary sweep-analysis CLI
+- `dl-migrate --artifacts` migrates old artifact trees into the flattened layout
+- local artifacts now use:
+  - `artifacts/runs/<run_name>/...`
+  - `artifacts/sweeps/<sweep_name>/<run_name>/...`
+
 ## Install
 
 Install from PyPI:
