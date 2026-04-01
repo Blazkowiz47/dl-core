@@ -32,7 +32,7 @@ def resolve_config_experiment_name(
     config_path: str | Path | None = None,
 ) -> str:
     """
-    Resolve the canonical experiment name for tracking and artifact grouping.
+    Resolve the canonical experiment name for tracking and run metadata.
 
     Resolution order:
     1. ``tracking.experiment_name``

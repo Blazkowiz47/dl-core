@@ -10,6 +10,7 @@ from dl_core.utils.config_names import (
     resolve_config_experiment_name,
     resolve_config_run_name,
 )
+from dl_core.utils.artifact_manager import resolve_existing_run_artifact_dir
 
 logger = getLogger(__name__)
 
@@ -92,22 +93,22 @@ def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
 
         run_name = resolve_config_run_name(config, config_path=config_path)
 
-        # Construct checkpoint dir path (matches ArtifactManager structure)
-        if sweep_file:
-            checkpoint_dir = (
-                f"{output_dir}/{experiment_name}/{sweep_file}/{run_name}/"
-                "final/checkpoints"
+        checkpoint_dir = (
+            resolve_existing_run_artifact_dir(
+                run_name=run_name,
+                output_dir=output_dir,
+                experiment_name=experiment_name,
+                sweep_name=sweep_file,
             )
-        else:
-            checkpoint_dir = (
-                f"{output_dir}/{experiment_name}/{run_name}/final/checkpoints"
-            )
+            / "final"
+            / "checkpoints"
+        )
 
-        if os.path.exists(checkpoint_dir):
-            return checkpoint_dir
-        else:
-            logger.info(f"Checkpoint directory does not exist: {checkpoint_dir}")
-            return None
+        if checkpoint_dir.exists():
+            return str(checkpoint_dir)
+
+        logger.info(f"Checkpoint directory does not exist: {checkpoint_dir}")
+        return None
 
     except Exception as e:
         logger.warning(f"Failed to determine checkpoint directory from config: {e}")

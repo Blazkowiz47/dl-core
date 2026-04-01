@@ -117,6 +117,19 @@ uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 ```
 
+New local runs use the flattened artifact layout:
+
+- `artifacts/runs/<run_name>/...`
+- `artifacts/sweeps/<sweep_name>/<run_name>/...`
+
+If you are upgrading an older repository with
+`artifacts/<experiment>/...`, migrate it with:
+
+```bash
+uv run dl-migrate --artifacts --dry-run
+uv run dl-migrate --artifacts
+```
+
 ## First Run Workflow
 
 If you are starting from scratch, the minimum path is:

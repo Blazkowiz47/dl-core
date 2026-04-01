@@ -12,6 +12,10 @@ from dl_core.analysis.sweep_analyzer import collect_sweep_runs
 from dl_core.core import METRICS_SOURCE_REGISTRY, TRACKER_REGISTRY
 from dl_core.executors.local import LocalExecutor
 from dl_core.sweep.template import generate_experiment_name
+from dl_core.utils.artifact_manager import (
+    get_run_artifact_dir,
+    resolve_existing_run_artifact_dir,
+)
 
 
 def test_local_tracker_is_registered_and_injects_tracking_config() -> None:
@@ -216,3 +220,36 @@ def test_local_executor_injects_tracker_metadata_into_run_config() -> None:
     }
     assert config["sweep_file"] == "experiments/demo_sweep.yaml"
     assert config["auto_resume_local"] is True
+
+
+def test_artifact_paths_use_flat_layout_with_legacy_fallback(
+    tmp_path: Path,
+) -> None:
+    """Artifact helpers should prefer the new layout and still resolve old runs."""
+    output_dir = tmp_path / "artifacts"
+    new_run_dir = Path(
+        get_run_artifact_dir(
+            run_name="demo-run",
+            output_dir=str(output_dir),
+            experiment_name="demo-exp",
+        )
+    )
+    assert new_run_dir == output_dir / "runs" / "demo-run"
+
+    legacy_run_dir = output_dir / "demo-exp" / "demo-run"
+    legacy_run_dir.mkdir(parents=True)
+
+    resolved_legacy = resolve_existing_run_artifact_dir(
+        run_name="demo-run",
+        output_dir=str(output_dir),
+        experiment_name="demo-exp",
+    )
+    assert resolved_legacy == legacy_run_dir
+
+    new_run_dir.mkdir(parents=True)
+    resolved_new = resolve_existing_run_artifact_dir(
+        run_name="demo-run",
+        output_dir=str(output_dir),
+        experiment_name="demo-exp",
+    )
+    assert resolved_new == new_run_dir

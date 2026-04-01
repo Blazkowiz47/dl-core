@@ -23,7 +23,7 @@ class ArtifactManager:
     saving metrics, plots, checkpoints, and other artifacts.
 
     Directory Structure:
-        output_dir/experiment_name/sweep_file/run_name/
+        output_dir/runs/run_name/
         ├── config.yaml                # Saved run config
         ├── epoch_1/                   # Epoch-scoped artifacts
         │   ├── checkpoint.pth
@@ -41,6 +41,9 @@ class ArtifactManager:
             ├── raw/
             ├── eval/
             └── tracking/
+
+        Sweep runs are grouped under:
+        output_dir/sweeps/sweep_name/run_name/
     """
 
     def __init__(
@@ -56,21 +59,22 @@ class ArtifactManager:
         Args:
             run_name: Name for this training run
             output_dir: Base output directory (default: "artifacts")
-            experiment_name: Experiment name for directory structure
-            sweep_name: Sweep name for directory structure
+            experiment_name: Experiment name to record in metadata
+            sweep_name: Sweep name used for grouped run directories
         """
         self.run_name = run_name
         self.output_dir = Path(output_dir)
         self.experiment_name = experiment_name
         self.sweep_name = sweep_name
 
-        # Build directory structure: output_dir/experiment_name/run_name/
-        if experiment_name and sweep_name:
-            self.run_dir = self.output_dir / experiment_name / sweep_name / run_name
-        elif experiment_name:
-            self.run_dir = self.output_dir / experiment_name / run_name
-        else:
-            self.run_dir = self.output_dir / run_name
+        self.run_dir = Path(
+            get_run_artifact_dir(
+                run_name=run_name,
+                output_dir=str(self.output_dir),
+                experiment_name=experiment_name,
+                sweep_name=sweep_name,
+            )
+        )
 
         self.logger = getLogger(f"{__name__}.{self.__class__.__name__}")
 
@@ -86,7 +90,7 @@ class ArtifactManager:
         Create standardized artifact directory structure.
 
         Creates the following structure:
-        output_dir/experiment_name/run_name/
+        output_dir/runs/run_name/
         ├── config.yaml                # saved configuration
         ├── epoch_<n>/                 # epoch-specific artifacts
         └── final/                     # final artifacts and aliases
@@ -124,15 +128,11 @@ class ArtifactManager:
         for directory in directories + plot_subdirs:
             directory.mkdir(parents=True, exist_ok=True)
 
-        # Create latest symlink at experiment level (with race condition handling for multi-GPU)
-        if self.experiment_name and self.sweep_name:
-            latest_link = (
-                self.output_dir / self.experiment_name / self.sweep_name / "latest"
-            )
-        elif self.experiment_name:
-            latest_link = self.output_dir / self.experiment_name / "latest"
+        # Create latest symlink inside the active run grouping.
+        if self.sweep_name:
+            latest_link = self.output_dir / "sweeps" / self.sweep_name / "latest"
         else:
-            latest_link = self.output_dir / "latest"
+            latest_link = self.output_dir / "runs" / "latest"
 
         try:
             # Try to remove existing symlink/file if it exists
@@ -522,13 +522,10 @@ class ArtifactManager:
         Args:
             keep_latest: Number of latest runs to keep
         """
-        # Determine the directory to clean (experiment dir or output dir)
-        if self.experiment_name and self.sweep_name:
-            cleanup_dir = self.output_dir / self.experiment_name / self.sweep_name
-        elif self.experiment_name:
-            cleanup_dir = self.output_dir / self.experiment_name
+        if self.sweep_name:
+            cleanup_dir = self.output_dir / "sweeps" / self.sweep_name
         else:
-            cleanup_dir = self.output_dir
+            cleanup_dir = self.output_dir / "runs"
 
         if not cleanup_dir.exists():
             return
@@ -557,17 +554,74 @@ def get_run_artifact_dir(
     Args:
         run_name: Run name
         output_dir: Base output directory
-        experiment_name: Optional experiment name
-        sweep_name: Optional sweep name
+        experiment_name: Optional experiment name recorded as metadata only
+        sweep_name: Optional sweep name used for grouped run directories
 
     Returns:
         Full path to run artifact directory
     """
+    output_root = Path(output_dir)
+    if sweep_name:
+        return str(output_root / "sweeps" / sweep_name / run_name)
+    return str(output_root / "runs" / run_name)
+
+
+def get_legacy_run_artifact_dir(
+    run_name: str,
+    output_dir: str = "artifacts",
+    experiment_name: str | None = None,
+    sweep_name: str | None = None,
+) -> str:
+    """
+    Get the legacy artifact directory path for a run.
+
+    This preserves compatibility with runs created before the flattened
+    ``runs/`` and ``sweeps/`` layout was introduced.
+    """
+    output_root = Path(output_dir)
     if experiment_name and sweep_name:
-        return str(Path(output_dir) / experiment_name / sweep_name / run_name)
-    elif experiment_name:
-        return str(Path(output_dir) / experiment_name / run_name)
-    return str(Path(output_dir) / run_name)
+        return str(output_root / experiment_name / sweep_name / run_name)
+    if experiment_name:
+        return str(output_root / experiment_name / run_name)
+    return str(output_root / run_name)
+
+
+def resolve_existing_run_artifact_dir(
+    run_name: str,
+    output_dir: str = "artifacts",
+    experiment_name: str | None = None,
+    sweep_name: str | None = None,
+) -> Path:
+    """
+    Resolve the run artifact directory, preferring the new layout with fallback.
+
+    Returns the new flattened path when it exists, otherwise falls back to the
+    legacy experiment-grouped path when present. If neither exists, the new
+    path is returned.
+    """
+    new_path = Path(
+        get_run_artifact_dir(
+            run_name=run_name,
+            output_dir=output_dir,
+            experiment_name=experiment_name,
+            sweep_name=sweep_name,
+        )
+    )
+    if new_path.exists():
+        return new_path
+
+    legacy_path = Path(
+        get_legacy_run_artifact_dir(
+            run_name=run_name,
+            output_dir=output_dir,
+            experiment_name=experiment_name,
+            sweep_name=sweep_name,
+        )
+    )
+    if legacy_path.exists():
+        return legacy_path
+
+    return new_path
 
 
 def create_artifact_tree(

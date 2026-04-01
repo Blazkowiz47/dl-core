@@ -506,8 +506,7 @@ class EpochTrainer(ABC):
         if sweep_file:
             sweep_file = Path(sweep_file).name.replace(".yaml", "")
 
-        # Initialize artifact manager with new structure
-        # Directory structure: output_dir/experiment_name/run_name/
+        # Initialize artifact manager with the flattened local artifact layout.
         self.artifact_manager = ArtifactManager(
             run_name=run_name,
             output_dir=output_dir,

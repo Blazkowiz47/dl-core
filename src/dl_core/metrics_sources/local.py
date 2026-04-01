@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from dl_core.core import BaseMetricsSource, register_metrics_source
-from dl_core.utils.artifact_manager import get_run_artifact_dir
+from dl_core.utils.artifact_manager import resolve_existing_run_artifact_dir
 from dl_core.utils.config_names import (
     resolve_config_experiment_name,
     resolve_config_run_name,
@@ -133,13 +133,11 @@ class LocalMetricsSource(BaseMetricsSource):
         if isinstance(sweep_file, str) and sweep_file:
             sweep_name = Path(sweep_file).stem
 
-        return Path(
-            get_run_artifact_dir(
-                run_name=run_name,
-                output_dir=output_dir,
-                experiment_name=experiment_name,
-                sweep_name=sweep_name,
-            )
+        return resolve_existing_run_artifact_dir(
+            run_name=run_name,
+            output_dir=output_dir,
+            experiment_name=experiment_name,
+            sweep_name=sweep_name,
         )
 
     def _resolve_metrics_path(

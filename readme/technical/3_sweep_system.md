@@ -63,11 +63,19 @@ directories without requiring an explicit `runtime.name` in the scaffold.
 During execution, the local sweep path also writes:
 
 - `experiments/<sweep_name>/sweep_tracking.json`
-- `artifacts/<experiment>/<sweep>/<run>/metrics/summary.json`
-- `artifacts/<experiment>/<sweep>/<run>/metrics/history.json`
-- `artifacts/<experiment>/<sweep>/<run>/run_info.json`
+- `artifacts/sweeps/<sweep>/<run>/final/metrics/summary.json`
+- `artifacts/sweeps/<sweep>/<run>/final/metrics/history.json`
+- `artifacts/sweeps/<sweep>/<run>/final/run_info.json`
 
 That local artifact contract is what powers `dl-analyze`.
+
+If you are upgrading an older repository that still has
+`artifacts/<experiment>/...`, run:
+
+```bash
+uv run dl-migrate --artifacts --dry-run
+uv run dl-migrate --artifacts
+```
 
 ## Tracking Metadata
 
