@@ -200,6 +200,59 @@ def _select_common_best_metric_columns(
     return ordered_metrics[:max_columns]
 
 
+def _get_top_runs(
+    runs: list[dict[str, Any]],
+    *,
+    top_n: int = 3,
+) -> list[dict[str, Any]]:
+    """Return the top-ranked runs for compact report summaries."""
+    return _sort_runs_for_display(runs)[:top_n]
+
+
+def _collect_metric_statistics(
+    runs: list[dict[str, Any]],
+    *,
+    primary_metric: str,
+    metric_columns: list[str],
+) -> list[dict[str, str]]:
+    """Collect basic metric statistics from selection and best-metric values."""
+    metric_values: dict[str, list[float]] = {}
+    if primary_metric != "-":
+        metric_values[primary_metric] = [
+            float(run["selection_value"])
+            for run in runs
+            if isinstance(run.get("selection_value"), (int, float))
+        ]
+
+    for metric_name in metric_columns:
+        values: list[float] = []
+        for run in runs:
+            best_metrics = run.get("best_metrics")
+            if not isinstance(best_metrics, dict):
+                continue
+            metric_value = best_metrics.get(metric_name)
+            if isinstance(metric_value, (int, float)):
+                values.append(float(metric_value))
+        metric_values[metric_name] = values
+
+    statistics: list[dict[str, str]] = []
+    for metric_name, values in metric_values.items():
+        if not values:
+            continue
+        mean = sum(values) / len(values)
+        variance = sum((value - mean) ** 2 for value in values) / len(values)
+        statistics.append(
+            {
+                "metric": metric_name,
+                "mean": f"{mean:.6f}",
+                "std": f"{variance ** 0.5:.6f}",
+                "min": f"{min(values):.6f}",
+                "max": f"{max(values):.6f}",
+            }
+        )
+    return statistics
+
+
 def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
     """Render one compact monospace table as plain text lines."""
     widths = [len(header) for header in headers]
@@ -221,6 +274,7 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     sorted_runs = _sort_runs_for_display(runs)
     primary_metric, primary_mode = _resolve_primary_metric(sorted_runs)
     status_counts = _summarize_status_counts(sorted_runs)
+    top_runs = _get_top_runs(sorted_runs)
     lines = [
         f"Sweep: {sweep_path.name}",
         f"Tracked runs: {len(sorted_runs)}",
@@ -262,6 +316,15 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
         sorted_runs,
         primary_metric=primary_metric,
     )
+    if top_runs:
+        lines.extend(["", "Top Performers"])
+        for rank, run in enumerate(top_runs, start=1):
+            lines.append(
+                f"{rank}. {run['run_name']} | "
+                f"value={_format_metric_value(run.get('selection_value'))} | "
+                f"best_epoch={run.get('best_epoch', '-')}"
+            )
+
     if metric_columns:
         metric_rows = []
         for run in sorted_runs:
@@ -285,6 +348,35 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
                     *(_render_table(["Run", *metric_columns], metric_rows)),
                 ]
             )
+
+    metric_statistics = _collect_metric_statistics(
+        sorted_runs,
+        primary_metric=primary_metric,
+        metric_columns=metric_columns,
+    )
+    if metric_statistics:
+        stats_rows = [
+            [
+                row["metric"],
+                row["mean"],
+                row["std"],
+                row["min"],
+                row["max"],
+            ]
+            for row in metric_statistics
+        ]
+        lines.extend(
+            [
+                "",
+                "Metric Statistics",
+                *(
+                    _render_table(
+                        ["Metric", "Mean", "Std", "Min", "Max"],
+                        stats_rows,
+                    )
+                ),
+            ]
+        )
 
     failures = [run for run in sorted_runs if run.get("error_message")]
     if failures:
@@ -319,6 +411,7 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
     sorted_runs = _sort_runs_for_display(runs)
     primary_metric, primary_mode = _resolve_primary_metric(sorted_runs)
     status_counts = _summarize_status_counts(sorted_runs)
+    top_runs = _get_top_runs(sorted_runs)
     lines = [
         "# Sweep Analysis",
         "",
@@ -357,6 +450,27 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
         sorted_runs,
         primary_metric=primary_metric,
     )
+    if top_runs:
+        lines.extend(["## Top Performers", ""])
+        for rank, run in enumerate(top_runs, start=1):
+            lines.extend(
+                [
+                    f"### {rank}. {run['run_name']}",
+                    "",
+                    f"- Value: `{_format_metric_value(run.get('selection_value'))}`",
+                    f"- Best epoch: `{run.get('best_epoch', '-')}`",
+                ]
+            )
+            best_metrics = run.get("best_metrics")
+            if isinstance(best_metrics, dict):
+                for metric_name in metric_columns[:3]:
+                    if metric_name in best_metrics:
+                        lines.append(
+                            f"- {metric_name}: "
+                            f"`{_format_metric_value(best_metrics.get(metric_name))}`"
+                        )
+            lines.append("")
+
     if metric_columns:
         metric_rows = []
         for run in sorted_runs:
@@ -378,6 +492,30 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
                 _render_markdown_table(["Run", *metric_columns], metric_rows)
             )
             lines.append("")
+
+    metric_statistics = _collect_metric_statistics(
+        sorted_runs,
+        primary_metric=primary_metric,
+        metric_columns=metric_columns,
+    )
+    if metric_statistics:
+        lines.extend(["## Metric Statistics", ""])
+        lines.extend(
+            _render_markdown_table(
+                ["Metric", "Mean", "Std", "Min", "Max"],
+                [
+                    [
+                        row["metric"],
+                        row["mean"],
+                        row["std"],
+                        row["min"],
+                        row["max"],
+                    ]
+                    for row in metric_statistics
+                ],
+            )
+        )
+        lines.append("")
 
     failures = [run for run in sorted_runs if run.get("error_message")]
     if failures:
