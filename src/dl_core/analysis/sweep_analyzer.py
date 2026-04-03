@@ -128,6 +128,75 @@ def _format_metric_value(value: Any) -> str:
     return str(value)
 
 
+def _infer_metric_mode(metric_name: str) -> str | None:
+    """Infer whether one metric should be minimized or maximized."""
+    metric_lower = metric_name.lower()
+    minimize_keywords = [
+        "eer",
+        "error",
+        "loss",
+        "apcer",
+        "bpcer",
+        "far",
+        "frr",
+        "fnr",
+        "fpr",
+        "miss",
+        "false",
+        "distance",
+        "cost",
+    ]
+    maximize_keywords = [
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "auc",
+        "roc",
+        "score",
+        "iou",
+        "dice",
+        "jaccard",
+        "map",
+        "ndcg",
+    ]
+
+    for keyword in minimize_keywords:
+        if keyword in metric_lower:
+            return "min"
+    for keyword in maximize_keywords:
+        if keyword in metric_lower:
+            return "max"
+    return None
+
+
+def _resolve_primary_metric_details(
+    runs: list[dict[str, Any]],
+) -> tuple[str, str, str | None]:
+    """Resolve the primary metric, effective mode, and any override note."""
+    for run in runs:
+        metric = run.get("selection_metric")
+        explicit_mode = run.get("selection_mode")
+        if not isinstance(metric, str) or not metric:
+            continue
+
+        normalized_mode = (
+            explicit_mode
+            if isinstance(explicit_mode, str) and explicit_mode in {"min", "max"}
+            else None
+        )
+        inferred_mode = _infer_metric_mode(metric)
+        if inferred_mode is not None and normalized_mode not in {None, inferred_mode}:
+            return (
+                metric,
+                inferred_mode,
+                f"inferred `{inferred_mode}` from metric name; tracker stored `{normalized_mode}`",
+            )
+        return metric, normalized_mode or inferred_mode or "-", None
+
+    return "-", "-", None
+
+
 def _sort_runs_for_display(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sort runs by selection value when available, otherwise by run index."""
     runs_with_metric = [
@@ -136,8 +205,8 @@ def _sort_runs_for_display(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not runs_with_metric:
         return sorted(runs, key=lambda run: run["run_index"])
 
-    first_mode = runs_with_metric[0].get("selection_mode")
-    reverse = first_mode == "max"
+    _, effective_mode, _ = _resolve_primary_metric_details(runs_with_metric)
+    reverse = effective_mode == "max"
     metric_sorted = sorted(
         runs_with_metric,
         key=lambda run: float(run["selection_value"]),
@@ -161,12 +230,8 @@ def _summarize_status_counts(runs: list[dict[str, Any]]) -> dict[str, int]:
 
 def _resolve_primary_metric(runs: list[dict[str, Any]]) -> tuple[str, str]:
     """Resolve the main selection metric and mode for one sweep report."""
-    for run in runs:
-        metric = run.get("selection_metric")
-        mode = run.get("selection_mode")
-        if isinstance(metric, str) and metric:
-            return metric, mode if isinstance(mode, str) and mode else "-"
-    return "-", "-"
+    metric, mode, _ = _resolve_primary_metric_details(runs)
+    return metric, mode
 
 
 def _select_common_best_metric_columns(
@@ -272,7 +337,9 @@ def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
 def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     """Render a human-readable text report for the collected sweep runs."""
     sorted_runs = _sort_runs_for_display(runs)
-    primary_metric, primary_mode = _resolve_primary_metric(sorted_runs)
+    primary_metric, primary_mode, primary_mode_note = _resolve_primary_metric_details(
+        sorted_runs
+    )
     status_counts = _summarize_status_counts(sorted_runs)
     top_runs = _get_top_runs(sorted_runs)
     lines = [
@@ -289,6 +356,8 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
         ),
         "",
     ]
+    if primary_mode_note:
+        lines.extend([f"Mode note: {primary_mode_note}", ""])
 
     ranking_rows = [
         [
@@ -409,7 +478,9 @@ def _render_markdown_table(headers: list[str], rows: list[list[str]]) -> list[st
 def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     """Render a Markdown report for one collected sweep."""
     sorted_runs = _sort_runs_for_display(runs)
-    primary_metric, primary_mode = _resolve_primary_metric(sorted_runs)
+    primary_metric, primary_mode, primary_mode_note = _resolve_primary_metric_details(
+        sorted_runs
+    )
     status_counts = _summarize_status_counts(sorted_runs)
     top_runs = _get_top_runs(sorted_runs)
     lines = [
@@ -424,9 +495,10 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
             f"`{status}={count}`" for status, count in sorted(status_counts.items())
         ),
         "",
-        "## Ranking",
-        "",
     ]
+    if primary_mode_note:
+        lines.extend([f"- Mode note: {primary_mode_note}", ""])
+    lines.extend(["## Ranking", ""])
 
     ranking_rows = [
         [
