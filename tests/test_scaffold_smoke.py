@@ -215,7 +215,7 @@ def test_scaffold_smoke_repo_runs_dl_run_and_dl_sweep() -> None:
         generated_configs = sorted(generated_sweep_dir.glob("*.yaml"))
         assert generated_configs, "Sweep should generate at least one concrete config"
         assert "Tracked runs: 1" in analyzer_output
-        assert "status=completed" in analyzer_output
+        assert "Status summary: completed=1" in analyzer_output
 
         artifacts_dir = repo_dir / "artifacts"
         assert artifacts_dir.exists(), "Smoke run should create local artifacts"
