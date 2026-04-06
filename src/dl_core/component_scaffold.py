@@ -795,6 +795,7 @@ def _callback_component(
     """Render a callback scaffold with artifact layout guidance."""
     return f"""\"\"\"Local callback scaffold.\"\"\"
 
+from dl_core.core import config_field
 from dl_core.core import register_callback
 from {import_path} import {base_class}
 
@@ -802,6 +803,11 @@ from {import_path} import {base_class}
 @register_callback({registry_literal})
 class {class_name}({base_class}):
     \"\"\"{class_docstring}\"\"\"
+
+    CONFIG_FIELDS = {base_class}.CONFIG_FIELDS + [
+        # TODO: declare callback-specific config keys here, for example:
+        # config_field("enabled", "bool", "Enable this callback.", default=True),
+    ]
 
     # TODO: Override the base behavior here when needed.
     # TODO: Store epoch-scoped artifacts under

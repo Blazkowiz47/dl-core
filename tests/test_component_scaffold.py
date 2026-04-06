@@ -103,8 +103,10 @@ def test_cli_add_callback_defaults_to_plain_base(tmp_path: Path) -> None:
     component_path = target_dir / "src" / "callbacks" / "artifactlogger.py"
     component_text = component_path.read_text()
 
+    assert "from dl_core.core import config_field" in component_text
     assert "from dl_core.core import register_callback" in component_text
     assert "from dl_core.core import Callback" in component_text
+    assert "CONFIG_FIELDS = Callback.CONFIG_FIELDS + [" in component_text
     assert "class ArtifactLoggerCallback(Callback):" in component_text
     assert "MetricLoggerCallback" not in component_text
 
@@ -136,6 +138,7 @@ def test_cli_add_callback_supports_registered_base(tmp_path: Path) -> None:
         "from dl_core.callbacks.metric_logger import MetricLoggerCallback"
         in component_text
     )
+    assert "CONFIG_FIELDS = MetricLoggerCallback.CONFIG_FIELDS + [" in component_text
     assert "class MetricMirrorCallback(MetricLoggerCallback):" in component_text
 
     load_builtin_components()
