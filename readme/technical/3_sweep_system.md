@@ -69,14 +69,6 @@ During execution, the local sweep path also writes:
 
 That local artifact contract is what powers `dl-analyze`.
 
-If you are upgrading an older repository that still has
-`artifacts/<experiment>/...`, run:
-
-```bash
-uv run dl-migrate --artifacts --dry-run
-uv run dl-migrate --artifacts
-```
-
 ## Tracking Metadata
 
 Sweep templates support a `tracking` block used for:

@@ -13,7 +13,6 @@ extras and companion extension packages.
 - `dl-core list` makes built-in and local registry discovery easier
 - `dl-core add` defaults to plain base classes unless `--base` is given
 - `dl-analyze` is the primary sweep-analysis CLI
-- `dl-migrate --artifacts` migrates old artifact trees into the flattened layout
 - local artifacts now use:
   - `artifacts/runs/<run_name>/...`
   - `artifacts/sweeps/<sweep_name>/<run_name>/...`
@@ -132,14 +131,6 @@ New local runs use the flattened artifact layout:
 
 - `artifacts/runs/<run_name>/...`
 - `artifacts/sweeps/<sweep_name>/<run_name>/...`
-
-If you are upgrading an older repository with
-`artifacts/<experiment>/...`, migrate it with:
-
-```bash
-uv run dl-migrate --artifacts --dry-run
-uv run dl-migrate --artifacts
-```
 
 ## First Run Workflow
 
