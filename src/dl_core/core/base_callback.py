@@ -10,6 +10,7 @@ from abc import ABC
 from typing import Any, Dict, Literal, Optional, TYPE_CHECKING
 
 import torch
+import torch.distributed as dist
 
 from dl_core.core.config_metadata import config_field
 
@@ -446,9 +447,24 @@ class CallbackList:
         """
         return len(self.callbacks)
 
+    def _sync_callback_enabled(self, callback: Callback) -> None:
+        """Keep callback enabled state consistent across distributed ranks."""
+        if not dist.is_available() or not dist.is_initialized():
+            return
+
+        disabled_tensor = torch.tensor(
+            0 if callback.enabled else 1,
+            dtype=torch.int32,
+            device=self.trainer.accelerator.get_device(),
+        )
+        dist.all_reduce(disabled_tensor, op=dist.ReduceOp.MAX)
+        if disabled_tensor.item():
+            callback.enabled = False
+
     def on_training_start(self, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_train_start for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_training_start(logs)
@@ -458,6 +474,7 @@ class CallbackList:
     def on_training_end(self, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_train_end for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_training_end(logs)
@@ -469,6 +486,7 @@ class CallbackList:
     def on_training_finalized(self, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_training_finalized for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_training_finalized(logs)
@@ -480,6 +498,7 @@ class CallbackList:
     def on_train_start(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_train_start for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_train_start(epoch, logs)
@@ -489,6 +508,7 @@ class CallbackList:
     def on_train_end(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_train_end for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_train_end(epoch, logs)
@@ -500,6 +520,7 @@ class CallbackList:
     def on_test_start(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_eval_start for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_test_start(epoch, logs)
@@ -509,6 +530,7 @@ class CallbackList:
     def on_test_end(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_eval_end for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             callback_name = callback.__class__.__name__
 
             # LOG: Track callback enabled status on this rank
@@ -545,6 +567,7 @@ class CallbackList:
     ) -> None:
         """Call on_validation_start for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_validation_start(epoch, logs)
@@ -556,6 +579,7 @@ class CallbackList:
     ) -> None:
         """Call on_validation_end for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     self.trainer.logger.debug(
@@ -585,6 +609,7 @@ class CallbackList:
         )
 
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             callback_name = callback.__class__.__name__
 
             # LOG: Track callback enabled status on this rank
@@ -620,6 +645,7 @@ class CallbackList:
     def on_epoch_end(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_epoch_end for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             callback_name = callback.__class__.__name__
 
             # LOG: Track callback enabled status on this rank
@@ -698,6 +724,7 @@ class CallbackList:
     def on_checkpoint(self, epoch: int, metrics: Dict[str, Dict[str, float]]) -> None:
         """Call on_checkpoint for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_checkpoint(epoch, metrics)
@@ -707,6 +734,7 @@ class CallbackList:
     def on_early_stop(self, epoch: int, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_early_stop for all callbacks."""
         for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
             if callback.enabled:
                 try:
                     callback.on_early_stop(epoch, logs)

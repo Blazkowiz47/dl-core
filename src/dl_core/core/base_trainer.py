@@ -9,6 +9,7 @@ existing imports continue to work.
 
 import logging
 import os
+import shutil
 import time
 import traceback
 from abc import ABC, abstractmethod
@@ -296,7 +297,7 @@ class EpochTrainer(ABC):
             return
 
         if os.path.isdir(self.checkpoint_dir) and not os.listdir(self.checkpoint_dir):
-            os.system(f"rm -rf {self.artifact_manager.output_dir}")
+            shutil.rmtree(self.artifact_manager.run_dir, ignore_errors=True)
 
     def _load_continue_model(self) -> None:
         # Load checkpoint if specified in trainer config (resume training)
@@ -320,7 +321,7 @@ class EpochTrainer(ABC):
         except Exception as e:
             self.logger.error(f"Setup failed: {e}")
             traceback.print_exc()
-            exit(1)
+            raise
 
         self.setup_current_epoch(0)
 
@@ -385,7 +386,11 @@ class EpochTrainer(ABC):
 
     def _inject_seed_into_configs(self) -> None:
         # Trainer configs
-        self.config["trainer"]["seed"] = self.seed
+        trainer_config = self.config.get("trainer", {})
+        if isinstance(trainer_config, dict):
+            named_trainer_config = trainer_config.get(self.trainer_name)
+            if isinstance(named_trainer_config, dict):
+                named_trainer_config["seed"] = self.seed
         # Dataset config - check if single dataset (has 'name' key) or multiple datasets
         self.config["dataset"]["seed"] = self.seed
         # Model configs
