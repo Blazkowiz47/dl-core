@@ -6,7 +6,13 @@ from typing import Any
 
 import torch
 
-from dl_core.core import AdaptiveComputationDataset, TextSequenceWrapper
+from dl_core.core import (
+    AdaptiveComputationDataset,
+    BaseSampler,
+    TextSequenceWrapper,
+)
+from dl_core.core.base_dataset import BaseWrapper
+from dl_core.core.registry import SAMPLER_REGISTRY
 
 
 class _TextSequenceDataset(TextSequenceWrapper):
@@ -87,6 +93,100 @@ class _AdaptiveDataset(AdaptiveComputationDataset):
         }
 
 
+class _RecordingSampler(BaseSampler):
+    """Small sampler that drops the tail item and records call counts."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.calls = 0
+
+    def sample_data(self, files: list[dict], split: str) -> list[dict]:
+        """Return a shortened list so repeated sampling is easy to detect."""
+
+        self.calls += 1
+        return list(files[:-1])
+
+
+class _SamplerDataset(TextSequenceWrapper):
+    """Concrete text dataset with a configurable sampler hook."""
+
+    def __init__(self, sampler_name: str) -> None:
+        config = {
+            "dataset": {
+                "name": "sampler-demo",
+                "batch_size": {"train": 2, "validation": 2, "test": 2},
+                "num_workers": {"train": 0, "validation": 0, "test": 0},
+                "shuffle": {"train": False, "validation": False, "test": False},
+                "sample_splits": {
+                    "train": True,
+                    "validation": False,
+                    "test": False,
+                },
+                "sampler": {sampler_name: {}},
+                "sequence_keys": ["input_ids"],
+            }
+        }
+        super().__init__(config)
+
+    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        """Return a small fixed split for sampling tests."""
+
+        return [
+            {"path": "sample-a", "label": 0, "tokens": [1]},
+            {"path": "sample-b", "label": 1, "tokens": [2]},
+            {"path": "sample-c", "label": 0, "tokens": [3]},
+        ]
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Convert test records into minimal tensors."""
+
+        return {
+            "input_ids": torch.tensor(file_dict["tokens"], dtype=torch.long),
+            "label": file_dict["label"],
+            "path": file_dict["path"],
+        }
+
+
+class _OverrideDataset(BaseWrapper):
+    """Small dataset used to verify falsy loader overrides."""
+
+    @property
+    def file_extensions(self) -> list[str]:
+        """Return an empty extension list for the in-memory test dataset."""
+
+        return []
+
+    def __init__(self) -> None:
+        config = {
+            "dataset": {
+                "name": "override-demo",
+                "batch_size": {"train": 2, "validation": 2, "test": 2},
+                "num_workers": {"train": 0, "validation": 0, "test": 0},
+                "shuffle": {"train": False, "validation": False, "test": False},
+                "drop_last": {"train": True, "validation": False, "test": False},
+            }
+        }
+        super().__init__(config)
+
+    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        """Return a small fixed split for override tests."""
+
+        return [
+            {"path": "sample-a", "label": 0, "value": 1},
+            {"path": "sample-b", "label": 1, "value": 2},
+            {"path": "sample-c", "label": 0, "value": 3},
+        ]
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Return a minimal tensor payload."""
+
+        return {
+            "data": torch.tensor([file_dict["value"]], dtype=torch.float32),
+            "label": file_dict["label"],
+            "path": file_dict["path"],
+        }
+
+
 def test_text_sequence_wrapper_pads_variable_length_batches() -> None:
     """Text sequence batches should be padded on configured sequence keys."""
 
@@ -128,3 +228,42 @@ def test_adaptive_dataset_can_peek_and_wrap_streams() -> None:
     assert first["path"] == "b0"
     assert second["path"] == "b1"
     assert wrapped["path"] == "b0"
+
+
+def test_dataset_reuses_sampled_files_on_repeated_split_access(
+    monkeypatch: Any,
+) -> None:
+    """Repeated split access should keep using the sampled file cache."""
+
+    sampler = _RecordingSampler(seed=2025)
+    original_get = SAMPLER_REGISTRY.get
+
+    def _get_sampler(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "recording":
+            return sampler
+        return original_get(name, *args, **kwargs)
+
+    monkeypatch.setattr(SAMPLER_REGISTRY, "get", _get_sampler)
+
+    dataset = _SamplerDataset("recording")
+
+    first_loader = dataset.get_split("train")
+    second_loader = dataset.get_split("train")
+
+    assert first_loader is not None
+    assert second_loader is not None
+    assert len(first_loader.dataset) == 2
+    assert len(second_loader.dataset) == 2
+    assert sampler.calls == 1
+
+
+def test_dataset_allows_falsey_loader_overrides() -> None:
+    """Per-call loader overrides should honor explicit falsey values."""
+
+    dataset = _OverrideDataset()
+
+    loader = dataset.get_split("train", drop_last=False)
+
+    assert loader is not None
+    batches = list(loader)
+    assert len(batches) == 2

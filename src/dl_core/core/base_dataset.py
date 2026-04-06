@@ -282,6 +282,13 @@ class BaseWrapper(ABC):
         """Set seeds for reproducibility."""
         set_seeds_local(self.seed)
 
+    def _resolve_split_override(self, value: Any, default: Any) -> Any:
+        """Return a per-call override when provided, otherwise the stored default."""
+
+        if value is None:
+            return default
+        return value
+
     def _make_internal_values_consistent(self) -> None:
         """
         Normalize scalar config values to dictionary format.
@@ -468,12 +475,13 @@ class BaseWrapper(ABC):
 
         # Apply sampler if configured (instantiate per-split for split-aware config)
         if self.sample_splits[split]:
-            # Apply sampling
-            if not self.sampled_files_list[split]:
-                files_list = self.sampler[split].sample(files_list, split)
-                self.logger.info(
-                    f"Applied sampler to {split}: resulted in {len(files_list)} files"
-                )
+            if self.sampled_files_list[split]:
+                return self.sampled_files_list[split]
+
+            files_list = self.sampler[split].sample(files_list, split)
+            self.logger.info(
+                f"Applied sampler to {split}: resulted in {len(files_list)} files"
+            )
 
         self.sampled_files_list[split] = files_list
         return files_list
@@ -612,12 +620,18 @@ class BaseWrapper(ABC):
             self.logger.warning(f"No data for {split} split")
             return None
 
-        shuffle = shuffle or self.shuffle[split]
-        batch_size = batch_size or self.batch_size[split]
-        num_workers = num_workers or self.num_workers[split]
-        pin_memory = pin_memory or self.pin_memory[split]
-        drop_last = drop_last or self.drop_last[split]
-        prefetch_factor = prefetch_factor or self.prefetch_factor[split]
+        shuffle = self._resolve_split_override(shuffle, self.shuffle[split])
+        batch_size = self._resolve_split_override(batch_size, self.batch_size[split])
+        num_workers = self._resolve_split_override(
+            num_workers, self.num_workers[split]
+        )
+        pin_memory = self._resolve_split_override(
+            pin_memory, self.pin_memory[split]
+        )
+        drop_last = self._resolve_split_override(drop_last, self.drop_last[split])
+        prefetch_factor = self._resolve_split_override(
+            prefetch_factor, self.prefetch_factor[split]
+        )
 
         # Create transform function with split bound using partial
         transform_fn = partial(self.transform, split=split)
@@ -628,7 +642,7 @@ class BaseWrapper(ABC):
         self.logger.info(
             f"[{split}] DataLoader config: batch_size={actual_batch_size}, "
             f"num_workers={actual_num_workers}, shuffle={shuffle}, "
-            f"prefetch_factor={self.prefetch_factor}"
+            f"prefetch_factor={prefetch_factor}"
         )
 
         return DataLoader(
@@ -1498,12 +1512,13 @@ class FrameWrapper(BaseWrapper):
         self.logger.debug(
             f"Converted video groups to file list for {split}: {len(data)} files"
         )
-        shuffle = shuffle or self.shuffle[split]
+        shuffle = self._resolve_split_override(shuffle, self.shuffle[split])
 
         # Apply sampler if configured (instantiate per-split for split-aware config)
         if self.sample_splits[split]:
-            # Apply sampling
-            if not self.sampled_files_list[split]:
+            if self.sampled_files_list[split]:
+                data = self.sampled_files_list[split]
+            else:
                 data = self.sampler[split].sample(data, split)
                 if shuffle:
                     random.shuffle(data)
@@ -1522,11 +1537,17 @@ class FrameWrapper(BaseWrapper):
             self.logger.warning(f"No data for {split} split")
             return None
 
-        batch_size = batch_size or self.batch_size[split]
-        num_workers = num_workers or self.num_workers[split]
-        pin_memory = pin_memory or self.pin_memory[split]
-        drop_last = drop_last or self.drop_last[split]
-        prefetch_factor = prefetch_factor or self.prefetch_factor[split]
+        batch_size = self._resolve_split_override(batch_size, self.batch_size[split])
+        num_workers = self._resolve_split_override(
+            num_workers, self.num_workers[split]
+        )
+        pin_memory = self._resolve_split_override(
+            pin_memory, self.pin_memory[split]
+        )
+        drop_last = self._resolve_split_override(drop_last, self.drop_last[split])
+        prefetch_factor = self._resolve_split_override(
+            prefetch_factor, self.prefetch_factor[split]
+        )
 
         # Create transform function with split bound using partial
         transform_fn = partial(self.transform, split=split)
@@ -1537,7 +1558,7 @@ class FrameWrapper(BaseWrapper):
         self.logger.info(
             f"[{split}] DataLoader config: batch_size={actual_batch_size}, "
             f"num_workers={actual_num_workers}, shuffle={shuffle}, "
-            f"prefetch_factor={self.prefetch_factor}"
+            f"prefetch_factor={prefetch_factor}"
         )
 
         return DataLoader(
