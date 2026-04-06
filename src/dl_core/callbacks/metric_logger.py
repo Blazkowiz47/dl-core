@@ -3,6 +3,7 @@
 from typing import Any, Dict, Optional
 
 from dl_core.core.base_callback import Callback
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_callback
 
 
@@ -20,6 +21,15 @@ class MetricLoggerCallback(Callback):
             params:
               log_frequency: 1  # Log every N epochs
     """
+
+    CONFIG_FIELDS = Callback.CONFIG_FIELDS + [
+        config_field(
+            "log_frequency",
+            "int",
+            "Log metrics every N epochs.",
+            default=1,
+        )
+    ]
 
     def __init__(self, log_frequency: int = 1, **kwargs):
         """

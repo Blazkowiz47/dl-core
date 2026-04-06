@@ -1,6 +1,7 @@
 import math
 
 import torch
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_scheduler
 from torch.optim.lr_scheduler import LRScheduler
 
@@ -24,6 +25,39 @@ class CosineWithWarmupLR(LRScheduler):
         - If you want different base LRs for multiple param groups, set those LRs on the optimizer
           before creating the scheduler (scheduler will read optimizer.param_groups to initialize base_lrs).
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "num_warmup_steps",
+            "int",
+            "Number of linear warmup steps before cosine decay begins.",
+            required=True,
+        ),
+        config_field(
+            "num_training_steps",
+            "int",
+            "Total number of scheduler steps across the full run.",
+            required=True,
+        ),
+        config_field(
+            "min_ratio",
+            "float",
+            "Final learning-rate ratio relative to the base LR.",
+            default=0.0,
+        ),
+        config_field(
+            "num_cycles",
+            "float",
+            "Number of cosine cycles after warmup.",
+            default=0.5,
+        ),
+        config_field(
+            "last_epoch",
+            "int",
+            "Initial scheduler step index when resuming.",
+            default=-1,
+        ),
+    ]
 
     def __init__(
         self,

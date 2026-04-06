@@ -29,6 +29,7 @@ from .base_trainer import BaseTrainer
 from .epoch_trainer import EpochTrainer
 from .sequence_trainer import SequenceStepOutput, SequenceTrainer
 from .base_transform import BaseTransform
+from .config_metadata import ConfigFieldSpec, config_field
 
 # Registry system
 from .registry import (
@@ -98,6 +99,7 @@ __all__ = [
     "BaseFaceDetector",
     "FaceDetection",
     "LandmarkDetection",
+    "ConfigFieldSpec",
     # Registry system
     "ComponentRegistry",
     "MODEL_REGISTRY",
@@ -136,4 +138,5 @@ __all__ = [
     "register_biometric_preprocessor",
     "get_all_registered_components",
     "print_registry_info",
+    "config_field",
 ]

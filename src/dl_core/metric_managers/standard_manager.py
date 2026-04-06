@@ -14,6 +14,7 @@ from dl_core.core import (
     METRIC_REGISTRY,
     BaseAccelerator,
     BaseMetricManager,
+    config_field,
     register_metric_manager,
 )
 
@@ -35,6 +36,21 @@ class StandardMetricManager(BaseMetricManager):
 
     Suitable for general purpose classification without domain-specific requirements.
     """
+
+    CONFIG_FIELDS = BaseMetricManager.CONFIG_FIELDS + [
+        config_field(
+            "num_classes",
+            "int",
+            "Number of classes expected by the managed metrics.",
+            default=2,
+        ),
+        config_field(
+            "best_metric_key",
+            "str",
+            "Metric key used for best-checkpoint selection.",
+            default="accuracy",
+        ),
+    ]
 
     def __init__(
         self,

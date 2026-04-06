@@ -27,6 +27,7 @@ from tqdm import tqdm
 
 from dl_core.core import BaseAccelerator, BaseCriterion, BaseModel, BaseWrapper
 from dl_core.core.base_callback import Callback, CallbackList
+from dl_core.core.config_metadata import config_field
 from dl_core.core.base_metric_manager import BaseMetricManager
 from dl_core.utils import (
     MeterTracker,
@@ -99,6 +100,81 @@ class EpochTrainer(ABC):
         trainer = MyTrainer(config)
         trainer.run()
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "epochs",
+            "int",
+            "Total number of training epochs to run.",
+            required=True,
+        ),
+        config_field(
+            "show_progress",
+            "bool",
+            "Enable per-epoch tqdm progress bars.",
+            default=False,
+        ),
+        config_field(
+            "print_freq",
+            "int",
+            "How often to log batch-level training updates.",
+            default=100,
+        ),
+        config_field(
+            "continue_model",
+            "str | None",
+            "Checkpoint path to resume full training state from.",
+            default=None,
+        ),
+        config_field(
+            "skip_baseline_eval",
+            "bool",
+            "Skip the pre-training baseline evaluation pass.",
+            default=False,
+        ),
+        config_field(
+            "test_frequency",
+            "int",
+            "Run the test split every N epochs.",
+            default=1,
+        ),
+        config_field(
+            "validation_frequency",
+            "int",
+            "Run the validation split every N epochs.",
+            default=1,
+        ),
+        config_field(
+            "log_weights",
+            "bool",
+            "Log model weights or weight summaries when supported.",
+            default=False,
+        ),
+        config_field(
+            "overfit_single_batch",
+            "bool",
+            "Repeatedly train on a tiny fixed subset for debugging.",
+            default=False,
+        ),
+        config_field(
+            "overfit_iterations",
+            "int",
+            "Number of debug iterations when overfitting a tiny subset.",
+            default=1000,
+        ),
+        config_field(
+            "overfit_num_batches",
+            "int",
+            "Number of batches to keep when overfit debugging is enabled.",
+            default=8,
+        ),
+        config_field(
+            "pbar_metrics",
+            "list[str] | dict[str, list[str]]",
+            "Metrics shown in progress bars for train/validation/test loops.",
+            default=["loss"],
+        ),
+    ]
 
     def __init__(self, config: dict[str, Any]):
         """

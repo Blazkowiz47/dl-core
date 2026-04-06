@@ -15,6 +15,8 @@ from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
+from dl_core.core.config_metadata import config_field
+
 
 class BaseAccelerator(ABC):
     """
@@ -27,6 +29,33 @@ class BaseAccelerator(ABC):
     - Gradient accumulation
     - Checkpoint saving/loading
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "mixed_precision",
+            "str | None",
+            "Mixed-precision mode. Common values are 'fp16' and 'bf16'.",
+            default=None,
+        ),
+        config_field(
+            "seed",
+            "int",
+            "Accelerator seed used for distributed and worker reproducibility.",
+            default=42,
+        ),
+        config_field(
+            "gradient_accumulation_steps",
+            "int",
+            "Number of backward passes to accumulate before stepping.",
+            default=1,
+        ),
+        config_field(
+            "max_grad_norm",
+            "float | None",
+            "Clip gradients to this norm after accumulation.",
+            default=None,
+        ),
+    ]
 
     def __init__(self, config: Dict[str, Any]):
         """

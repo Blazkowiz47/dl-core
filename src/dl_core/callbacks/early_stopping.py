@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 
 from dl_core.core.base_callback import Callback
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_callback
 
 
@@ -37,6 +38,57 @@ class EarlyStoppingCallback(Callback):
                 mode: min
                 target_value: 0.01
     """
+
+    CONFIG_FIELDS = Callback.CONFIG_FIELDS + [
+        config_field(
+            "monitor",
+            "str | None",
+            "Single monitored metric for the simple early-stopping form.",
+            default=None,
+        ),
+        config_field(
+            "mode",
+            "str | None",
+            "Optimization direction for the single monitored metric.",
+            default=None,
+        ),
+        config_field(
+            "patience",
+            "int",
+            "Number of epochs without improvement to tolerate.",
+            default=10,
+        ),
+        config_field(
+            "min_delta",
+            "float",
+            "Minimum change required to count as an improvement.",
+            default=0.0,
+        ),
+        config_field(
+            "target_value",
+            "float | None",
+            "Optional threshold that can stop training immediately.",
+            default=None,
+        ),
+        config_field(
+            "target_mode",
+            "str",
+            "Comparison operator used with target_value.",
+            default="less_equal",
+        ),
+        config_field(
+            "metrics",
+            "list[dict] | None",
+            "Multi-metric early-stopping configuration entries.",
+            default=None,
+        ),
+        config_field(
+            "stop_condition",
+            "str",
+            "Use 'any' or 'all' when multiple metrics are configured.",
+            default="any",
+        ),
+    ]
 
     def __init__(
         self,

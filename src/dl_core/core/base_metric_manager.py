@@ -20,6 +20,7 @@ import torch
 import torch.distributed as dist
 
 from dl_core.core.base_accelerator import BaseAccelerator
+from dl_core.core.config_metadata import config_field
 from dl_core.utils.distributed_utils import gather_via_pickle
 
 
@@ -87,6 +88,16 @@ class BaseMetricManager(ABC):
         accelerator: Accelerator for distributed coordination
         trainer: Optional trainer reference for artifact management
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "mode",
+            "str",
+            "Distributed aggregation strategy. Use 'gather' for global metrics "
+            "and 'average' for rank-local averages.",
+            default="gather",
+        )
+    ]
 
     def __init__(
         self,

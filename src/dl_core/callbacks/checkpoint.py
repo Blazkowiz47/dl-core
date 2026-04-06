@@ -3,6 +3,7 @@
 from typing import Any, Dict, Optional
 
 from dl_core.core.base_callback import Callback
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_callback
 
 
@@ -20,8 +21,29 @@ class CheckpointCallback(Callback):
             params:
               monitor: eer          # Metric to monitor
               mode: min             # 'min' or 'max'
-              save_best_only: true  # Only save when metric improves
+            save_best_only: true  # Only save when metric improves
     """
+
+    CONFIG_FIELDS = Callback.CONFIG_FIELDS + [
+        config_field(
+            "monitor",
+            "str",
+            "Metric key used to decide when checkpoints improve.",
+            default="eer",
+        ),
+        config_field(
+            "mode",
+            "str",
+            "Use 'min' when lower is better and 'max' when higher is better.",
+            default="min",
+        ),
+        config_field(
+            "save_best_only",
+            "bool",
+            "Only save checkpoints when the monitored metric improves.",
+            default=False,
+        ),
+    ]
 
     def __init__(
         self,

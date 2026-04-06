@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 import numpy as np
 
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_metric
 from dl_core.core.base_metric import BaseMetric
 
@@ -19,6 +20,15 @@ class AccuracyMetric(BaseMetric):
     COMPUTATION MODE: COMPUTE_THEN_AVERAGE
     This metric can be computed locally and averaged across ranks.
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "num_classes",
+            "int",
+            "Expected number of classes for interpreting predictions.",
+            default=2,
+        )
+    ]
 
     def __init__(self, config: Dict[str, Any] | None = None):
         """

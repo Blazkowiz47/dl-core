@@ -5,6 +5,7 @@ from typing import Any, Dict
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_metric
 from dl_core.core.base_metric import BaseMetric
 
@@ -20,6 +21,15 @@ class AUCMetric(BaseMetric):
     COMPUTATION MODE: GATHER_THEN_COMPUTE
     This metric requires global data to compute ROC curve accurately.
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "num_classes",
+            "int",
+            "Expected number of classes for AUC computation.",
+            default=2,
+        )
+    ]
 
     def __init__(self, config: Dict[str, Any] | None = None):
         """

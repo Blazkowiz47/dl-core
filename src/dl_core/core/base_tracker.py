@@ -6,6 +6,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
+from dl_core.core.config_metadata import config_field
+
 
 class BaseTracker(ABC):
     """
@@ -15,6 +17,15 @@ class BaseTracker(ABC):
     by a sweep and for injecting tracker-specific metadata into generated run
     configurations. They intentionally do not own execution.
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "experiment_name",
+            "str | None",
+            "Optional tracker-level experiment or project override for the sweep.",
+            default=None,
+        )
+    ]
 
     def __init__(self, tracking_config: dict[str, Any] | None = None, **kwargs: Any):
         """

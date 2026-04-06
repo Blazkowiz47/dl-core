@@ -15,6 +15,7 @@ from torchvision.models import (
 )
 
 from dl_core.core.base_model import BaseModel
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_model
 
 
@@ -26,6 +27,35 @@ class ResNet(BaseModel):
     Supports ResNet18, ResNet34, ResNet50, and ResNet101 architectures
     with pretrained weights and custom classification heads.
     """
+
+    CONFIG_FIELDS = BaseModel.CONFIG_FIELDS + [
+        config_field(
+            "variant",
+            "str",
+            "ResNet backbone variant: resnet18, resnet34, resnet50, or "
+            "resnet101.",
+            default="resnet18",
+        ),
+        config_field(
+            "pretrained",
+            "bool",
+            "Load torchvision pretrained weights for the selected variant.",
+            default=False,
+        ),
+        config_field(
+            "use_pretrained_custom",
+            "bool",
+            "Load custom checkpoint weights after building the backbone.",
+            default=False,
+        ),
+        config_field(
+            "custom_weights_path",
+            "str",
+            "Path to custom pretrained weights when "
+            "use_pretrained_custom=true.",
+            default="weights/competition_pretrained_resnet50.pth",
+        ),
+    ]
 
     def __init__(self, config: Dict[str, Any], **kwargs):
         super().__init__(config, **kwargs)

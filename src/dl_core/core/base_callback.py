@@ -11,6 +11,8 @@ from typing import Any, Dict, Literal, Optional, TYPE_CHECKING
 
 import torch
 
+from dl_core.core.config_metadata import config_field
+
 if TYPE_CHECKING:
     from dl_core.core.base_trainer import BaseTrainer
 
@@ -28,6 +30,15 @@ class Callback(ABC):
     Callbacks provide hooks into the training loop for extensible functionality
     without modifying the core trainer code.
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "enabled",
+            "bool",
+            "Enable or disable this callback without removing it from config.",
+            default=True,
+        )
+    ]
 
     def __init__(self, **kwargs):
         """

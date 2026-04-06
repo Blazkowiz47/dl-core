@@ -12,6 +12,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 
 from dl_core.core.base_transform import BaseTransform
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import AUGMENTATION_REGISTRY, SAMPLER_REGISTRY
 from dl_core.utils import (
     memory_usage,
@@ -69,6 +70,108 @@ class BaseWrapper(ABC):
     File format: list[dict] with {"path": Path, "label": int, ...}
     Strategies: augmentation (required), sampler (optional)
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "rdir",
+            "str",
+            "Root dataset directory used by local filesystem datasets.",
+        ),
+        config_field(
+            "classes",
+            "list[str]",
+            "Class ordering used to map labels to class indices.",
+            default=[],
+        ),
+        config_field(
+            "num_classes",
+            "int",
+            "Explicit number of classes when it cannot be inferred.",
+        ),
+        config_field(
+            "batch_size",
+            "int | dict[str, int]",
+            "Batch size for each split.",
+            default={"train": 32, "validation": 32, "test": 32},
+        ),
+        config_field(
+            "num_workers",
+            "int | dict[str, int]",
+            "Number of DataLoader workers for each split.",
+            default={"train": 1, "validation": 1, "test": 1},
+        ),
+        config_field(
+            "shuffle",
+            "bool | dict[str, bool]",
+            "Whether each split should shuffle its data.",
+            default={"train": True, "validation": True, "test": True},
+        ),
+        config_field(
+            "pin_memory",
+            "bool | dict[str, bool]",
+            "Whether each split pins host memory for faster GPU transfer.",
+            default={"train": False, "validation": False, "test": False},
+        ),
+        config_field(
+            "drop_last",
+            "bool | dict[str, bool]",
+            "Whether each split drops incomplete final batches.",
+            default={"train": False, "validation": False, "test": False},
+        ),
+        config_field(
+            "prefetch_factor",
+            "int | dict[str, int | None]",
+            "DataLoader prefetch factor for worker-based loading.",
+            default={"train": None, "validation": None, "test": None},
+        ),
+        config_field(
+            "seed",
+            "int",
+            "Dataset-level seed used for splitting and worker seeding.",
+            default=42,
+        ),
+        config_field(
+            "auto_split",
+            "bool",
+            "Automatically derive validation/test partitions when split files "
+            "are not provided.",
+            default=True,
+        ),
+        config_field(
+            "validation_partition",
+            "float",
+            "Validation split ratio used by automatic splitting.",
+            default=0.05,
+        ),
+        config_field(
+            "test_split",
+            "float",
+            "Test split ratio used by automatic splitting.",
+            default=0.1,
+        ),
+        config_field(
+            "stratify",
+            "bool",
+            "Preserve class balance when automatic splitting is used.",
+            default=True,
+        ),
+        config_field(
+            "sample_splits",
+            "dict[str, bool]",
+            "Control which splits apply the configured sampler.",
+            default={"train": True, "validation": True, "test": False},
+        ),
+        config_field(
+            "augmentation",
+            "dict | dict[str, dict]",
+            "Augmentation config or split-specific augmentation configs.",
+        ),
+        config_field(
+            "sampler",
+            "dict | dict[str, dict]",
+            "Optional sampler config or split-specific sampler configs.",
+        ),
+    ]
 
     def __init__(self, config: dict, **kwargs) -> None:
         """

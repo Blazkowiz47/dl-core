@@ -226,6 +226,23 @@ def format_description(description: dict[str, Any]) -> str:
     for doc_line in docstring.splitlines():
         lines.append(f"  {doc_line}")
 
+    lines.extend(["", "Config fields:"])
+    config_fields = description["config_fields"]
+    if not config_fields:
+        lines.append("  (none declared)")
+    else:
+        for field in config_fields:
+            field_type = field.get("type") or "Any"
+            details = [field_type]
+            if field.get("required"):
+                details.append("required")
+            elif "default" in field:
+                details.append(f"default={field['default_repr']}")
+            lines.append(f"  - {field['name']} [{', '.join(details)}]")
+            description_text = field.get("description")
+            if isinstance(description_text, str) and description_text:
+                lines.append(f"    {description_text}")
+
     lines.extend(["", "Properties:"])
     properties = description["properties"]
     if not properties:
@@ -349,6 +366,7 @@ def _describe_class(
         "constructor_signature": constructor_signature,
         "inheritance": [_qualified_base_name(base) for base in cls.__mro__],
         "docstring": inspect.getdoc(cls),
+        "config_fields": _collect_config_fields(cls),
         "properties": _collect_properties(cls),
         "class_attributes": _collect_class_attributes(cls),
         "methods": _collect_methods(cls),
@@ -377,10 +395,36 @@ def _collect_properties(cls: type[Any]) -> list[dict[str, str | None]]:
     return properties
 
 
+def _collect_config_fields(cls: type[Any]) -> list[dict[str, Any]]:
+    """Collect explicitly declared user-facing config fields for a class."""
+    fields_by_name: dict[str, dict[str, Any]] = {}
+
+    for base in reversed(cls.__mro__):
+        config_fields = base.__dict__.get("CONFIG_FIELDS")
+        if not isinstance(config_fields, list):
+            continue
+
+        for item in config_fields:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+
+            normalized = dict(item)
+            if "default" in normalized:
+                normalized["default_repr"] = repr(normalized["default"])
+            fields_by_name[name] = normalized
+
+    return list(fields_by_name.values())
+
+
 def _collect_class_attributes(cls: type[Any]) -> list[dict[str, str]]:
     """Collect public non-callable class attributes declared on a class."""
     class_attributes: list[dict[str, str]] = []
     for name, value in sorted(cls.__dict__.items()):
+        if name == "CONFIG_FIELDS":
+            continue
         if name.startswith("_") or isinstance(value, property):
             continue
         if _unwrap_callable(value) is not None:

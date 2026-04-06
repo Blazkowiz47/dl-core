@@ -15,6 +15,7 @@ import os
 import torch
 
 from dl_core.core.base_dataset import BaseWrapper
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_dataset
 
 # Image file extensions
@@ -38,6 +39,21 @@ class StandardWrapper(BaseWrapper):
                 train: ['/path/to/class1/train']
                 test: ['/path/to/class1/test']
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "height",
+            "int",
+            "Fallback image height used when a file fails to load.",
+            default=224,
+        ),
+        config_field(
+            "width",
+            "int",
+            "Fallback image width used when a file fails to load.",
+            default=224,
+        ),
+    ]
 
     def __init__(self, config: dict[str, Any], **kwargs):
         """

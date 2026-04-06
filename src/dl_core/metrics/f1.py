@@ -5,6 +5,7 @@ from typing import Any, Dict, Literal
 import numpy as np
 from sklearn.metrics import f1_score
 
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_metric
 from dl_core.core.base_metric import BaseMetric
 
@@ -21,6 +22,21 @@ class F1Metric(BaseMetric):
     F1 score computation is sensitive to class distribution, so we
     gather all data before computing.
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "num_classes",
+            "int",
+            "Expected number of classes for F1 computation.",
+            default=2,
+        ),
+        config_field(
+            "average",
+            "str",
+            "Averaging strategy passed to sklearn.metrics.f1_score.",
+            default="binary",
+        ),
+    ]
 
     def __init__(self, config: Dict[str, Any] | None = None):
         """

@@ -10,6 +10,8 @@ import numpy as np
 import torch
 from torch.nn import Module, Parameter
 
+from dl_core.core.config_metadata import config_field
+
 # Module-level logger
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,21 @@ class BaseModel(Module, ABC):
     All model implementations must inherit from this class and return
     standardized dictionary outputs for maximum flexibility.
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "num_classes",
+            "int",
+            "Number of output classes produced by the model head.",
+            required=True,
+        ),
+        config_field(
+            "device",
+            "str",
+            "Preferred device label when a model needs one explicitly.",
+            default="cuda",
+        ),
+    ]
 
     def __init__(self, config: Dict[str, Any], **kwargs):
         """

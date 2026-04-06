@@ -6,7 +6,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from dl_core.core import BaseExecutor, register_executor
+from dl_core.core import BaseExecutor, config_field, register_executor
 from dl_core.utils.artifact_manager import get_run_artifact_dir
 from dl_core.utils.config_names import (
     resolve_config_experiment_name,
@@ -23,6 +23,15 @@ class LocalExecutor(BaseExecutor):
     - Supports parallel execution with ProcessPoolExecutor (via base class)
     - Logs to stdout/files only
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "max_workers",
+            "int",
+            "Maximum number of local subprocesses to launch in parallel.",
+            default=1,
+        )
+    ]
 
     def __init__(
         self,

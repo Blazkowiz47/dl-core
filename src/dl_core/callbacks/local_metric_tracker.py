@@ -9,6 +9,7 @@ from typing import Any
 import torch
 
 from dl_core.core.base_callback import Callback
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_callback
 
 
@@ -54,6 +55,15 @@ def _qualify_phase_metrics(
 @register_callback("local_metric_tracker")
 class LocalMetricTrackerCallback(Callback):
     """Append scalar metric values to per-metric JSONL files under run artifacts."""
+
+    CONFIG_FIELDS = Callback.CONFIG_FIELDS + [
+        config_field(
+            "log_frequency",
+            "int",
+            "Persist tracked scalar metrics every N epochs.",
+            default=1,
+        )
+    ]
 
     def __init__(self, log_frequency: int = 1, **kwargs: Any) -> None:
         """

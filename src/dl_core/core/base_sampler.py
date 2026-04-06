@@ -4,6 +4,8 @@ import logging
 import random
 from abc import ABC, abstractmethod
 
+from dl_core.core.config_metadata import config_field
+
 
 class BaseSampler(ABC):
     """Base class for all sampling strategies.
@@ -11,6 +13,15 @@ class BaseSampler(ABC):
     Samplers control how data samples are selected from a dataset,
     enabling strategies like balanced sampling, attack-balanced sampling, etc.
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "seed",
+            "int",
+            "Base seed used for deterministic epoch-aware sampling.",
+            default=2024,
+        )
+    ]
 
     def __init__(self, **kwargs):
         """Initialize sampling strategy.

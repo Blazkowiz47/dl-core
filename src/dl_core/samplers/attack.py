@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Any
 
 from dl_core.core import BaseSampler, register_sampler
+from dl_core.core.config_metadata import config_field
 
 
 @register_sampler("attack")
@@ -20,6 +21,53 @@ class AttackSampler(BaseSampler):
     ``attack``, this sampler behaves like a class balancer. If it contains more
     specific attack names, it balances each attack subtype evenly.
     """
+
+    CONFIG_FIELDS = BaseSampler.CONFIG_FIELDS + [
+        config_field(
+            "key",
+            "str",
+            "Metadata key that stores the PAD attack label.",
+            default="attack",
+        ),
+        config_field(
+            "balance_method",
+            "str",
+            "Sampling strategy. Common values are 'undersample' and "
+            "'oversample'.",
+            default="undersample",
+        ),
+        config_field(
+            "samples_per_class",
+            "int | None",
+            "Optional cap for the bonafide class sample count.",
+            default=None,
+        ),
+        config_field(
+            "samples_per_attack",
+            "int | None",
+            "Optional target sample count for each individual attack group.",
+            default=None,
+        ),
+        config_field(
+            "force_oversample_attacks",
+            "bool",
+            "Oversample rare attacks when they have fewer files than requested.",
+            default=True,
+        ),
+        config_field(
+            "enforce_equal_classes",
+            "bool",
+            "Keep bonafide and total attack counts aligned when class caps are "
+            "set.",
+            default=True,
+        ),
+        config_field(
+            "bonafide_values",
+            "list[str]",
+            "Attack labels that should be treated as bonafide/live samples.",
+            default=["real", "bonafide", "genuine", "live"],
+        ),
+    ]
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the attack-balanced sampler."""

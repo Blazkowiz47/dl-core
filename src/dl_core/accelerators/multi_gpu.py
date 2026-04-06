@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from dl_core.core.base_accelerator import BaseAccelerator
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_accelerator
 from dl_core.utils import seed_worker
 
@@ -34,6 +35,21 @@ class MultiGPUAccelerator(BaseAccelerator):
     Usage:
         Launch with: torchrun --nproc_per_node=N train.py
     """
+
+    CONFIG_FIELDS = BaseAccelerator.CONFIG_FIELDS + [
+        config_field(
+            "backend",
+            "str",
+            "Distributed backend to initialize, typically 'nccl' or 'gloo'.",
+            default="nccl",
+        ),
+        config_field(
+            "find_unused_parameters",
+            "bool",
+            "Enable DDP unused-parameter detection for dynamic graphs.",
+            default=False,
+        ),
+    ]
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)

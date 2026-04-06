@@ -82,6 +82,8 @@ def test_cli_describe_class_prints_base_class_details(capsys) -> None:
     assert "Target type: class" in output
     assert "Requested name: dl_core.core.FrameWrapper" in output
     assert "Resolved class: dl_core.core.base_dataset.FrameWrapper" in output
+    assert "Config fields:" in output
+    assert "batch_size" in output
     assert "convert_groups_to_files" in output
     assert "get_video_groups" in output
 
@@ -123,4 +125,5 @@ def test_cli_describe_supports_json_output(tmp_path: Path, capsys) -> None:
     assert description["requested_name"] == "textset"
     assert description["class_name"] == "TextSetDataset"
     assert description["registered_names"] == ["textset", "TextSet"]
+    assert any(field["name"] == "batch_size" for field in description["config_fields"])
     assert any(method["name"] == "transform" for method in description["methods"])
