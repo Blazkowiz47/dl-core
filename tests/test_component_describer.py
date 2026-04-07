@@ -29,7 +29,7 @@ def test_cli_list_supports_json_output(capsys) -> None:
     listing = json.loads(output)
 
     assert "sampler" in listing
-    assert "attack" in listing["sampler"]
+    assert "label" in listing["sampler"]
 
 
 def test_cli_describe_dataset_prints_registered_component_details(

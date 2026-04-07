@@ -24,7 +24,7 @@ uv run dl-core list sampler
 ```
 
 This confirms the package entrypoints work and the built-in registries are
-populated. The sampler listing should include the built-in `attack` sampler.
+populated. The sampler listing should include the built-in `label` sampler.
 
 ## Step 3: Run the Package Tests
 

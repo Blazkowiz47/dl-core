@@ -316,8 +316,18 @@ uv run dl-core describe class dl_azure.datasets.AzureComputeMultiFrameWrapper
 uv run dl-core describe dataset my_dataset --root-dir . --json
 ```
 
-The built-in sampler list now includes `attack`, which balances PAD samples
-from the `attack` key in each data dictionary.
+The built-in sampler list now includes `label`, which balances samples by any
+metadata key using either `undersample` or `oversample`.
+
+Example sampler config:
+
+```yaml
+dataset:
+  sampler:
+    label:
+      key: attack
+      mode: undersample
+```
 
 The describe command shows:
 

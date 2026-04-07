@@ -75,6 +75,10 @@ installed in the current environment:
 The generated dataset stub includes the abstract methods required by the
 selected base class so the implementation contract is visible immediately.
 
+The built-in sampler shipped with `dl-core` is `label`, which balances samples
+by a metadata key such as `label` or `attack` using either `undersample` or
+`oversample`.
+
 For non-dataset components, `--base` can point at a registered component such
 as `metric_logger`, `standard`, `adamw`, or `cosine`, or a fully qualified
 class path. If you omit `--base`, the scaffold uses the plain base class.
