@@ -76,6 +76,13 @@ Useful flags:
 - `--dry-run`
 - `--log-level`
 
+Notes:
+
+- `--validate-only` now performs a lightweight preflight: it validates the
+  config, resolves the configured components, safely instantiates the dataset,
+  models, criterions, optimizer, and optional scheduler, then exits without
+  starting training
+
 ## `dl-sweep`
 
 Generates run configs from a sweep spec and dispatches them through the

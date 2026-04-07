@@ -16,6 +16,8 @@ extras and companion extension packages.
 - `dl-analyze` now supports explicit ranking metrics and rank methods
 - `dl-analyze` now persists `analysis_cache.json` next to `sweep_tracking.json`
 - `dl-analyze` now writes versioned reports under `analysis/vN.md`
+- `dl-run --validate-only` now performs a real preflight by resolving the
+  configured components without starting training
 - local artifacts now use:
   - `artifacts/runs/<run_name>/...`
   - `artifacts/sweeps/<sweep_name>/<run_name>/...`
@@ -125,6 +127,7 @@ The generated experiment repository is the normal consumer entry point. Inside
 that repository, run `uv sync`, then run:
 
 ```bash
+uv run dl-run --config configs/base.yaml --validate-only
 uv run dl-run --config configs/base.yaml
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
@@ -169,6 +172,7 @@ uv run python scripts/temporary/test_model.py
 5. start with:
 
 ```bash
+uv run dl-run --config configs/base.yaml --validate-only
 uv run dl-run --config configs/base.yaml
 ```
 
