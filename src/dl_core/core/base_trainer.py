@@ -269,7 +269,7 @@ class EpochTrainer(ABC):
             }
 
         # Training state
-        self.current_epoch: int
+        self.current_epoch: int = 0
         self.best_metric: float | None = None
         self.epochs_no_improvement: int = 0
         self.global_step: int = 0
@@ -293,11 +293,19 @@ class EpochTrainer(ABC):
         Called after training to remove artifact directories that contain no files.
         Only runs on main process (rank 0).
         """
-        if not self.accelerator.is_main_process():
+        accelerator = getattr(self, "accelerator", None)
+        if accelerator is not None and not accelerator.is_main_process():
             return
 
-        if os.path.isdir(self.checkpoint_dir) and not os.listdir(self.checkpoint_dir):
-            shutil.rmtree(self.artifact_manager.run_dir, ignore_errors=True)
+        checkpoint_dir = getattr(self, "checkpoint_dir", None)
+        artifact_manager = getattr(self, "artifact_manager", None)
+        if (
+            isinstance(checkpoint_dir, str)
+            and os.path.isdir(checkpoint_dir)
+            and not os.listdir(checkpoint_dir)
+            and artifact_manager is not None
+        ):
+            shutil.rmtree(artifact_manager.run_dir, ignore_errors=True)
 
     def _load_continue_model(self) -> None:
         # Load checkpoint if specified in trainer config (resume training)
@@ -315,26 +323,23 @@ class EpochTrainer(ABC):
         """
         run_status = "completed"
         error_message: str | None = None
+        pending_error: BaseException | None = None
+        phase = "setup"
         try:
             self.setup()
             self.logger.info("Setup complete, starting training")
-        except Exception as e:
-            self.logger.error(f"Setup failed: {e}")
-            traceback.print_exc()
-            raise
 
-        self.setup_current_epoch(0)
+            self.setup_current_epoch(0)
 
-        try:
-            self.load_continue_model()
-        except Exception as e:
-            self.logger.error(f"Failed to load continue model: {e}")
-            traceback.print_exc()
+            try:
+                self.load_continue_model()
+            except Exception as e:
+                self.logger.error(f"Failed to load continue model: {e}")
+                traceback.print_exc()
 
-        self.accelerator.wait_for_everyone("before training start")
+            self.accelerator.wait_for_everyone("before training start")
+            phase = "training"
 
-        try:
-            # Dispatch to appropriate experiment type
             if self.overfit_single_batch_enabled:
                 self.logger.info(
                     f"=== OVERFIT SINGLE BATCH MODE === "
@@ -343,16 +348,42 @@ class EpochTrainer(ABC):
                 self.overfit_single_batch()
             else:
                 self.perform_training()
+        except KeyboardInterrupt as e:
+            run_status = "interrupted"
+            error_message = "Training interrupted by user"
+            pending_error = e
+            self.logger.warning(error_message)
+            self._checkpoint_dir_cleanup()
         except Exception as e:
             run_status = "failed"
             error_message = str(e)
-            self.logger.error(f"Training failed: {e}")
+            pending_error = e
+            self.logger.error(f"{phase.capitalize()} failed: {e}")
             traceback.print_exc()
             self._checkpoint_dir_cleanup()
-            raise
 
         finally:
-            self.accelerator.wait_for_everyone("before on_training_end callbacks")
+            synchronize_finalization = (
+                run_status == "completed" and hasattr(self, "accelerator")
+            )
+            if synchronize_finalization:
+                try:
+                    self.accelerator.wait_for_everyone(
+                        "before on_training_end callbacks"
+                    )
+                except Exception as barrier_error:
+                    synchronize_finalization = False
+                    self.logger.warning(
+                        "Skipping synchronized teardown after barrier failure: "
+                        f"{barrier_error}"
+                    )
+            final_logs = {
+                "final_epoch": getattr(self, "current_epoch", 0),
+                "total_epochs": getattr(self, "epochs", 0),
+                "status": run_status,
+            }
+            if error_message is not None:
+                final_logs["error_message"] = error_message
             try:
                 self.persist_run_analysis(
                     status=run_status,
@@ -363,26 +394,28 @@ class EpochTrainer(ABC):
                     f"Failed to persist run analysis artifacts: {analysis_error}"
                 )
             try:
-                final_logs = {
-                    "final_epoch": self.current_epoch,
-                    "total_epochs": self.epochs,
-                    "status": run_status,
-                }
-                if error_message is not None:
-                    final_logs["error_message"] = error_message
-                self.callbacks.on_training_end(final_logs)
+                callbacks = getattr(self, "callbacks", None)
+                if callbacks is not None:
+                    callbacks.on_training_end(
+                        final_logs,
+                        synchronize=synchronize_finalization,
+                    )
             except Exception as upload_error:
                 self.logger.error(
                     f"Failed to upload artifacts after training failure: {upload_error}"
                 )
-            self.finalize_training()
+            self.finalize_training(synchronize=synchronize_finalization)
             try:
-                self.callbacks.on_training_finalized(final_logs)
+                callbacks = getattr(self, "callbacks", None)
+                if callbacks is not None:
+                    callbacks.on_training_finalized(final_logs)
             except Exception as upload_error:
                 self.logger.error(
                     "Failed to upload finalized artifacts after training "
                     f"failure: {upload_error}"
                 )
+        if pending_error is not None:
+            raise pending_error
 
     def _inject_seed_into_configs(self) -> None:
         # Trainer configs
@@ -846,16 +879,24 @@ class EpochTrainer(ABC):
 
         self.logger.debug(f"Saved checkpoint for epoch {epoch}: {checkpoint_path}")
 
-    def _finalize_training(self) -> None:
+    def _finalize_training(self, synchronize: bool = True) -> None:
         """
         Finalize training (cleanup, final logging, etc.).
         """
-        # CRITICAL: Synchronize after model cleanup before accelerator cleanup
-        # Do NOT catch exceptions here - if NCCL is broken, we want to know immediately
+        accelerator = getattr(self, "accelerator", None)
+        if accelerator is None:
+            return
 
-        self.accelerator.wait_for_everyone("before accelerator cleanup")
+        if synchronize:
+            try:
+                accelerator.wait_for_everyone("before accelerator cleanup")
+            except Exception as barrier_error:
+                self.logger.warning(
+                    "Skipping synchronized accelerator cleanup after barrier "
+                    f"failure: {barrier_error}"
+                )
         try:
-            self.accelerator.cleanup()
+            accelerator.cleanup()
             self.logger.info("Cleaned up accelerator resources")
         except Exception as e:
             self.logger.warning(f"Failed to cleanup accelerator: {e}")
@@ -1284,7 +1325,8 @@ class EpochTrainer(ABC):
                 "model_name/layers/encoder": 12.5
             }
         """
-        if not self.accelerator.is_main_process():
+        accelerator = getattr(self, "accelerator", None)
+        if accelerator is not None and not accelerator.is_main_process():
             return {}
 
         epoch_logs: dict[str, float] = {}
@@ -2603,8 +2645,8 @@ class EpochTrainer(ABC):
         """
         self._load_checkpoint(checkpoint_path)
 
-    def finalize_training(self) -> None:
-        self._finalize_training()
+    def finalize_training(self, synchronize: bool = True) -> None:
+        self._finalize_training(synchronize=synchronize)
 
     # =======================================================================
     # Additional utility methods

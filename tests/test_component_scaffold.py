@@ -11,7 +11,11 @@ from dl_core.cli import main as cli_main
 from dl_core.core import (
     AUGMENTATION_REGISTRY,
     CALLBACK_REGISTRY,
+    CRITERION_REGISTRY,
+    EXECUTOR_REGISTRY,
     METRIC_MANAGER_REGISTRY,
+    METRIC_REGISTRY,
+    MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
     SAMPLER_REGISTRY,
     SCHEDULER_REGISTRY,
@@ -37,9 +41,10 @@ def test_cli_add_augmentation_registers_component(tmp_path: Path) -> None:
     assert exit_code == 0
     component_path = target_dir / "src" / "augmentations" / "custom1.py"
     assert component_path.exists()
-    assert '@register_augmentation(["custom1", "Custom1"])' in (
-        component_path.read_text()
-    )
+    component_text = component_path.read_text()
+    assert '@register_augmentation(["custom1", "Custom1"])' in component_text
+    assert "def _create_train_transforms(self) -> A.Compose:" in component_text
+    assert "def _create_test_transforms(self) -> A.Compose:" in component_text
     init_text = (target_dir / "src" / "augmentations" / "__init__.py").read_text()
     assert "from .custom1 import Custom1Augmentation" in init_text
     assert '"Custom1Augmentation"' in init_text
@@ -176,6 +181,7 @@ def test_cli_add_metric_manager_defaults_to_plain_base(tmp_path: Path) -> None:
 
     assert "from dl_core.core import BaseMetricManager" in component_text
     assert "class PadManagerMetricManager(BaseMetricManager):" in component_text
+    assert "def setup_metrics(self) -> None:" in component_text
     assert "StandardMetricManager" not in component_text
 
     load_builtin_components()
@@ -183,6 +189,122 @@ def test_cli_add_metric_manager_defaults_to_plain_base(tmp_path: Path) -> None:
 
     assert METRIC_MANAGER_REGISTRY.get_class("padmanager").__name__ == (
         "PadManagerMetricManager"
+    )
+
+
+def test_cli_add_metric_defaults_to_editable_compute_template(tmp_path: Path) -> None:
+    """Metric scaffolds should start with a pure compute method."""
+    target_dir = create_experiment_scaffold("metric-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "metric",
+            "eer_metric",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "metrics" / "eer_metric.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import BaseMetric" in component_text
+    assert "def compute(" in component_text
+    assert "np.ndarray" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert METRIC_REGISTRY.get_class("eer_metric").__name__ == "EerMetricMetric"
+
+
+def test_cli_add_criterion_defaults_to_compute_loss_template(tmp_path: Path) -> None:
+    """Criterion scaffolds should start with compute_loss guidance."""
+    target_dir = create_experiment_scaffold("criterion-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "criterion",
+            "my_loss",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "criterions" / "my_loss.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import BaseCriterion" in component_text
+    assert "def compute_loss(" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert CRITERION_REGISTRY.get_class("my_loss").__name__ == "MyLossCriterion"
+
+
+def test_cli_add_model_defaults_to_compute_forward_template(tmp_path: Path) -> None:
+    """Model scaffolds should start with compute_forward guidance."""
+    target_dir = create_experiment_scaffold("model-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "model",
+            "toy_classifier",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "models" / "toy_classifier.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import BaseModel" in component_text
+    assert "def compute_forward(" in component_text
+    assert "'probabilities': ..., 'logits': ..., 'features': ..." in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert MODEL_REGISTRY.get_class("toy_classifier").__name__ == (
+        "ToyClassifierModel"
+    )
+
+
+def test_cli_add_executor_defaults_to_lifecycle_template(tmp_path: Path) -> None:
+    """Executor scaffolds should expose setup/execute/teardown hooks."""
+    target_dir = create_experiment_scaffold("executor-demo", root_dir=str(tmp_path))
+
+    exit_code = cli_main(
+        [
+            "add",
+            "executor",
+            "batch_debug",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "executors" / "batch_debug.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import BaseExecutor" in component_text
+    assert "def setup(self, total_runs: int) -> None:" in component_text
+    assert "def execute_run(self, run_index: int, config_path: Path)" in component_text
+    assert "def teardown(self) -> None:" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert EXECUTOR_REGISTRY.get_class("batch_debug").__name__ == (
+        "BatchDebugExecutor"
     )
 
 

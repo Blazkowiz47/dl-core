@@ -13,6 +13,7 @@ from .base_dataset import (
 )
 from .base_detector import BaseFaceDetector, FaceDetection, LandmarkDetection
 from .base_executor import BaseExecutor
+from .base_metric import BaseMetric
 from .base_metrics_source import BaseMetricsSource
 from .base_metric_manager import BaseMetricManager
 from .base_biometric_model import BaseBiometricModel
@@ -83,6 +84,7 @@ __all__ = [
     "TextSequenceWrapper",
     "AdaptiveComputationDataset",
     "BaseExecutor",
+    "BaseMetric",
     "BaseTracker",
     "BaseMetricsSource",
     "BaseMetricManager",

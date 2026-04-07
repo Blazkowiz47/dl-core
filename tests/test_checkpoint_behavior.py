@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import logging
+import pytest
 import torch
 from dl_core.callbacks.checkpoint import CheckpointCallback
 from dl_core.callbacks.early_stopping import EarlyStoppingCallback
@@ -95,6 +96,87 @@ class _TrainingStartCallback(Callback):
         """Count the number of times the callback ran."""
 
         self.calls += 1
+
+
+class _LifecycleAcceleratorStub(_MainProcessAcceleratorStub):
+    """Accelerator stub that records teardown synchronization."""
+
+    def __init__(self) -> None:
+        self.wait_calls: list[str | None] = []
+
+    def wait_for_everyone(self, context: str | None = None) -> None:
+        """Record barrier requests instead of synchronizing."""
+
+        self.wait_calls.append(context)
+
+
+class _LifecycleCallbacksStub:
+    """Callback list stub used to observe trainer finalization behavior."""
+
+    def __init__(self) -> None:
+        self.training_end_calls: list[tuple[dict[str, Any], bool]] = []
+        self.finalized_calls: list[dict[str, Any]] = []
+
+    def on_training_end(
+        self,
+        logs: dict[str, Any] | None = None,
+        synchronize: bool = True,
+    ) -> None:
+        """Record end-of-training callbacks."""
+
+        self.training_end_calls.append((logs or {}, synchronize))
+
+    def on_training_finalized(self, logs: dict[str, Any] | None = None) -> None:
+        """Record post-cleanup callbacks."""
+
+        self.finalized_calls.append(logs or {})
+
+
+def _build_lifecycle_trainer(
+    tmp_path: Path,
+) -> tuple[
+    _ConcreteTrainer,
+    _LifecycleAcceleratorStub,
+    _LifecycleCallbacksStub,
+    list[tuple[str, str | None]],
+    list[bool],
+]:
+    """Create a trainer stub configured for `_run` lifecycle tests."""
+
+    trainer = _ConcreteTrainer()
+    accelerator = _LifecycleAcceleratorStub()
+    callbacks = _LifecycleCallbacksStub()
+    persisted: list[tuple[str, str | None]] = []
+    finalize_sync: list[bool] = []
+
+    trainer.logger = logging.getLogger("test_lifecycle")
+    trainer.accelerator = accelerator
+    trainer.callbacks = callbacks
+    trainer.artifact_manager = ArtifactManager(
+        run_name="demo-run",
+        output_dir=str(tmp_path),
+        experiment_name="demo-exp",
+    )
+    trainer.checkpoint_dir = str(tmp_path / "missing-checkpoints")
+    trainer.current_epoch = 0
+    trainer.epochs = 3
+    trainer.overfit_single_batch_enabled = False
+    trainer.metric_managers = {}
+    trainer.dataset_wrapper = type(
+        "DatasetStub",
+        (),
+        {"set_epoch": lambda self, epoch: None},
+    )()
+    trainer.load_continue_model = lambda: None
+    trainer.setup_current_epoch = lambda epoch: setattr(trainer, "current_epoch", epoch)
+    trainer.persist_run_analysis = (
+        lambda status, error_message: persisted.append((status, error_message))
+    )
+    trainer.finalize_training = (
+        lambda synchronize=True: finalize_sync.append(synchronize)
+    )
+
+    return trainer, accelerator, callbacks, persisted, finalize_sync
 
 
 def test_checkpoint_callback_resolves_monitor_aliases() -> None:
@@ -287,3 +369,51 @@ def test_callback_list_syncs_enabled_state_across_ranks(monkeypatch: Any) -> Non
 
     assert callback.enabled is False
     assert callback.calls == 0
+
+
+def test_run_interrupt_skips_synchronized_teardown(tmp_path: Path) -> None:
+    """Interrupted runs should finalize without teardown barriers."""
+
+    trainer, accelerator, callbacks, persisted, finalize_sync = (
+        _build_lifecycle_trainer(tmp_path)
+    )
+    trainer.setup = lambda: None
+
+    def _interrupt() -> None:
+        raise KeyboardInterrupt()
+
+    trainer.perform_training = _interrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        trainer._run()
+
+    assert persisted == [("interrupted", "Training interrupted by user")]
+    assert finalize_sync == [False]
+    assert callbacks.training_end_calls[0][0]["status"] == "interrupted"
+    assert callbacks.training_end_calls[0][1] is False
+    assert callbacks.finalized_calls[0]["status"] == "interrupted"
+    assert "before on_training_end callbacks" not in accelerator.wait_calls
+
+
+def test_run_setup_failure_uses_best_effort_finalization(tmp_path: Path) -> None:
+    """Setup failures should still finalize without synchronized teardown."""
+
+    trainer, accelerator, callbacks, persisted, finalize_sync = (
+        _build_lifecycle_trainer(tmp_path)
+    )
+
+    def _fail_setup() -> None:
+        raise RuntimeError("boom")
+
+    trainer.setup = _fail_setup
+    trainer.perform_training = lambda: None
+
+    with pytest.raises(RuntimeError, match="boom"):
+        trainer._run()
+
+    assert persisted == [("failed", "boom")]
+    assert finalize_sync == [False]
+    assert callbacks.training_end_calls[0][0]["status"] == "failed"
+    assert callbacks.training_end_calls[0][1] is False
+    assert callbacks.finalized_calls[0]["status"] == "failed"
+    assert "before on_training_end callbacks" not in accelerator.wait_calls

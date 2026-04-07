@@ -16,6 +16,8 @@ extras and companion extension packages.
 - `dl-analyze` now supports explicit ranking metrics and rank methods
 - `dl-analyze` now persists `analysis_cache.json` next to `sweep_tracking.json`
 - `dl-analyze` now writes versioned reports under `analysis/vN.md`
+- `dl-sync --sweep ... --artifacts` now syncs tracked remote artifacts into the
+  local repository when the active backend supports it
 - `dl-run --validate-only` now performs a real preflight by resolving the
   configured components without starting training
 - `dl-inspect-dataset` now summarizes split sizes and one collated batch from
@@ -139,6 +141,7 @@ uv run dl-sweep experiments/lr_sweep.yaml --preview
 uv run dl-sweep experiments/lr_sweep.yaml --only "*seed_2025*"
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
+uv run dl-sync --sweep experiments/lr_sweep.yaml --artifacts
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --compare latest
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --metric test/eer --mode min
@@ -209,6 +212,11 @@ preview only a subset of generated run names.
 single-process loading so you can quickly verify split sizes and inspect one
 collated batch without starting a trainer.
 
+`dl-sync --sweep ... --artifacts` syncs tracked run outputs into the local repo.
+Backends that already write local artifacts simply refresh the tracker paths.
+Remote-backed integrations can download the run bundle and patch
+`sweep_tracking.json` with the resolved local artifact paths.
+
 `dl-analyze` defaults to ranking by `test/accuracy` with `max`. You can make
 ranking explicit with repeatable `--metric` and `--mode` flags, then choose one
 of:
@@ -266,6 +274,10 @@ uv run dl-core add augmentation MyAugmentation
 uv run dl-core add metric MyMetric
 uv run dl-core add executor MyExecutor
 ```
+
+Default-base scaffolds for augmentations, metrics, metric managers,
+criterions, models, and executors now start with ready-to-edit method stubs
+instead of empty wrapper subclasses.
 
 Sweep scaffolds are supported too:
 

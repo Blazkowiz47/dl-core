@@ -37,6 +37,10 @@ Non-dataset component scaffolds can also use `--base` with a registered
 component name such as `metric_logger`, `standard`, `adamw`, or `cosine`,
 or with a fully qualified class path.
 
+Default-base scaffolds for augmentations, metrics, metric managers,
+criterions, models, and executors now include ready-to-edit method stubs
+instead of empty wrapper subclasses.
+
 ## `dl-init`
 
 Creates a standalone experiment repository scaffold.
@@ -146,6 +150,27 @@ Notes:
 - `--only` and `--skip` accept repeatable run-name glob patterns
 - `--dry-run` still goes through normal executor wiring, but does not execute
   the generated runs
+
+## `dl-sync`
+
+Synchronizes tracked run artifacts into the local repository when the active
+backend supports artifact download.
+
+```bash
+uv run dl-sync --sweep experiments/lr_sweep.yaml --artifacts
+```
+
+Useful flags:
+
+- `--sweep`
+- `--artifacts`
+- `--force`
+
+Notes:
+
+- local-backed sweeps simply refresh tracker paths from the local artifact tree
+- remote-backed integrations can download artifact bundles and patch
+  `sweep_tracking.json` with the resolved local paths
 
 ## `dl-analyze`
 

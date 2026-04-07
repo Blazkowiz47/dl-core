@@ -45,6 +45,29 @@ class BaseMetricsSource(ABC):
         """
         del run_items, sweep_data, progress_callback
 
+    def sync_run_artifacts(
+        self,
+        run_index: int,
+        run_data: dict[str, Any],
+        sweep_data: dict[str, Any],
+        *,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Synchronize local artifacts for one tracked run when supported.
+
+        Args:
+            run_index: Sweep run index
+            run_data: Per-run entry from ``sweep_tracking.json``
+            sweep_data: Full sweep tracking payload
+            force: Re-sync even when local paths already exist
+
+        Returns:
+            Optional path updates for the sweep tracker.
+        """
+        del run_index, run_data, sweep_data, force
+        return {}
+
     @abstractmethod
     def collect_run(
         self,

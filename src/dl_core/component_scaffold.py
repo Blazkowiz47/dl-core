@@ -547,6 +547,66 @@ def _render_component(
             class_name=class_name,
             class_docstring=_component_base_required(component_base).class_docstring,
         )
+    if spec.canonical_name == "augmentation":
+        augmentation_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, augmentation_base):
+            return _augmentation_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=augmentation_base.import_path,
+                base_class=augmentation_base.base_class,
+                class_docstring=augmentation_base.class_docstring,
+            )
+    if spec.canonical_name == "criterion":
+        criterion_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, criterion_base):
+            return _criterion_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=criterion_base.import_path,
+                base_class=criterion_base.base_class,
+                class_docstring=criterion_base.class_docstring,
+            )
+    if spec.canonical_name == "executor":
+        executor_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, executor_base):
+            return _executor_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=executor_base.import_path,
+                base_class=executor_base.base_class,
+                class_docstring=executor_base.class_docstring,
+            )
+    if spec.canonical_name == "metric":
+        metric_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, metric_base):
+            return _metric_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=metric_base.import_path,
+                base_class=metric_base.base_class,
+                class_docstring=metric_base.class_docstring,
+            )
+    if spec.canonical_name == "metric_manager":
+        metric_manager_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, metric_manager_base):
+            return _metric_manager_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=metric_manager_base.import_path,
+                base_class=metric_manager_base.base_class,
+                class_docstring=metric_manager_base.class_docstring,
+            )
+    if spec.canonical_name == "model":
+        model_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, model_base):
+            return _model_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=model_base.import_path,
+                base_class=model_base.base_class,
+                class_docstring=model_base.class_docstring,
+            )
     if spec.canonical_name == "trainer":
         trainer_base = _component_base_required(component_base)
         return _trainer_component(
@@ -819,6 +879,123 @@ class {class_name}({base_class}):
     # ``final/`` plus ``config.yaml`` at training end.
     pass
 """
+
+
+def _augmentation_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render an augmentation scaffold with split-specific pipelines."""
+    return f'''"""Local augmentation scaffold."""
+
+from __future__ import annotations
+
+import albumentations as A
+
+from dl_core.core import register_augmentation
+from {import_path} import {base_class}
+
+
+@register_augmentation({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def _create_train_transforms(self) -> A.Compose:
+        """Build the training augmentation pipeline."""
+        return A.Compose([
+            # TODO: add train-time transforms here.
+        ])
+
+    def _create_test_transforms(self) -> A.Compose:
+        """Build the evaluation augmentation pipeline."""
+        return A.Compose([
+            # TODO: add validation/test transforms here.
+        ])
+'''
+
+
+def _criterion_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a criterion scaffold with standardized loss output."""
+    return f'''"""Local criterion scaffold."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import torch
+
+from dl_core.core import register_criterion
+from {import_path} import {base_class}
+
+
+@register_criterion({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def compute_loss(
+        self,
+        predictions: torch.Tensor,
+        targets: torch.Tensor,
+        **kwargs: Any,
+    ) -> dict[str, torch.Tensor]:
+        """Return a loss dictionary with at least a ``loss`` key."""
+        raise NotImplementedError(
+            "TODO: compute one or more loss terms and return "
+            "{{'loss': total_loss, ...}}."
+        )
+'''
+
+
+def _executor_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render an executor scaffold with lifecycle hooks."""
+    return f'''"""Local executor scaffold."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from dl_core.core import register_executor
+from {import_path} import {base_class}
+
+
+@register_executor({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def setup(self, total_runs: int) -> None:
+        """Initialize any executor-specific resources."""
+        del total_runs
+
+    def execute_run(self, run_index: int, config_path: Path) -> dict[str, Any]:
+        """Execute one run and return tracker metadata."""
+        raise NotImplementedError(
+            "TODO: execute the run and return a result dict with at least "
+            "{{'success': bool}}."
+        )
+
+    def teardown(self) -> None:
+        """Clean up executor-specific resources."""
+        return None
+'''
 
 
 def _trainer_component(
@@ -1603,6 +1780,116 @@ class {class_name}({base_spec.base_class}):
         raise NotImplementedError(
             "TODO: load file_dict['path'] and return the tensors needed by "
             "your adaptive-computation trainer."
+        )
+'''
+
+
+def _metric_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a metric scaffold with a pure compute method."""
+    return f'''"""Local metric scaffold."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from dl_core.core import register_metric
+from {import_path} import {base_class}
+
+
+@register_metric({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def compute(
+        self,
+        predictions: np.ndarray,
+        labels: np.ndarray,
+        **kwargs: Any,
+    ) -> dict[str, float]:
+        """Compute one or more scalar metrics from numpy arrays."""
+        raise NotImplementedError(
+            "TODO: compute metric values and return "
+            "{{'my_metric': float_value}}."
+        )
+'''
+
+
+def _metric_manager_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a metric-manager scaffold with explicit metric setup."""
+    return f'''"""Local metric manager scaffold."""
+
+from __future__ import annotations
+
+from dl_core.core import register_metric_manager
+from {import_path} import {base_class}
+
+
+@register_metric_manager({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def setup_metrics(self) -> None:
+        """Populate ``self.metrics`` for each split."""
+        self.metrics = {{
+            "train": {{
+                # TODO: add metric instances here.
+            }},
+            "validation": {{}},
+            "test": {{}},
+        }}
+'''
+
+
+def _model_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render a model scaffold with standardized dictionary outputs."""
+    return f'''"""Local model scaffold."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import torch
+
+from dl_core.core import register_model
+from {import_path} import {base_class}
+
+
+@register_model({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def compute_forward(
+        self,
+        batch_data: dict[str, Any],
+        **kwargs: Any,
+    ) -> dict[str, torch.Tensor]:
+        """Return probabilities, logits, and optional feature tensors."""
+        raise NotImplementedError(
+            "TODO: compute logits from batch_data and return "
+            "{{'probabilities': ..., 'logits': ..., 'features': ...}}."
         )
 '''
 

@@ -471,7 +471,11 @@ class CallbackList:
                 except Exception as e:
                     self._handle_callback_error(callback, "on_training_start", e)
 
-    def on_training_end(self, logs: Optional[Dict[str, Any]] = None) -> None:
+    def on_training_end(
+        self,
+        logs: Optional[Dict[str, Any]] = None,
+        synchronize: bool = True,
+    ) -> None:
         """Call on_train_end for all callbacks."""
         for callback in self.callbacks:
             self._sync_callback_enabled(callback)
@@ -480,8 +484,8 @@ class CallbackList:
                     callback.on_training_end(logs)
                 except Exception as e:
                     self._handle_callback_error(callback, "on_training_end", e)
-            # Synchronize after each callback to prevent rank drift
-            self.trainer.accelerator.wait_for_everyone()
+            if synchronize:
+                self.trainer.accelerator.wait_for_everyone()
 
     def on_training_finalized(self, logs: Optional[Dict[str, Any]] = None) -> None:
         """Call on_training_finalized for all callbacks."""

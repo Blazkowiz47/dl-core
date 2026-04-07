@@ -61,6 +61,43 @@ class LocalMetricsSource(BaseMetricsSource):
             if progress_callback is not None:
                 progress_callback()
 
+    def sync_run_artifacts(
+        self,
+        run_index: int,
+        run_data: dict[str, Any],
+        sweep_data: dict[str, Any],
+        *,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Resolve and return local artifact paths for one tracked run."""
+        del force
+        config_path = self._resolve_config_path(run_index, run_data, sweep_data)
+        artifact_dir = self._infer_artifact_dir(run_data, config_path)
+        summary_path = self._resolve_metrics_path(
+            run_data,
+            artifact_dir,
+            filename="summary.json",
+            tracker_key="metrics_summary_path",
+        )
+        history_path = self._resolve_metrics_path(
+            run_data,
+            artifact_dir,
+            filename="history.json",
+            tracker_key="metrics_history_path",
+        )
+        return {
+            "config_path": str(config_path) if config_path is not None else None,
+            "artifact_dir": str(artifact_dir) if artifact_dir is not None else None,
+            "metrics_summary_path": (
+                str(summary_path) if summary_path is not None and summary_path.exists()
+                else None
+            ),
+            "metrics_history_path": (
+                str(history_path) if history_path is not None and history_path.exists()
+                else None
+            ),
+        }
+
     def collect_run(
         self,
         run_index: int,
