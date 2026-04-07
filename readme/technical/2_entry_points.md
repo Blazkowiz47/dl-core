@@ -41,6 +41,8 @@ Default-base scaffolds for augmentations, metrics, metric managers,
 criterions, models, and executors now include ready-to-edit method stubs
 instead of empty wrapper subclasses.
 
+Built-in callback bases include `metric_logger` and `dataset_refresh`.
+
 ## `dl-init`
 
 Creates a standalone experiment repository scaffold.

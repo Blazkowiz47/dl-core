@@ -10,6 +10,7 @@ import logging
 import pytest
 import torch
 from dl_core.callbacks.checkpoint import CheckpointCallback
+from dl_core.callbacks.dataset_refresh import DatasetRefreshCallback
 from dl_core.callbacks.early_stopping import EarlyStoppingCallback
 from dl_core.core.base_callback import Callback, CallbackList
 from dl_core.core.base_trainer import BaseTrainer
@@ -110,6 +111,34 @@ class _LifecycleAcceleratorStub(_MainProcessAcceleratorStub):
         self.wait_calls.append(context)
 
 
+class _PrepareAcceleratorStub(_MainProcessAcceleratorStub):
+    """Accelerator stub that records dataloader prepare calls."""
+
+    def __init__(self) -> None:
+        self.prepared_dataloaders: list[dict[str, Any]] = []
+
+    def prepare(
+        self,
+        models: dict[str, Any] | None = None,
+        optimizers: dict[str, Any] | None = None,
+        criterions: dict[str, Any] | None = None,
+        schedulers: dict[str, Any] | None = None,
+        dataloaders: dict[str, Any] | None = None,
+    ) -> tuple[
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+    ]:
+        """Record and return prepared dataloaders only."""
+
+        dataloaders = dataloaders or {}
+        self.prepared_dataloaders.append(dataloaders.copy())
+        prepared = {name: f"prepared:{value}" for name, value in dataloaders.items()}
+        return {}, {}, {}, {}, prepared
+
+
 class _LifecycleCallbacksStub:
     """Callback list stub used to observe trainer finalization behavior."""
 
@@ -130,6 +159,26 @@ class _LifecycleCallbacksStub:
         """Record post-cleanup callbacks."""
 
         self.finalized_calls.append(logs or {})
+
+
+class _RefreshingDatasetStub:
+    """Dataset stub that records refresh and split rebuild calls."""
+
+    def __init__(self) -> None:
+        self.refreshed_splits: list[str] = []
+        self.requested_splits: list[str] = []
+
+    def refresh_dataset(self, split: str | None = None) -> None:
+        """Record refresh requests."""
+
+        if split is not None:
+            self.refreshed_splits.append(split)
+
+    def get_split(self, split: str) -> str:
+        """Return a synthetic loader token for the requested split."""
+
+        self.requested_splits.append(split)
+        return f"loader:{split}"
 
 
 def _build_lifecycle_trainer(
@@ -369,6 +418,48 @@ def test_callback_list_syncs_enabled_state_across_ranks(monkeypatch: Any) -> Non
 
     assert callback.enabled is False
     assert callback.calls == 0
+
+
+def test_dataset_refresh_callback_rebuilds_selected_split_loaders() -> None:
+    """Dataset refresh should rebuild the requested split loaders."""
+
+    trainer = _CheckpointTrainerStub()
+    trainer.accelerator = _PrepareAcceleratorStub()
+    trainer.dataset_wrapper = _RefreshingDatasetStub()
+    trainer.data_loader = {
+        "train": "stale-train",
+        "validation": "stale-validation",
+        "test": "stale-test",
+    }
+
+    callback = DatasetRefreshCallback(refresh_frequency=1, splits=["train", "test"])
+    callback.set_trainer(trainer)
+    callback.on_epoch_start(1)
+
+    assert trainer.dataset_wrapper.refreshed_splits == ["train", "test"]
+    assert trainer.dataset_wrapper.requested_splits == ["train", "test"]
+    assert trainer.accelerator.prepared_dataloaders == [
+        {"train": "loader:train", "test": "loader:test"}
+    ]
+    assert trainer.data_loader["train"] == "prepared:loader:train"
+    assert trainer.data_loader["validation"] == "stale-validation"
+    assert trainer.data_loader["test"] == "prepared:loader:test"
+
+
+def test_dataset_refresh_callback_skips_non_matching_epochs() -> None:
+    """Dataset refresh should respect the configured epoch frequency."""
+
+    trainer = _CheckpointTrainerStub()
+    trainer.accelerator = _PrepareAcceleratorStub()
+    trainer.dataset_wrapper = _RefreshingDatasetStub()
+    trainer.data_loader = {"train": "stale-train"}
+
+    callback = DatasetRefreshCallback(refresh_frequency=2, splits=["train"])
+    callback.set_trainer(trainer)
+    callback.on_epoch_start(1)
+
+    assert trainer.dataset_wrapper.refreshed_splits == []
+    assert trainer.accelerator.prepared_dataloaders == []
 
 
 def test_run_interrupt_skips_synchronized_teardown(tmp_path: Path) -> None:

@@ -355,6 +355,16 @@ uv run dl-core add optimizer AdamwWrapper --base adamw
 uv run dl-core add scheduler CosineWrapper --base cosine
 ```
 
+Built-in callbacks include `dataset_refresh`, which rebuilds selected dataset
+splits at epoch boundaries. Example:
+
+```yaml
+callbacks:
+  dataset_refresh:
+    refresh_frequency: 1
+    splits: [train]
+```
+
 When `dl-azure` is importable, the dataset scaffold also exposes Azure bases:
 
 ```bash

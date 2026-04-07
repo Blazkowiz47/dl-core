@@ -83,6 +83,16 @@ For non-dataset components, `--base` can point at a registered component such
 as `metric_logger`, `standard`, `adamw`, or `cosine`, or a fully qualified
 class path. If you omit `--base`, the scaffold uses the plain base class.
 
+The built-in callback `dataset_refresh` can rebuild selected dataloaders at
+epoch boundaries when a dataset needs fresh split sampling:
+
+```yaml
+callbacks:
+  dataset_refresh:
+    refresh_frequency: 1
+    splits: [train]
+```
+
 The core dataset bases are intended for different data shapes:
 
 - `base`: generic sample-level datasets
