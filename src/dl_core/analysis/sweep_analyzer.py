@@ -225,7 +225,7 @@ def _get_rank_method(runs: list[dict[str, Any]]) -> str:
     """Resolve the configured ranking method for the current sweep."""
     for run in runs:
         rank_method = run.get("rank_method")
-        if rank_method in {"lexicographic", "pareto"}:
+        if rank_method in {"lexicographic", "pareto", "rank-sum"}:
             return str(rank_method)
     return "lexicographic"
 
@@ -369,6 +369,8 @@ def _sort_runs_for_display(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ordered_runs = metric_sorted + runs_without_metric
     elif _get_rank_method(runs) == "pareto":
         ordered_runs = _sort_runs_by_pareto_front(runs, ranking_specs)
+    elif _get_rank_method(runs) == "rank-sum":
+        ordered_runs = _sort_runs_by_rank_sum(runs, ranking_specs)
     else:
         ordered_runs = _sort_runs_lexicographically(runs, ranking_specs)
 
@@ -473,6 +475,54 @@ def _sort_runs_by_pareto_front(
         run["_front"] = None
     ordered_runs.extend(_sort_runs_lexicographically(incomplete_runs, ranking_specs))
     return ordered_runs
+
+
+def _sort_runs_by_rank_sum(
+    runs: list[dict[str, Any]],
+    ranking_specs: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Sort runs by summed per-metric ranks."""
+    run_scores: dict[int, int] = {run["run_index"]: 0 for run in runs}
+    incomplete_runs: set[int] = set()
+
+    for ranking_spec in ranking_specs:
+        metric_name = ranking_spec["metric"]
+        metric_runs = [
+            run
+            for run in runs
+            if isinstance(_get_ranking_value(run, metric_name), (int, float))
+        ]
+        if not metric_runs:
+            continue
+
+        reverse = ranking_spec["mode"] == "max"
+        ordered_metric_runs = sorted(
+            metric_runs,
+            key=lambda run: float(_get_ranking_value(run, metric_name)),
+            reverse=reverse,
+        )
+        for rank, run in enumerate(ordered_metric_runs, start=1):
+            run_scores[run["run_index"]] += rank
+
+        complete_metric_run_ids = {run["run_index"] for run in metric_runs}
+        for run in runs:
+            if run["run_index"] not in complete_metric_run_ids:
+                incomplete_runs.add(run["run_index"])
+
+    for run in runs:
+        if run["run_index"] in incomplete_runs:
+            run["_rank_sum"] = None
+        else:
+            run["_rank_sum"] = run_scores[run["run_index"]]
+
+    return sorted(
+        runs,
+        key=lambda run: (
+            run.get("_rank_sum") is None,
+            run.get("_rank_sum") if isinstance(run.get("_rank_sum"), int) else float("inf"),
+            run["run_index"],
+        ),
+    )
 
 
 def _summarize_status_counts(runs: list[dict[str, Any]]) -> dict[str, int]:
@@ -616,6 +666,8 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     ranking_headers = ["Rank"]
     if rank_method == "pareto":
         ranking_headers.append("Front")
+    if rank_method == "rank-sum":
+        ranking_headers.append("Rank Sum")
     ranking_headers.extend(["Run", "Status"])
     ranking_headers.extend(
         [
@@ -629,6 +681,11 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
             + (
                 [str(run.get("_front", "-"))]
                 if rank_method == "pareto"
+                else []
+            )
+            + (
+                [str(run.get("_rank_sum", "-"))]
+                if rank_method == "rank-sum"
                 else []
             )
             + [
@@ -760,6 +817,8 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
     ranking_headers = ["Rank"]
     if rank_method == "pareto":
         ranking_headers.append("Front")
+    if rank_method == "rank-sum":
+        ranking_headers.append("Rank Sum")
     ranking_headers.extend(["Run", "Status"])
     ranking_headers.extend(
         [f"{spec['metric']} [{spec['mode']}]" for spec in ranking_specs]
@@ -770,6 +829,11 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
             + (
                 [str(run.get("_front", "-"))]
                 if rank_method == "pareto"
+                else []
+            )
+            + (
+                [str(run.get("_rank_sum", "-"))]
+                if rank_method == "rank-sum"
                 else []
             )
             + [
@@ -888,7 +952,12 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-analyze --sweep experiments/lr_sweep.yaml "
             "--metric test/eer --mode min "
             "--metric test/accuracy --mode max "
-            "--rank-method lexicographic\n\n"
+            "--rank-method lexicographic\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml "
+            "--metric test/eer --mode min "
+            "--metric test/accuracy --mode max "
+            "--metric test/loss --mode min "
+            "--rank-method rank-sum\n\n"
             "This command reads the generated experiments/<sweep_name>/"
             "sweep_tracking.json and writes experiments/<sweep_name>/"
             "analysis.md. Use --json to also write analysis.json."
@@ -925,7 +994,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--rank-method",
-        choices=["lexicographic", "pareto"],
+        choices=["lexicographic", "pareto", "rank-sum"],
         default="lexicographic",
         help="How to rank runs from the requested metrics.",
     )
