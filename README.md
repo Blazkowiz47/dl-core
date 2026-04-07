@@ -129,6 +129,7 @@ that repository, run `uv sync`, then run:
 ```bash
 uv run dl-run --config configs/base.yaml --validate-only
 uv run dl-run --config configs/base.yaml
+uv run dl-sweep experiments/lr_sweep.yaml --preview
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer
@@ -179,6 +180,7 @@ uv run dl-run --config configs/base.yaml
 Once that works, move on to:
 
 ```bash
+uv run dl-sweep experiments/lr_sweep.yaml --preview
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml \
@@ -186,6 +188,10 @@ uv run dl-analyze --sweep experiments/lr_sweep.yaml \
   --metric test/accuracy --mode max \
   --rank-method rank-sum
 ```
+
+`dl-sweep --preview` prints the expanded run matrix without creating configs or
+starting runs. Use `--export sweep_preview.csv` or `--export sweep_preview.json`
+when you want to save that expansion for review.
 
 `dl-analyze` defaults to ranking by `test/accuracy` with `max`. You can make
 ranking explicit with repeatable `--metric` and `--mode` flags, then choose one

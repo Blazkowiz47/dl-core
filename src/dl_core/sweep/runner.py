@@ -1,6 +1,8 @@
 """Main sweep runner with pluggable executors."""
 
 import argparse
+import csv
+import json
 import sys
 import time
 import yaml
@@ -12,6 +14,7 @@ from dl_core.core import EXECUTOR_REGISTRY
 from dl_core.utils.logging import setup_logging
 from dl_core.utils.sweep_tracker import SweepTracker
 from .config import ConfigBuilder
+from .config.config_utils import deep_get
 from .template import (
     ensure_tracking_experiment_name,
     generate_experiment_name,
@@ -47,6 +50,96 @@ def get_config_output_dir(sweep_config: Dict[str, Any], sweep_id: str) -> Path:
     return Path("sweep_configs") / sweep_id
 
 
+def _get_preview_columns(builder: ConfigBuilder) -> list[str]:
+    """Return the sweep grid keys that should appear in preview output."""
+    resolved_grid = builder._resolve_preset_references(builder.grid)
+    return list(resolved_grid.keys())
+
+
+def _build_preview_rows(
+    builder: ConfigBuilder,
+    prepared_configs: List[Tuple[int, Dict[str, Any], str]],
+) -> list[dict[str, Any]]:
+    """Build preview rows from expanded run configs."""
+    preview_columns = _get_preview_columns(builder)
+    rows: list[dict[str, Any]] = []
+
+    for run_index, run_config, run_name in prepared_configs:
+        row: dict[str, Any] = {
+            "index": run_index,
+            "run_name": run_name,
+            "seed": run_config.get("seed"),
+        }
+        for column in preview_columns:
+            try:
+                row[column] = deep_get(run_config, column)
+            except KeyError:
+                row[column] = None
+        rows.append(row)
+
+    return rows
+
+
+def _stringify_preview_value(value: Any) -> str:
+    """Return a compact string form for one preview value."""
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True)
+    return str(value)
+
+
+def _render_preview_table(rows: list[dict[str, Any]]) -> str:
+    """Render preview rows as a simple text table."""
+    if not rows:
+        return "No sweep runs were generated."
+
+    columns = list(rows[0].keys())
+    widths = {column: len(column) for column in columns}
+    for row in rows:
+        for column in columns:
+            widths[column] = max(
+                widths[column],
+                len(_stringify_preview_value(row[column])),
+            )
+
+    header = " | ".join(column.ljust(widths[column]) for column in columns)
+    separator = "-+-".join("-" * widths[column] for column in columns)
+    body = [
+        " | ".join(
+            _stringify_preview_value(row[column]).ljust(widths[column])
+            for column in columns
+        )
+        for row in rows
+    ]
+    return "\n".join([header, separator, *body])
+
+
+def _export_preview_rows(output_path: Path, rows: list[dict[str, Any]]) -> None:
+    """Write preview rows to CSV or JSON based on file extension."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_path.suffix == ".json":
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(rows, handle, indent=2)
+        return
+
+    if output_path.suffix != ".csv":
+        raise ValueError("Preview export path must end with .csv or .json")
+
+    fieldnames = list(rows[0].keys()) if rows else ["index", "run_name", "seed"]
+    with open(output_path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    key: _stringify_preview_value(value)
+                    for key, value in row.items()
+                }
+            )
+
+
 def main():
     """Main sweep runner entry point."""
     parser = argparse.ArgumentParser(
@@ -55,6 +148,8 @@ def main():
         epilog=(
             "Examples:\n"
             "  dl-sweep experiments/lr_sweep.yaml\n"
+            "  dl-sweep experiments/lr_sweep.yaml --preview\n"
+            "  dl-sweep experiments/lr_sweep.yaml --export sweep_preview.csv\n"
             "  dl-sweep experiments/lr_sweep.yaml --dry-run\n"
             "  dl-sweep experiments/lr_sweep.yaml --resume\n"
             "  dl-sweep --sweep experiments/lr_sweep.yaml  # compatibility alias\n\n"
@@ -99,6 +194,16 @@ def main():
         "--dry-run",
         action="store_true",
         help="Show what would be run without executing",
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Print the expanded sweep matrix and exit without executing",
+    )
+    parser.add_argument(
+        "--export",
+        type=str,
+        help="Write the expanded sweep matrix to a .csv or .json file and exit",
     )
 
     parser.add_argument(
@@ -228,10 +333,25 @@ def main():
 
     # Determine sweep identifier for this execution (used for fallbacks)
     sweep_id = f"sweep_{int(time.time())}"
+    prepared_configs = builder.prepare_configs(all_configs)
+
+    if args.preview or args.export:
+        preview_rows = _build_preview_rows(builder, prepared_configs)
+        if args.preview:
+            print("\n📋 Sweep Preview")
+            print(_render_preview_table(preview_rows))
+        if args.export:
+            export_path = Path(args.export)
+            _export_preview_rows(export_path, preview_rows)
+            print(f"   Exported preview: {export_path}")
+        return 0
 
     # Save configurations to disk once (before executors run)
     config_output_dir = get_config_output_dir(sweep_config, sweep_id)
-    saved_config_descriptors = builder.save_configs(all_configs, config_output_dir)
+    saved_config_descriptors = builder.save_configs(
+        all_configs,
+        config_output_dir,
+    )
     print(f"   Generated configs in: {config_output_dir}")
 
     # Extract just the paths from the saved config descriptors

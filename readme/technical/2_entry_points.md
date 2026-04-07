@@ -94,11 +94,21 @@ uv run dl-sweep experiments/lr_sweep.yaml
 
 Useful flags:
 
+- `--preview`
+- `--export`
 - `--dry-run`
 - `--resume`
 - `--max-workers`
 - `--compute`
 - `--environment`
+
+Notes:
+
+- `--preview` prints the expanded sweep matrix and exits before saving configs
+  or starting runs
+- `--export preview.csv` or `--export preview.json` writes that matrix to disk
+- `--dry-run` still goes through normal executor wiring, but does not execute
+  the generated runs
 
 ## `dl-analyze`
 

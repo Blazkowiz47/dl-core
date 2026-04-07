@@ -161,8 +161,12 @@ def _project_agents_md(project_name: str) -> str:
       run from a single config file.
     </rule>
     <rule>
-      Use `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` first when
-      checking how a sweep will expand without starting runs.
+      Use `uv run dl-sweep experiments/lr_sweep.yaml --preview` first when you
+      want to inspect the expanded sweep matrix without starting runs.
+    </rule>
+    <rule>
+      Use `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` when you want
+      to keep executor wiring in the loop but still avoid execution.
     </rule>
     <rule>
       Use `uv run dl-sweep experiments/lr_sweep.yaml` after a single run works
@@ -236,8 +240,12 @@ def _project_agents_md(project_name: str) -> str:
       once.
     </rule>
     <rule>
-      `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` previews the sweep
-      expansion and executor settings without starting runs.
+      `uv run dl-sweep experiments/lr_sweep.yaml --preview` prints the expanded
+      sweep matrix without starting runs.
+    </rule>
+    <rule>
+      `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` keeps executor
+      wiring in the loop but does not execute the generated runs.
     </rule>
     <rule>
       `uv run dl-sweep experiments/lr_sweep.yaml` executes the sweep.

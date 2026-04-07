@@ -163,34 +163,11 @@ class ConfigBuilder:
         Returns:
             List of tuples (run_index, run_config, config_path)
         """
-        # Get run name template if specified
-        run_name_template = self.tracking_config.get("run_name_template")
-
         output_dir.mkdir(parents=True, exist_ok=True)
 
         config_paths = []
 
-        for idx, run_config in enumerate(run_configs):
-            run_config = copy.deepcopy(run_config)
-            # Get original run index if resuming, otherwise use enumeration index
-            run_index = run_config.get("_sweep_run_index", idx)
-
-            # Generate run name
-            if run_name_template:
-                run_name = self._generate_run_name_from_template(
-                    run_config, run_name_template
-                )
-            else:
-                run_name = self._generate_run_name_from_grid(run_config, run_index)
-
-            runtime_config = run_config.setdefault("runtime", {})
-            runtime_config["name"] = run_name
-
-            tracking_config = run_config.get("tracking")
-            if isinstance(tracking_config, dict):
-                tracking_config["run_name"] = run_name
-
-            # Save config to file
+        for run_index, run_config, run_name in self.prepare_configs(run_configs):
             config_file = f"{run_name}.yaml"
             config_path = output_dir / config_file
 
@@ -200,6 +177,40 @@ class ConfigBuilder:
             config_paths.append((run_index, run_config, config_path))
 
         return config_paths
+
+    def prepare_configs(
+        self,
+        run_configs: List[Dict[str, Any]],
+    ) -> List[Tuple[int, Dict[str, Any], str]]:
+        """Attach runtime names to expanded configs without saving them."""
+        run_name_template = self.tracking_config.get("run_name_template")
+        prepared_configs = []
+
+        for idx, run_config in enumerate(run_configs):
+            prepared_config = copy.deepcopy(run_config)
+            run_index = prepared_config.get("_sweep_run_index", idx)
+
+            if run_name_template:
+                run_name = self._generate_run_name_from_template(
+                    prepared_config,
+                    run_name_template,
+                )
+            else:
+                run_name = self._generate_run_name_from_grid(
+                    prepared_config,
+                    run_index,
+                )
+
+            runtime_config = prepared_config.setdefault("runtime", {})
+            runtime_config["name"] = run_name
+
+            tracking_config = prepared_config.get("tracking")
+            if isinstance(tracking_config, dict):
+                tracking_config["run_name"] = run_name
+
+            prepared_configs.append((run_index, prepared_config, run_name))
+
+        return prepared_configs
 
     def _resolve_preset_references(self, grid: Dict[str, Any]) -> Dict[str, Any]:
         """Resolve preset references in grid."""
