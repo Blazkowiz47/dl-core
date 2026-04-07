@@ -95,16 +95,30 @@ Useful flags:
 
 ## `dl-analyze`
 
-Reads local sweep tracking plus per-run metric summaries and prints a compact
-ranking/report.
+Reads local or backend-provided sweep tracking and writes a compact analysis
+report.
 
 ```bash
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml --metric test/eer --mode min
+uv run dl-analyze --sweep experiments/lr_sweep.yaml \
+  --metric test/eer --mode min \
+  --metric test/accuracy --mode max \
+  --rank-method rank-sum
 ```
 
 Useful flags:
 
 - `--json`
+- `--metric`
+- `--mode`
+- `--rank-method`
+
+Notes:
+
+- ranking defaults to `test/accuracy` with `max`
+- `--metric` and `--mode` are repeatable and matched by order
+- supported rank methods are `lexicographic`, `rank-sum`, and `pareto`
 
 ## `dl-train-worker`
 

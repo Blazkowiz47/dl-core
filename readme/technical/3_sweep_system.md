@@ -94,5 +94,21 @@ That means local analysis is always:
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 ```
 
+You can also rank explicitly by one or more metrics:
+
+```bash
+uv run dl-analyze --sweep experiments/lr_sweep.yaml \
+  --metric test/eer --mode min \
+  --metric test/accuracy --mode max \
+  --rank-method rank-sum
+```
+
+`dl-analyze` supports three ranking modes:
+
+- `lexicographic`: rank by metric 1, then metric 2 as a tie-breaker, and so on
+- `rank-sum`: rank each metric independently, sum the ranks, and sort by the total
+- `pareto`: group runs by Pareto front instead of forcing a single scalar score
+
 Cloud-specific adapters can override how metrics are fetched later, but the
-default analyzer stays file-based and local-first.
+default analyzer stays file-based and local-first. Azure-backed analysis only
+fetches the requested metric histories for ranking.

@@ -13,6 +13,7 @@ extras and companion extension packages.
 - `dl-core list` makes built-in and local registry discovery easier
 - `dl-core add` defaults to plain base classes unless `--base` is given
 - `dl-analyze` is the primary sweep-analysis CLI
+- `dl-analyze` now supports explicit ranking metrics and rank methods
 - local artifacts now use:
   - `artifacts/runs/<run_name>/...`
   - `artifacts/sweeps/<sweep_name>/<run_name>/...`
@@ -125,6 +126,7 @@ that repository, run `uv sync`, then run:
 uv run dl-run --config configs/base.yaml
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml --metric test/eer --mode min
 ```
 
 New local runs use the flattened artifact layout:
@@ -172,7 +174,22 @@ Once that works, move on to:
 ```bash
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml \
+  --metric test/eer --mode min \
+  --metric test/accuracy --mode max \
+  --rank-method rank-sum
 ```
+
+`dl-analyze` defaults to ranking by `test/accuracy` with `max`. You can make
+ranking explicit with repeatable `--metric` and `--mode` flags, then choose one
+of:
+
+- `--rank-method lexicographic`
+- `--rank-method rank-sum`
+- `--rank-method pareto`
+
+For Azure-backed sweeps, `dl-analyze` fetches only the requested metric
+histories instead of downloading every tracked metric history.
 
 If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.

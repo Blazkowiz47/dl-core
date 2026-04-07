@@ -978,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         dest="metrics",
         help=(
-            "Metric used for ranking. Repeat to add lexicographic tie-breakers. "
+            "Metric used for ranking. Repeat to rank by multiple metrics. "
             "Defaults to test/accuracy."
         ),
     )
@@ -996,7 +996,10 @@ def main(argv: list[str] | None = None) -> int:
         "--rank-method",
         choices=["lexicographic", "pareto", "rank-sum"],
         default="lexicographic",
-        help="How to rank runs from the requested metrics.",
+        help=(
+            "How to rank runs from the requested metrics: lexicographic, "
+            "pareto, or rank-sum."
+        ),
     )
     args = parser.parse_args(argv)
 
