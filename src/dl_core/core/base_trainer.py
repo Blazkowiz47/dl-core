@@ -2622,6 +2622,7 @@ class EpochTrainer(ABC):
             checkpoint_dict["models_state_dict"][name] = unwrapped_model.state_dict()
         if self.ema is not None and self.ema.save_in_checkpoint:
             checkpoint_dict["ema_state_dict"] = self.ema.state_dict()
+            checkpoint_dict["ema_models_state_dict"] = self.ema.model_state_dicts()
 
     def load_model_states(self, checkpoint: dict) -> None:
         """

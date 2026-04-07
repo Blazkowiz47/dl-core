@@ -147,6 +147,24 @@ class ExponentialMovingAverage:
             "shadow_params": shadow_cpu,
         }
 
+    def model_state_dicts(self) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Build full model state dicts with EMA parameters and original buffers."""
+        exported: Dict[str, Dict[str, torch.Tensor]] = {}
+        for model_key, model in self.models.items():
+            state_dict = {
+                name: tensor.detach().cpu()
+                for name, tensor in model.state_dict().items()
+            }
+            shadow = self.shadow_params.get(model_key, {})
+            for name, tensor in shadow.items():
+                if name not in state_dict:
+                    continue
+                state_dict[name] = tensor.detach().cpu().to(
+                    dtype=state_dict[name].dtype
+                )
+            exported[model_key] = state_dict
+        return exported
+
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
         """Restore EMA state from checkpoint data."""
         self.decay = float(state_dict.get("decay", self.decay))
