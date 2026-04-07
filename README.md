@@ -18,6 +18,10 @@ extras and companion extension packages.
 - `dl-analyze` now writes versioned reports under `analysis/vN.md`
 - `dl-run --validate-only` now performs a real preflight by resolving the
   configured components without starting training
+- `dl-inspect-dataset` now summarizes split sizes and one collated batch from
+  the current config
+- `dl-smoke` now checks one dataset batch and one model forward pass from a
+  config file
 - local artifacts now use:
   - `artifacts/runs/<run_name>/...`
   - `artifacts/sweeps/<sweep_name>/<run_name>/...`
@@ -128,8 +132,11 @@ that repository, run `uv sync`, then run:
 
 ```bash
 uv run dl-run --config configs/base.yaml --validate-only
+uv run dl-inspect-dataset --config configs/base.yaml
+uv run dl-smoke --config configs/base.yaml
 uv run dl-run --config configs/base.yaml
 uv run dl-sweep experiments/lr_sweep.yaml --preview
+uv run dl-sweep experiments/lr_sweep.yaml --only "*seed_2025*"
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer
@@ -175,6 +182,8 @@ uv run python scripts/temporary/test_model.py
 
 ```bash
 uv run dl-run --config configs/base.yaml --validate-only
+uv run dl-inspect-dataset --config configs/base.yaml
+uv run dl-smoke --config configs/base.yaml
 uv run dl-run --config configs/base.yaml
 ```
 
@@ -193,6 +202,12 @@ uv run dl-analyze --sweep experiments/lr_sweep.yaml \
 `dl-sweep --preview` prints the expanded run matrix without creating configs or
 starting runs. Use `--export sweep_preview.csv` or `--export sweep_preview.json`
 when you want to save that expansion for review.
+Use `--only` and `--skip` with glob patterns when you want to execute or
+preview only a subset of generated run names.
+
+`dl-inspect-dataset` preserves the configured split behavior, but forces
+single-process loading so you can quickly verify split sizes and inspect one
+collated batch without starting a trainer.
 
 `dl-analyze` defaults to ranking by `test/accuracy` with `max`. You can make
 ranking explicit with repeatable `--metric` and `--mode` flags, then choose one

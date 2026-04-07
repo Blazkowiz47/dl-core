@@ -84,6 +84,38 @@ Notes:
   models, criterions, optimizer, and optional scheduler, then exits without
   starting training
 
+## `dl-smoke`
+
+Runs a lightweight one-batch dataset and model smoke check.
+
+```bash
+uv run dl-smoke --config configs/base.yaml
+```
+
+Useful flags:
+
+- `--config`
+- `--split`
+
+## `dl-inspect-dataset`
+
+Prints split sizes and one collated batch preview for the configured dataset.
+
+```bash
+uv run dl-inspect-dataset --config configs/base.yaml
+```
+
+Useful flags:
+
+- `--config`
+- `--sample-split`
+
+Notes:
+
+- preserves the configured split logic so the reported split sizes match the
+  real dataset behavior
+- forces single-process loading so inspection stays lightweight
+
 ## `dl-sweep`
 
 Generates run configs from a sweep spec and dispatches them through the
@@ -91,12 +123,15 @@ configured executor.
 
 ```bash
 uv run dl-sweep experiments/lr_sweep.yaml
+uv run dl-sweep experiments/lr_sweep.yaml --only "*seed_2025*"
 ```
 
 Useful flags:
 
 - `--preview`
 - `--export`
+- `--only`
+- `--skip`
 - `--dry-run`
 - `--resume`
 - `--max-workers`
@@ -108,6 +143,7 @@ Notes:
 - `--preview` prints the expanded sweep matrix and exits before saving configs
   or starting runs
 - `--export preview.csv` or `--export preview.json` writes that matrix to disk
+- `--only` and `--skip` accept repeatable run-name glob patterns
 - `--dry-run` still goes through normal executor wiring, but does not execute
   the generated runs
 

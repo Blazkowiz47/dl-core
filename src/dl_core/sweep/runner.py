@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import fnmatch
 import json
 import sys
 import time
@@ -140,6 +141,27 @@ def _export_preview_rows(output_path: Path, rows: list[dict[str, Any]]) -> None:
             )
 
 
+def _filter_prepared_configs(
+    prepared_configs: List[Tuple[int, Dict[str, Any], str]],
+    only_patterns: list[str],
+    skip_patterns: list[str],
+) -> List[Tuple[int, Dict[str, Any], str]]:
+    """Filter prepared configs by run-name glob patterns."""
+    filtered_configs = []
+    for prepared_config in prepared_configs:
+        _, _, run_name = prepared_config
+        if only_patterns and not any(
+            fnmatch.fnmatch(run_name, pattern) for pattern in only_patterns
+        ):
+            continue
+        if skip_patterns and any(
+            fnmatch.fnmatch(run_name, pattern) for pattern in skip_patterns
+        ):
+            continue
+        filtered_configs.append(prepared_config)
+    return filtered_configs
+
+
 def main():
     """Main sweep runner entry point."""
     parser = argparse.ArgumentParser(
@@ -150,6 +172,7 @@ def main():
             "  dl-sweep experiments/lr_sweep.yaml\n"
             "  dl-sweep experiments/lr_sweep.yaml --preview\n"
             "  dl-sweep experiments/lr_sweep.yaml --export sweep_preview.csv\n"
+            "  dl-sweep experiments/lr_sweep.yaml --only '*seed_2025*'\n"
             "  dl-sweep experiments/lr_sweep.yaml --dry-run\n"
             "  dl-sweep experiments/lr_sweep.yaml --resume\n"
             "  dl-sweep --sweep experiments/lr_sweep.yaml  # compatibility alias\n\n"
@@ -204,6 +227,18 @@ def main():
         "--export",
         type=str,
         help="Write the expanded sweep matrix to a .csv or .json file and exit",
+    )
+    parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        help="Keep only run names matching this glob pattern. Repeatable.",
+    )
+    parser.add_argument(
+        "--skip",
+        action="append",
+        default=[],
+        help="Skip run names matching this glob pattern. Repeatable.",
     )
 
     parser.add_argument(
@@ -334,6 +369,18 @@ def main():
     # Determine sweep identifier for this execution (used for fallbacks)
     sweep_id = f"sweep_{int(time.time())}"
     prepared_configs = builder.prepare_configs(all_configs)
+    prepared_configs = _filter_prepared_configs(
+        prepared_configs,
+        args.only,
+        args.skip,
+    )
+    if not prepared_configs:
+        print("No sweep runs matched the requested filters.")
+        return 0
+
+    if args.only or args.skip:
+        print(f"   Filtered runs: {len(prepared_configs)}/{len(all_configs)}")
+    all_configs = [run_config for _, run_config, _ in prepared_configs]
 
     if args.preview or args.export:
         preview_rows = _build_preview_rows(builder, prepared_configs)
