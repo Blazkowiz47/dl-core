@@ -10,6 +10,7 @@ from typing import Any
 
 from dl_core import load_builtin_components, load_local_components
 from dl_core.core import METRICS_SOURCE_REGISTRY
+from tqdm import tqdm
 
 
 def get_sweep_tracking_path(sweep_path: Path) -> Path:
@@ -94,27 +95,70 @@ def collect_sweep_runs(sweep_path: str | Path) -> list[dict[str, Any]]:
     sweep_data["_sweep_path"] = str(resolved_sweep_path)
     runs = sweep_data.get("runs", {})
     collected_runs: list[dict[str, Any]] = []
+    run_items = sorted(
+        ((int(run_index_str), run_data) for run_index_str, run_data in runs.items()),
+        key=lambda item: item[0],
+    )
     _emit_progress(
         f"Collecting {len(runs)} tracked runs from {resolved_sweep_path.name}"
     )
 
-    total_runs = len(runs)
-    for run_index_str, run_data in sorted(runs.items(), key=lambda item: int(item[0])):
-        run_index = int(run_index_str)
+    prepared_backends: dict[str, Any] = {}
+    for run_index, run_data in run_items:
         metrics_source_backend = _resolve_metrics_source_backend(sweep_data, run_data)
+        if metrics_source_backend in prepared_backends:
+            continue
+
         metrics_source = METRICS_SOURCE_REGISTRY.get(metrics_source_backend)
-        run_name = run_data.get("tracking_run_name") or f"run_{run_index}"
-        _emit_progress(
-            f"[{run_index + 1}/{total_runs}] Collecting {run_name} "
-            f"via {metrics_source_backend}"
-        )
-        collected_runs.append(
-            metrics_source.collect_run(
-                run_index=run_index,
-                run_data=run_data,
-                sweep_data=sweep_data,
+        backend_run_items = [
+            (item_run_index, item_run_data)
+            for item_run_index, item_run_data in run_items
+            if _resolve_metrics_source_backend(sweep_data, item_run_data)
+            == metrics_source_backend
+        ]
+        if backend_run_items:
+            _emit_progress(
+                f"Preparing {len(backend_run_items)} runs via "
+                f"{metrics_source_backend}"
             )
-        )
+            with tqdm(
+                total=len(backend_run_items),
+                desc=f"Prefetch {metrics_source_backend}",
+                unit="run",
+                file=sys.stderr,
+                leave=False,
+            ) as pbar:
+                metrics_source.prepare_sweep(
+                    run_items=backend_run_items,
+                    sweep_data=sweep_data,
+                    progress_callback=lambda: pbar.update(1),
+                )
+        prepared_backends[metrics_source_backend] = metrics_source
+
+    total_runs = len(run_items)
+    with tqdm(
+        total=total_runs,
+        desc="Collect runs",
+        unit="run",
+        file=sys.stderr,
+        leave=False,
+    ) as pbar:
+        for run_index, run_data in run_items:
+            metrics_source_backend = _resolve_metrics_source_backend(
+                sweep_data,
+                run_data,
+            )
+            metrics_source = prepared_backends[metrics_source_backend]
+            run_name = run_data.get("tracking_run_name") or f"run_{run_index}"
+            pbar.set_postfix_str(run_name)
+            collected_runs.append(
+                metrics_source.collect_run(
+                    run_index=run_index,
+                    run_data=run_data,
+                    sweep_data=sweep_data,
+                )
+            )
+            pbar.update(1)
 
     return collected_runs
 

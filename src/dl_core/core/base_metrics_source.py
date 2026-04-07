@@ -29,6 +29,22 @@ class BaseMetricsSource(ABC):
         self.params = kwargs
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
+    def prepare_sweep(
+        self,
+        run_items: list[tuple[int, dict[str, Any]]],
+        sweep_data: dict[str, Any],
+        progress_callback: Any | None = None,
+    ) -> None:
+        """
+        Prepare sweep-wide state before per-run collection starts.
+
+        Args:
+            run_items: Sorted list of tracked runs as ``(run_index, run_data)``
+            sweep_data: Full sweep tracking payload
+            progress_callback: Optional callable invoked after each prepared run
+        """
+        del run_items, sweep_data, progress_callback
+
     @abstractmethod
     def collect_run(
         self,
