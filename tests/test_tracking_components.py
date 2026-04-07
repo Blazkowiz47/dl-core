@@ -234,7 +234,7 @@ def test_dl_analyze_writes_markdown_report(
     tmp_path: Path,
     capsys: CaptureFixture[str],
 ) -> None:
-    """Analyzer CLI should always write analysis.md next to the sweep outputs."""
+    """Analyzer CLI should write the first versioned report under analysis/."""
     dl_core.load_builtin_components()
 
     experiments_dir = tmp_path / "experiments"
@@ -310,6 +310,8 @@ def test_dl_analyze_writes_markdown_report(
     assert exit_code == 0
     assert "Wrote Markdown report to" in stderr
     assert markdown_path.exists()
+    assert markdown_path.parent.name == "analysis"
+    assert markdown_path.name == "v1.md"
     report = markdown_path.read_text(encoding="utf-8")
     assert "# Sweep Analysis" in report
     assert "demo_run" in report

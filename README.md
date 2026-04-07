@@ -15,6 +15,7 @@ extras and companion extension packages.
 - `dl-analyze` is the primary sweep-analysis CLI
 - `dl-analyze` now supports explicit ranking metrics and rank methods
 - `dl-analyze` now persists `analysis_cache.json` next to `sweep_tracking.json`
+- `dl-analyze` now writes versioned reports under `analysis/vN.md`
 - local artifacts now use:
   - `artifacts/runs/<run_name>/...`
   - `artifacts/sweeps/<sweep_name>/<run_name>/...`
@@ -127,6 +128,7 @@ that repository, run `uv sync`, then run:
 uv run dl-run --config configs/base.yaml
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
+uv run dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --metric test/eer --mode min
 ```
 
@@ -192,7 +194,9 @@ of:
 For Azure-backed sweeps, `dl-analyze` fetches only the requested metric
 histories instead of downloading every tracked metric history. Those fetched
 histories are cached in `experiments/<sweep_name>/analysis_cache.json`. Use
-`--force` to ignore and refresh that cache.
+`--force` to ignore and refresh that cache. Reports are written under
+`experiments/<sweep_name>/analysis/` as `v1.md`, `v2.md`, and so on unless you
+pass `--name`.
 
 If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.

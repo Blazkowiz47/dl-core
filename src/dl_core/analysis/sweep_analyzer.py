@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -26,14 +27,55 @@ def get_sweep_tracking_path(sweep_path: Path) -> Path:
     return sweep_path.parent / sweep_path.stem / "sweep_tracking.json"
 
 
+def get_sweep_analysis_dir(sweep_path: Path) -> Path:
+    """Resolve the versioned analysis output directory for a sweep."""
+    return sweep_path.parent / sweep_path.stem / "analysis"
+
+
+def _normalize_analysis_name(report_name: str | None) -> str | None:
+    """Normalize an explicit analysis report name."""
+    if not isinstance(report_name, str):
+        return None
+    normalized_name = Path(report_name.strip()).stem
+    return normalized_name or None
+
+
+def _resolve_latest_analysis_name(analysis_dir: Path) -> str:
+    """Return the latest existing versioned analysis name, or ``v1``."""
+    version_numbers: list[int] = []
+    if analysis_dir.exists():
+        for path in analysis_dir.glob("v*.md"):
+            match = re.fullmatch(r"v(\d+)", path.stem)
+            if match:
+                version_numbers.append(int(match.group(1)))
+    if not version_numbers:
+        return "v1"
+    return f"v{max(version_numbers)}"
+
+
+def _resolve_next_analysis_name(analysis_dir: Path) -> str:
+    """Return the next versioned analysis name for a sweep."""
+    version_numbers: list[int] = []
+    if analysis_dir.exists():
+        for path in analysis_dir.glob("v*.md"):
+            match = re.fullmatch(r"v(\d+)", path.stem)
+            if match:
+                version_numbers.append(int(match.group(1)))
+    if not version_numbers:
+        return "v1"
+    return f"v{max(version_numbers) + 1}"
+
+
 def get_sweep_analysis_markdown_path(sweep_path: Path) -> Path:
-    """Resolve the default Markdown analysis report path for a sweep."""
-    return sweep_path.parent / sweep_path.stem / "analysis.md"
+    """Resolve the latest Markdown analysis report path for a sweep."""
+    analysis_dir = get_sweep_analysis_dir(sweep_path)
+    return analysis_dir / f"{_resolve_latest_analysis_name(analysis_dir)}.md"
 
 
 def get_sweep_analysis_json_path(sweep_path: Path) -> Path:
-    """Resolve the optional JSON analysis report path for a sweep."""
-    return sweep_path.parent / sweep_path.stem / "analysis.json"
+    """Resolve the latest JSON analysis report path for a sweep."""
+    analysis_dir = get_sweep_analysis_dir(sweep_path)
+    return analysis_dir / f"{_resolve_latest_analysis_name(analysis_dir)}.json"
 
 
 def get_sweep_analysis_cache_path(sweep_path: Path) -> Path:
@@ -938,11 +980,17 @@ def _write_analysis_reports(
     sweep_path: Path,
     runs: list[dict[str, Any]],
     *,
+    report_name: str | None,
     write_json_report: bool,
 ) -> tuple[Path, Path | None]:
-    """Write Markdown and optional JSON analysis reports next to the sweep."""
-    markdown_path = get_sweep_analysis_markdown_path(sweep_path)
-    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    """Write versioned Markdown and optional JSON analysis reports."""
+    analysis_dir = get_sweep_analysis_dir(sweep_path)
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    resolved_report_name = _normalize_analysis_name(report_name)
+    if resolved_report_name is None:
+        resolved_report_name = _resolve_next_analysis_name(analysis_dir)
+
+    markdown_path = analysis_dir / f"{resolved_report_name}.md"
     markdown_path.write_text(
         _render_markdown_report(sweep_path, runs),
         encoding="utf-8",
@@ -950,7 +998,7 @@ def _write_analysis_reports(
 
     json_path: Path | None = None
     if write_json_report:
-        json_path = get_sweep_analysis_json_path(sweep_path)
+        json_path = analysis_dir / f"{resolved_report_name}.json"
         json_path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
 
     return markdown_path, json_path
@@ -961,13 +1009,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="dl-analyze",
         description=(
-            "Inspect sweep results and write experiments/<sweep>/analysis.md "
+            "Inspect sweep results and write experiments/<sweep>/analysis/v1.md "
             "by default."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml --json\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml "
             "--metric test/eer --mode min\n"
@@ -981,10 +1030,10 @@ def main(argv: list[str] | None = None) -> int:
             "--metric test/loss --mode min "
             "--rank-method rank-sum\n\n"
             "This command reads the generated experiments/<sweep_name>/"
-            "sweep_tracking.json and writes experiments/<sweep_name>/"
-            "analysis.md. It also reuses experiments/<sweep_name>/"
+            "sweep_tracking.json and writes reports under experiments/"
+            "<sweep_name>/analysis/. It also reuses experiments/<sweep_name>/"
             "analysis_cache.json unless --force is set. Use --json to "
-            "also write analysis.json."
+            "also write a matching JSON report."
         ),
     )
     parser.add_argument(
@@ -995,7 +1044,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Also write analysis.json and print the normalized run records.",
+        help="Also write a matching JSON report and print normalized run records.",
+    )
+    parser.add_argument(
+        "--name",
+        type=str,
+        help="Explicit report basename under analysis/ (for example: pareto_eer).",
     )
     parser.add_argument(
         "--force",
@@ -1047,6 +1101,7 @@ def main(argv: list[str] | None = None) -> int:
     markdown_path, json_path = _write_analysis_reports(
         sweep_path,
         runs,
+        report_name=args.name,
         write_json_report=args.json,
     )
     _emit_progress(f"Wrote Markdown report to {markdown_path}")
