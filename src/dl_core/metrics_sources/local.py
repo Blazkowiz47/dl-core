@@ -109,6 +109,10 @@ class LocalMetricsSource(BaseMetricsSource):
             history_path=history_path,
             sweep_data=sweep_data,
         )
+        if ranking_entries and not any(
+            isinstance(entry.get("value"), (int, float)) for entry in ranking_entries
+        ):
+            ranking_entries = []
         selection_metric = summary.get("selection_metric")
         selection_mode = summary.get("selection_mode")
         selection_value = self._resolve_selection_value(summary)
