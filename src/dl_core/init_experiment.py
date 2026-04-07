@@ -177,6 +177,10 @@ def _project_agents_md(project_name: str) -> str:
       finishes to summarize results from the configured metrics backend.
     </rule>
     <rule>
+      Use `uv run dl-analyze --sweep experiments/lr_sweep.yaml --compare latest`
+      when you want to compare the newest analysis against the last saved one.
+    </rule>
+    <rule>
       Use `uv run dl-core add ...` when you need a new local component or sweep
       scaffold inside this repository.
     </rule>
@@ -261,6 +265,10 @@ def _project_agents_md(project_name: str) -> str:
     <rule>
       `uv run dl-analyze --sweep experiments/lr_sweep.yaml` summarizes sweep
       results after execution.
+    </rule>
+    <rule>
+      `uv run dl-analyze --sweep experiments/lr_sweep.yaml --compare latest`
+      compares the current analysis against the most recent saved report.
     </rule>
     <rule>
       `uv run dl-core add dataset ExtraDataset` creates a local dataset scaffold.

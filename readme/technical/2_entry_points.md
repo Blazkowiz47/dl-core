@@ -118,6 +118,7 @@ report.
 ```bash
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer
+uv run dl-analyze --sweep experiments/lr_sweep.yaml --compare latest
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --metric test/eer --mode min
 uv run dl-analyze --sweep experiments/lr_sweep.yaml \
   --metric test/eer --mode min \
@@ -130,6 +131,7 @@ Useful flags:
 - `--json`
 - `--force`
 - `--name`
+- `--compare`
 - `--metric`
 - `--mode`
 - `--rank-method`
@@ -140,6 +142,9 @@ Notes:
 - `--metric` and `--mode` are repeatable and matched by order
 - fetched remote metric histories are cached in `analysis_cache.json`
 - reports are written under `analysis/v1.md`, `analysis/v2.md`, and so on
+- a matching JSON report is always written next to each Markdown report
+- `--compare latest` or `--compare v1` compares the current analysis against a
+  saved JSON report
 - supported rank methods are `lexicographic`, `rank-sum`, and `pareto`
 
 ## `dl-train-worker`

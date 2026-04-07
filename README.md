@@ -133,6 +133,7 @@ uv run dl-sweep experiments/lr_sweep.yaml --preview
 uv run dl-sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer
+uv run dl-analyze --sweep experiments/lr_sweep.yaml --compare latest
 uv run dl-analyze --sweep experiments/lr_sweep.yaml --metric test/eer --mode min
 ```
 
@@ -206,7 +207,9 @@ histories instead of downloading every tracked metric history. Those fetched
 histories are cached in `experiments/<sweep_name>/analysis_cache.json`. Use
 `--force` to ignore and refresh that cache. Reports are written under
 `experiments/<sweep_name>/analysis/` as `v1.md`, `v2.md`, and so on unless you
-pass `--name`.
+pass `--name`. A matching JSON report is always written next to each Markdown
+report, and `--compare latest` or `--compare v1` compares the current ranking
+against a saved report.
 
 If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.

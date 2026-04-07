@@ -363,7 +363,7 @@ class LocalMetricsSource(BaseMetricsSource):
     def _resolve_rank_method(self, sweep_data: dict[str, Any]) -> str:
         """Return the configured analyzer rank method."""
         rank_method = sweep_data.get("_rank_method")
-        if rank_method in {"lexicographic", "pareto"}:
+        if rank_method in {"lexicographic", "pareto", "rank-sum"}:
             return str(rank_method)
         return "lexicographic"
 

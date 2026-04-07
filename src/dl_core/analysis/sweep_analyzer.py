@@ -691,7 +691,125 @@ def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
     return [_format_row(headers), separator, *(_format_row(row) for row in rows)]
 
 
-def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
+def _load_analysis_runs(report_path: Path) -> list[dict[str, Any]]:
+    """Load normalized runs from a saved analysis JSON report."""
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError(f"Analysis report must contain a list of runs: {report_path}")
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _resolve_compare_report_path(
+    sweep_path: Path,
+    report_ref: str,
+) -> Path:
+    """Resolve an analysis JSON report reference for comparison."""
+    candidate = Path(report_ref)
+    if candidate.suffix == ".json":
+        resolved_candidate = candidate.resolve()
+        if resolved_candidate.exists():
+            return resolved_candidate
+        raise FileNotFoundError(f"Comparison report not found: {resolved_candidate}")
+
+    analysis_dir = get_sweep_analysis_dir(sweep_path)
+    if report_ref == "latest":
+        latest_path = get_sweep_analysis_json_path(sweep_path)
+        if latest_path.exists():
+            return latest_path
+        raise FileNotFoundError(
+            f"No previous JSON analysis report found in {analysis_dir}"
+        )
+
+    normalized_name = _normalize_analysis_name(report_ref)
+    if normalized_name is None:
+        raise ValueError("Comparison report name cannot be empty")
+
+    resolved_path = analysis_dir / f"{normalized_name}.json"
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"Comparison report not found: {resolved_path}")
+    return resolved_path
+
+
+def _format_metric_transition(previous_value: Any, current_value: Any) -> str:
+    """Render one metric transition for comparison output."""
+    previous_text = _format_metric_value(previous_value)
+    current_text = _format_metric_value(current_value)
+    if not isinstance(previous_value, (int, float)) or not isinstance(
+        current_value,
+        (int, float),
+    ):
+        return f"{previous_text} -> {current_text}"
+    delta = float(current_value) - float(previous_value)
+    return f"{previous_text} -> {current_text} ({delta:+.6f})"
+
+
+def _build_comparison_summary(
+    current_runs: list[dict[str, Any]],
+    previous_runs: list[dict[str, Any]],
+    *,
+    previous_label: str,
+) -> dict[str, Any] | None:
+    """Build a compact comparison summary between two analyses."""
+    current_sorted = _sort_runs_for_display(current_runs)
+    previous_sorted = _sort_runs_for_display(previous_runs)
+    previous_by_name = {
+        str(run.get("run_name")): run
+        for run in previous_sorted
+        if isinstance(run.get("run_name"), str)
+    }
+    current_specs = _get_ranking_specs(current_sorted)
+
+    comparison_rows: list[list[str]] = []
+    for current_rank, run in enumerate(current_sorted, start=1):
+        run_name = run["run_name"]
+        previous_run = previous_by_name.get(run_name)
+        if previous_run is None:
+            continue
+
+        previous_rank = int(previous_run.get("_rank", 0) or 0)
+        rank_delta = previous_rank - current_rank
+        comparison_rows.append(
+            [
+                run_name,
+                str(previous_rank or "-"),
+                str(current_rank),
+                f"{rank_delta:+d}" if previous_rank else "-",
+                *[
+                    _format_metric_transition(
+                        _get_ranking_value(previous_run, spec["metric"]),
+                        _get_ranking_value(run, spec["metric"]),
+                    )
+                    for spec in current_specs
+                ],
+            ]
+        )
+
+    if not comparison_rows:
+        return None
+
+    previous_top = previous_sorted[0]["run_name"] if previous_sorted else "-"
+    current_top = current_sorted[0]["run_name"] if current_sorted else "-"
+    return {
+        "label": previous_label,
+        "previous_top": previous_top,
+        "current_top": current_top,
+        "headers": [
+            "Run",
+            "Old Rank",
+            "New Rank",
+            "ΔRank",
+            *[f"{spec['metric']} Δ" for spec in current_specs],
+        ],
+        "rows": comparison_rows,
+    }
+
+
+def _render_text_report(
+    sweep_path: Path,
+    runs: list[dict[str, Any]],
+    *,
+    comparison: dict[str, Any] | None = None,
+) -> str:
     """Render a human-readable text report for the collected sweep runs."""
     sorted_runs = _sort_runs_for_display(runs)
     primary_metric, primary_mode, primary_mode_note = _resolve_primary_metric_details(
@@ -814,6 +932,22 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
             ]
         )
 
+    if comparison is not None:
+        lines.extend(
+            [
+                "",
+                f"Comparison vs {comparison['label']}",
+                f"Previous top run: {comparison['previous_top']}",
+                f"Current top run: {comparison['current_top']}",
+                *(
+                    _render_table(
+                        comparison["headers"],
+                        comparison["rows"],
+                    )
+                ),
+            ]
+        )
+
     failures = [run for run in sorted_runs if run.get("error_message")]
     if failures:
         lines.extend(["", "Failures"])
@@ -842,7 +976,12 @@ def _render_markdown_table(headers: list[str], rows: list[list[str]]) -> list[st
     return markdown_rows
 
 
-def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
+def _render_markdown_report(
+    sweep_path: Path,
+    runs: list[dict[str, Any]],
+    *,
+    comparison: dict[str, Any] | None = None,
+) -> str:
     """Render a Markdown report for one collected sweep."""
     sorted_runs = _sort_runs_for_display(runs)
     primary_metric, primary_mode, primary_mode_note = _resolve_primary_metric_details(
@@ -957,6 +1096,24 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
         )
         lines.append("")
 
+    if comparison is not None:
+        lines.extend(
+            [
+                f"## Comparison vs {comparison['label']}",
+                "",
+                f"- Previous top run: `{comparison['previous_top']}`",
+                f"- Current top run: `{comparison['current_top']}`",
+                "",
+                *(
+                    _render_markdown_table(
+                        comparison["headers"],
+                        comparison["rows"],
+                    )
+                ),
+                "",
+            ]
+        )
+
     failures = [run for run in sorted_runs if run.get("error_message")]
     if failures:
         lines.extend(["## Failures", ""])
@@ -981,9 +1138,9 @@ def _write_analysis_reports(
     runs: list[dict[str, Any]],
     *,
     report_name: str | None,
-    write_json_report: bool,
-) -> tuple[Path, Path | None]:
-    """Write versioned Markdown and optional JSON analysis reports."""
+    comparison: dict[str, Any] | None = None,
+) -> tuple[Path, Path]:
+    """Write versioned Markdown and JSON analysis reports."""
     analysis_dir = get_sweep_analysis_dir(sweep_path)
     analysis_dir.mkdir(parents=True, exist_ok=True)
     resolved_report_name = _normalize_analysis_name(report_name)
@@ -992,14 +1149,12 @@ def _write_analysis_reports(
 
     markdown_path = analysis_dir / f"{resolved_report_name}.md"
     markdown_path.write_text(
-        _render_markdown_report(sweep_path, runs),
+        _render_markdown_report(sweep_path, runs, comparison=comparison),
         encoding="utf-8",
     )
 
-    json_path: Path | None = None
-    if write_json_report:
-        json_path = analysis_dir / f"{resolved_report_name}.json"
-        json_path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+    json_path = analysis_dir / f"{resolved_report_name}.json"
+    json_path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
 
     return markdown_path, json_path
 
@@ -1018,6 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-analyze --sweep experiments/lr_sweep.yaml\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml --name pareto_eer\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml --json\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml --compare latest\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml "
             "--metric test/eer --mode min\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml "
@@ -1032,8 +1188,8 @@ def main(argv: list[str] | None = None) -> int:
             "This command reads the generated experiments/<sweep_name>/"
             "sweep_tracking.json and writes reports under experiments/"
             "<sweep_name>/analysis/. It also reuses experiments/<sweep_name>/"
-            "analysis_cache.json unless --force is set. Use --json to "
-            "also write a matching JSON report."
+            "analysis_cache.json unless --force is set. A matching JSON report "
+            "is always written for reuse and comparisons."
         ),
     )
     parser.add_argument(
@@ -1044,7 +1200,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Also write a matching JSON report and print normalized run records.",
+        help="Print normalized run records to stdout after writing the reports.",
     )
     parser.add_argument(
         "--name",
@@ -1055,6 +1211,14 @@ def main(argv: list[str] | None = None) -> int:
         "--force",
         action="store_true",
         help="Ignore persisted analysis_cache.json and refetch ranking metrics.",
+    )
+    parser.add_argument(
+        "--compare",
+        type=str,
+        help=(
+            "Compare this analysis against a saved analysis JSON report. Use "
+            "`latest`, a report base name like `v1`, or a direct .json path."
+        ),
     )
     parser.add_argument(
         "--metric",
@@ -1098,20 +1262,29 @@ def main(argv: list[str] | None = None) -> int:
         rank_method=args.rank_method,
         force_refresh=args.force,
     )
+    comparison = None
+    if args.compare:
+        compare_path = _resolve_compare_report_path(sweep_path, args.compare)
+        previous_runs = _load_analysis_runs(compare_path)
+        comparison = _build_comparison_summary(
+            runs,
+            previous_runs,
+            previous_label=compare_path.stem,
+        )
+
     markdown_path, json_path = _write_analysis_reports(
         sweep_path,
         runs,
         report_name=args.name,
-        write_json_report=args.json,
+        comparison=comparison,
     )
     _emit_progress(f"Wrote Markdown report to {markdown_path}")
-    if json_path is not None:
-        _emit_progress(f"Wrote JSON report to {json_path}")
+    _emit_progress(f"Wrote JSON report to {json_path}")
 
     if args.json:
         print(json.dumps(runs, indent=2))
     else:
-        print(_render_text_report(sweep_path, runs))
+        print(_render_text_report(sweep_path, runs, comparison=comparison))
 
     return 0
 
