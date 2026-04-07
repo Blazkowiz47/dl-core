@@ -232,6 +232,10 @@ scaffold a `wandb` callback block, W&B tracking defaults, and `.env.example`.
 Each `dl-core add ...` command creates the new module and updates the matching
 local package `__init__.py` export list under `src/`.
 
+`uv run dl-core describe ...` now also shows a minimal YAML snippet for common
+config-backed component types such as datasets, models, callbacks, optimizers,
+and trainers.
+
 Common local component scaffolds:
 
 ```bash

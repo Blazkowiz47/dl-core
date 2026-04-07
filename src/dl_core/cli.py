@@ -161,9 +161,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Describe a registered component class or importable base class.",
         description=(
             "Inspect a registered component or importable class.\n\n"
-            "Use this when you want constructor signatures, inheritance, "
-            "properties, class attributes, and public methods without opening "
-            "the source code first."
+            "Use this when you want constructor signatures, config fields, "
+            "example YAML snippets, inheritance, properties, class "
+            "attributes, and public methods without opening the source code "
+            "first."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(

@@ -5,7 +5,8 @@
 ## `dl-core`
 
 Creates local component scaffolds inside an experiment repository and lists or
-describes registered components.
+describes registered components. `dl-core describe ...` now also includes a
+minimal YAML snippet when the component has a direct config shape.
 
 ```bash
 uv run dl-core list

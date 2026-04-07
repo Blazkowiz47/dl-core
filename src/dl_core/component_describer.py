@@ -8,6 +8,7 @@ import json
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+import yaml
 
 from dl_core import load_builtin_components, load_local_components
 from dl_core.core import (
@@ -243,6 +244,16 @@ def format_description(description: dict[str, Any]) -> str:
             if isinstance(description_text, str) and description_text:
                 lines.append(f"    {description_text}")
 
+    lines.extend(["", "Example config:"])
+    config_example = description.get("config_example")
+    if not isinstance(config_example, str) or not config_example:
+        lines.append("  (no direct snippet available)")
+    else:
+        lines.append("  ```yaml")
+        for example_line in config_example.splitlines():
+            lines.append(f"  {example_line}")
+        lines.append("  ```")
+
     lines.extend(["", "Properties:"])
     properties = description["properties"]
     if not properties:
@@ -367,6 +378,12 @@ def _describe_class(
         "inheritance": [_qualified_base_name(base) for base in cls.__mro__],
         "docstring": inspect.getdoc(cls),
         "config_fields": _collect_config_fields(cls),
+        "config_example": _build_config_example(
+            component_type,
+            requested_name,
+            registered_names,
+            _collect_config_fields(cls),
+        ),
         "properties": _collect_properties(cls),
         "class_attributes": _collect_class_attributes(cls),
         "methods": _collect_methods(cls),
@@ -431,6 +448,69 @@ def _collect_class_attributes(cls: type[Any]) -> list[dict[str, str]]:
             continue
         class_attributes.append({"name": name, "value_repr": repr(value)})
     return class_attributes
+
+
+def _build_config_example(
+    component_type: str,
+    requested_name: str,
+    registered_names: list[str],
+    config_fields: list[dict[str, Any]],
+) -> str | None:
+    """Build a minimal YAML snippet for directly configurable component types."""
+    component_name = registered_names[0] if registered_names else requested_name
+    field_values = _build_example_field_values(config_fields)
+
+    if component_type == "dataset":
+        payload = {"dataset": {"name": component_name, **field_values}}
+    elif component_type == "accelerator":
+        payload = {"accelerator": {"type": component_name, **field_values}}
+    elif component_type == "executor":
+        payload = {"executor": {"name": component_name, **field_values}}
+    elif component_type == "model":
+        payload = {"models": {component_name: field_values}}
+    elif component_type == "trainer":
+        payload = {"trainer": {component_name: field_values}}
+    elif component_type == "criterion":
+        payload = {"criterions": {component_name: field_values}}
+    elif component_type == "metric_manager":
+        payload = {"metric_managers": {component_name: field_values}}
+    elif component_type == "callback":
+        payload = {"callbacks": {component_name: field_values}}
+    elif component_type == "optimizer":
+        payload = {"optimizers": {"name": component_name, **field_values}}
+    elif component_type == "scheduler":
+        payload = {"schedulers": {"name": component_name, **field_values}}
+    elif component_type == "augmentation":
+        payload = {"dataset": {"augmentation": {component_name: field_values}}}
+    elif component_type == "sampler":
+        payload = {"dataset": {"sampler": {component_name: field_values}}}
+    else:
+        return None
+
+    return yaml.safe_dump(
+        payload,
+        sort_keys=False,
+        default_flow_style=False,
+    ).rstrip()
+
+
+def _build_example_field_values(
+    config_fields: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build example field values from declared config metadata."""
+    field_values: dict[str, Any] = {}
+    for field in config_fields:
+        field_name = field.get("name")
+        if not isinstance(field_name, str) or not field_name:
+            continue
+        if field_name in {"name", "type"}:
+            continue
+        if "default" in field:
+            field_values[field_name] = field["default"]
+            continue
+        if field.get("required"):
+            field_values[field_name] = "<required>"
+    return field_values
 
 
 def _collect_methods(cls: type[Any]) -> list[dict[str, str | None]]:
