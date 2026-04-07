@@ -80,7 +80,7 @@ description = "Experiment repository for {project_name}."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "deep-learning-core>=0.0.15,<0.1",
+    "deep-learning-core>=0.0.16,<0.1",
 ]
 
 [tool.hatch.build.targets.wheel]
