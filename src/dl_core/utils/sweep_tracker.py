@@ -253,6 +253,13 @@ class SweepTracker:
                 finally:
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
+    def cleanup_lock_file(self) -> None:
+        """Remove the sweep lock file after sweep execution completes."""
+        try:
+            self.lock_path.unlink(missing_ok=True)
+        except OSError:
+            logger.debug("Failed to remove sweep lock file: %s", self.lock_path)
+
     def get_completed_runs(self) -> List[int]:
         """
         Get indices of completed runs.

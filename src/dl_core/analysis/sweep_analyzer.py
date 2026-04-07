@@ -36,10 +36,21 @@ def get_sweep_analysis_json_path(sweep_path: Path) -> Path:
     return sweep_path.parent / sweep_path.stem / "analysis.json"
 
 
+def get_sweep_analysis_cache_path(sweep_path: Path) -> Path:
+    """Resolve the persistent analyzer cache path for a sweep."""
+    return get_sweep_tracking_path(sweep_path).parent / "analysis_cache.json"
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     """Load a JSON file into a dictionary."""
     with open(path, "r") as f:
         return json.load(f)
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write a JSON payload to disk with stable formatting."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _emit_progress(message: str) -> None:
@@ -77,6 +88,7 @@ def collect_sweep_runs(
     *,
     ranking_metrics: list[dict[str, str]] | None = None,
     rank_method: str = "lexicographic",
+    force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Collect normalized run analysis records for a sweep.
@@ -96,8 +108,14 @@ def collect_sweep_runs(
     load_builtin_components()
     load_local_components(resolved_sweep_path)
     sweep_data = _load_json(tracking_path)
+    cache_path = get_sweep_analysis_cache_path(resolved_sweep_path)
+    if cache_path.exists() and not force_refresh:
+        sweep_data["_analysis_cache"] = _load_json(cache_path)
+    else:
+        sweep_data["_analysis_cache"] = {}
     sweep_data["_tracking_dir"] = str(tracking_path.parent)
     sweep_data["_sweep_path"] = str(resolved_sweep_path)
+    sweep_data["_force_analysis_refresh"] = force_refresh
     sweep_data["_ranking_metrics"] = ranking_metrics or [
         {"metric": "test/accuracy", "mode": "max"}
     ]
@@ -168,6 +186,10 @@ def collect_sweep_runs(
                 )
             )
             pbar.update(1)
+
+    analysis_cache = sweep_data.get("_analysis_cache")
+    if isinstance(analysis_cache, dict) and analysis_cache:
+        _write_json(cache_path, analysis_cache)
 
     return collected_runs
 
@@ -960,7 +982,9 @@ def main(argv: list[str] | None = None) -> int:
             "--rank-method rank-sum\n\n"
             "This command reads the generated experiments/<sweep_name>/"
             "sweep_tracking.json and writes experiments/<sweep_name>/"
-            "analysis.md. Use --json to also write analysis.json."
+            "analysis.md. It also reuses experiments/<sweep_name>/"
+            "analysis_cache.json unless --force is set. Use --json to "
+            "also write analysis.json."
         ),
     )
     parser.add_argument(
@@ -972,6 +996,11 @@ def main(argv: list[str] | None = None) -> int:
         "--json",
         action="store_true",
         help="Also write analysis.json and print the normalized run records.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Ignore persisted analysis_cache.json and refetch ranking metrics.",
     )
     parser.add_argument(
         "--metric",
@@ -1013,6 +1042,7 @@ def main(argv: list[str] | None = None) -> int:
         sweep_path,
         ranking_metrics=ranking_specs,
         rank_method=args.rank_method,
+        force_refresh=args.force,
     )
     markdown_path, json_path = _write_analysis_reports(
         sweep_path,

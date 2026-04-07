@@ -14,6 +14,7 @@ extras and companion extension packages.
 - `dl-core add` defaults to plain base classes unless `--base` is given
 - `dl-analyze` is the primary sweep-analysis CLI
 - `dl-analyze` now supports explicit ranking metrics and rank methods
+- `dl-analyze` now persists `analysis_cache.json` next to `sweep_tracking.json`
 - local artifacts now use:
   - `artifacts/runs/<run_name>/...`
   - `artifacts/sweeps/<sweep_name>/<run_name>/...`
@@ -189,7 +190,9 @@ of:
 - `--rank-method pareto`
 
 For Azure-backed sweeps, `dl-analyze` fetches only the requested metric
-histories instead of downloading every tracked metric history.
+histories instead of downloading every tracked metric history. Those fetched
+histories are cached in `experiments/<sweep_name>/analysis_cache.json`. Use
+`--force` to ignore and refresh that cache.
 
 If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.

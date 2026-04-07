@@ -110,6 +110,7 @@ uv run dl-analyze --sweep experiments/lr_sweep.yaml \
 Useful flags:
 
 - `--json`
+- `--force`
 - `--metric`
 - `--mode`
 - `--rank-method`
@@ -118,6 +119,7 @@ Notes:
 
 - ranking defaults to `test/accuracy` with `max`
 - `--metric` and `--mode` are repeatable and matched by order
+- fetched remote metric histories are cached in `analysis_cache.json`
 - supported rank methods are `lexicographic`, `rank-sum`, and `pareto`
 
 ## `dl-train-worker`

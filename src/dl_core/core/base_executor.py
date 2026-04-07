@@ -391,6 +391,9 @@ class BaseExecutor(ABC):
             if not self.dry_run:
                 self.run_tracker.teardown_sweep()
             raise
+        finally:
+            if self.tracker is not None:
+                self.tracker.cleanup_lock_file()
 
     def run(self, config_path: str, run_name: Optional[str] = None) -> bool:
         """
