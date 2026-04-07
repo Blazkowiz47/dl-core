@@ -5,7 +5,7 @@ Agreed next improvements for `deep-learning-core`, in working order:
 - [x] Strengthen `dl-run --validate-only` into a real preflight that resolves
   configured components and prints an effective summary without starting
   training.
-- [ ] Add a clean matrix preview/export mode to `dl-sweep`.
+- [x] Add a clean matrix preview/export mode to `dl-sweep`.
 - [ ] Add report comparison support to `dl-analyze`.
 - [ ] Add a separate artifact sync/download command for remote-backed sweeps.
 - [ ] Show minimal example config snippets in `dl-core describe`.
