@@ -52,6 +52,9 @@ from .registry import (
 logger = logging.getLogger(__name__)
 
 
+_INTERRUPT_ENV_KEY = "DL_CORE_INTERRUPT_REASON"
+
+
 class EpochTrainer(ABC):
     """
     Epoch-based trainer base class for supervised training workloads.
@@ -307,6 +310,11 @@ class EpochTrainer(ABC):
         ):
             shutil.rmtree(artifact_manager.run_dir, ignore_errors=True)
 
+    def _consume_interrupt_reason(self) -> str | None:
+        """Return and clear any pending process-level interrupt reason."""
+
+        return os.environ.pop(_INTERRUPT_ENV_KEY, None)
+
     def _load_continue_model(self) -> None:
         # Load checkpoint if specified in trainer config (resume training)
         # This is different from loading pretrained weights - it restores full training state
@@ -350,16 +358,33 @@ class EpochTrainer(ABC):
                 self.perform_training()
         except KeyboardInterrupt as e:
             run_status = "interrupted"
-            error_message = "Training interrupted by user"
+            interrupt_reason = self._consume_interrupt_reason()
+            if str(e):
+                error_message = str(e)
+            elif interrupt_reason:
+                error_message = f"Received {interrupt_reason}"
+            else:
+                error_message = "Training interrupted by user"
             pending_error = e
             self.logger.warning(error_message)
             self._checkpoint_dir_cleanup()
         except Exception as e:
-            run_status = "failed"
-            error_message = str(e)
+            interrupt_reason = self._consume_interrupt_reason()
+            if interrupt_reason:
+                run_status = "interrupted"
+                error_message = f"Received {interrupt_reason}"
+                self.logger.warning(
+                    "Treating exception during %s as interrupt after %s: %s",
+                    phase,
+                    interrupt_reason,
+                    e,
+                )
+            else:
+                run_status = "failed"
+                error_message = str(e)
+                self.logger.error(f"{phase.capitalize()} failed: {e}")
+                traceback.print_exc()
             pending_error = e
-            self.logger.error(f"{phase.capitalize()} failed: {e}")
-            traceback.print_exc()
             self._checkpoint_dir_cleanup()
 
         finally:
