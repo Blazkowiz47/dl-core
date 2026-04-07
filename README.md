@@ -154,6 +154,9 @@ New local runs use the flattened artifact layout:
 - `artifacts/runs/<run_name>/...`
 - `artifacts/sweeps/<sweep_name>/<run_name>/...`
 
+`dl-core` does not create a `latest` symlink for these run directories. Use the
+concrete run directory names directly.
+
 ## First Run Workflow
 
 If you are starting from scratch, the minimum path is:

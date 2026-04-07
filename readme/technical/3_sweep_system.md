@@ -67,6 +67,9 @@ During execution, the local sweep path also writes:
 - `artifacts/sweeps/<sweep>/<run>/final/metrics/history.json`
 - `artifacts/sweeps/<sweep>/<run>/final/run_info.json`
 
+No `latest` symlink is created under `artifacts/sweeps/<sweep>/`; consumers
+should use the concrete run directories tracked in `sweep_tracking.json`.
+
 That local artifact contract is what powers `dl-analyze`.
 
 ## Tracking Metadata

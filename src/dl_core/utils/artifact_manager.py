@@ -20,7 +20,9 @@ class ArtifactManager:
     Manages artifact creation and organization for training runs.
 
     Creates standardized directory structure and provides utilities for
-    saving metrics, plots, checkpoints, and other artifacts.
+    saving metrics, plots, checkpoints, and other artifacts. Run directories are
+    addressed by their concrete names; the manager does not create `latest`
+    symlinks.
 
     Directory Structure:
         output_dir/runs/run_name/
