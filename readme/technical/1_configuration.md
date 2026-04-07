@@ -99,6 +99,17 @@ ema:
   models: [main]
 ```
 
+Checkpoint behavior when `save_in_checkpoint: true`:
+
+- `models_state_dict` keeps the normal training weights
+- `ema_state_dict` keeps EMA resume metadata and shadow parameters
+- `ema_models_state_dict` keeps a full drop-in model state dict with EMA
+  parameters and the original buffers preserved
+
+That lets trainer-managed evaluation use EMA during `validation_epoch()` and
+`test_epoch()`, while standalone evaluator code can directly load
+`checkpoint["ema_models_state_dict"]["main"]` when it wants EMA weights.
+
 ## Trainer
 
 Generated repos default to a project-named trainer wrapper:

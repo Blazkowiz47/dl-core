@@ -18,6 +18,8 @@ extras and companion extension packages.
 - `dl-analyze` now writes versioned reports under `analysis/vN.md`
 - `dl-sync --sweep ... --artifacts` now syncs tracked remote artifacts into the
   local repository when the active backend supports it
+- EMA checkpoints now include a drop-in `ema_models_state_dict` alongside the
+  normal training weights and EMA resume metadata
 - `dl-run --validate-only` now performs a real preflight by resolving the
   configured components without starting training
 - `dl-inspect-dataset` now summarizes split sizes and one collated batch from
@@ -218,12 +220,8 @@ Remote-backed integrations can download the run bundle and patch
 `sweep_tracking.json` with the resolved local artifact paths.
 
 `dl-analyze` defaults to ranking by `test/accuracy` with `max`. You can make
-ranking explicit with repeatable `--metric` and `--mode` flags, then choose one
-of:
-
-- `--rank-method lexicographic`
-- `--rank-method rank-sum`
-- `--rank-method pareto`
+that explicit or override it with one or more `--metric` / `--mode` pairs and
+choose `lexicographic`, `rank-sum`, or `pareto` ranking.
 
 For Azure-backed sweeps, `dl-analyze` fetches only the requested metric
 histories instead of downloading every tracked metric history. Those fetched
@@ -233,6 +231,23 @@ histories are cached in `experiments/<sweep_name>/analysis_cache.json`. Use
 pass `--name`. A matching JSON report is always written next to each Markdown
 report, and `--compare latest` or `--compare v1` compares the current ranking
 against a saved report.
+
+## EMA Checkpoints
+
+When EMA is enabled with `save_in_checkpoint: true`, each checkpoint stores:
+
+- `models_state_dict`: normal model weights for training resume
+- `ema_state_dict`: EMA bookkeeping and shadow-parameter state for trainer-side
+  resume
+- `ema_models_state_dict`: a full drop-in model state dict with EMA parameters
+  and the original model buffers preserved
+
+That means evaluator-side code can load:
+
+- `checkpoint["models_state_dict"]["main"]` for normal weights
+- `checkpoint["ema_models_state_dict"]["main"]` for EMA weights
+
+without needing to reconstruct EMA state manually.
 
 If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.

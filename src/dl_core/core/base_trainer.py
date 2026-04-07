@@ -2597,7 +2597,10 @@ class EpochTrainer(ABC):
         Register model states in checkpoint dict. Override in subclasses if needed.
 
         Default implementation handles single model case.
-        Uses accelerator.unwrap_model() to handle DDP unwrapping.
+        Uses accelerator.unwrap_model() to handle DDP unwrapping. When EMA is
+        enabled and checkpoint export is allowed, the payload includes both the
+        EMA resume metadata and a full drop-in ``ema_models_state_dict`` for
+        evaluator-side loading.
 
         Args:
             checkpoint_dict: Dictionary to add model states to

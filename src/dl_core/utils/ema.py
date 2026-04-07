@@ -132,7 +132,7 @@ class ExponentialMovingAverage:
             self.restore()
 
     def state_dict(self) -> Dict[str, Any]:
-        """Serialize EMA state for checkpointing."""
+        """Serialize EMA resume state for checkpointing."""
         shadow_cpu: Dict[str, Dict[str, torch.Tensor]] = {}
         for model_key, model_shadow in self.shadow_params.items():
             shadow_cpu[model_key] = {
@@ -148,7 +148,13 @@ class ExponentialMovingAverage:
         }
 
     def model_state_dicts(self) -> Dict[str, Dict[str, torch.Tensor]]:
-        """Build full model state dicts with EMA parameters and original buffers."""
+        """
+        Build full drop-in model state dicts with EMA parameters applied.
+
+        This keeps the original model buffers from ``model.state_dict()`` and
+        only replaces matching parameter entries with EMA shadow values, so the
+        result can be loaded directly with ``model.load_state_dict(...)``.
+        """
         exported: Dict[str, Dict[str, torch.Tensor]] = {}
         for model_key, model in self.models.items():
             state_dict = {
