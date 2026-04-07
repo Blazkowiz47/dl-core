@@ -94,7 +94,7 @@ class ArtifactManager:
         ├── config.yaml                # saved configuration
         ├── epoch_<n>/                 # epoch-specific artifacts
         └── final/                     # final artifacts and aliases
-            ├── checkpoints/           # latest/best aliases
+            ├── checkpoints/           # saved checkpoints and final aliases
             ├── logs/                  # training and evaluation logs
             ├── metrics/               # evaluation metrics and scores
             ├── plots/                 # final visualizations or reports
@@ -127,29 +127,6 @@ class ArtifactManager:
         # Create all directories
         for directory in directories + plot_subdirs:
             directory.mkdir(parents=True, exist_ok=True)
-
-        # Create latest symlink inside the active run grouping.
-        if self.sweep_name:
-            latest_link = self.output_dir / "sweeps" / self.sweep_name / "latest"
-        else:
-            latest_link = self.output_dir / "runs" / "latest"
-
-        try:
-            # Try to remove existing symlink/file if it exists
-            try:
-                latest_link.unlink()
-            except FileNotFoundError:
-                # Symlink doesn't exist, this is fine
-                pass
-
-            # Create new symlink pointing to run_name
-            latest_link.symlink_to(self.run_name)
-        except FileExistsError:
-            # Another process created the symlink first (multi-GPU race condition)
-            # This is fine, just log and continue
-            self.logger.debug(
-                "Symlink already created by another process (multi-GPU training)"
-            )
 
         self.logger.debug(f"Created artifact tree at {self.run_dir}")
 
@@ -531,9 +508,7 @@ class ArtifactManager:
             return
 
         # Get all run directories sorted by modification time
-        run_dirs = [
-            d for d in cleanup_dir.iterdir() if d.is_dir() and d.name != "latest"
-        ]
+        run_dirs = [d for d in cleanup_dir.iterdir() if d.is_dir()]
         run_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
 
         # Remove old directories
