@@ -72,7 +72,12 @@ def _resolve_metrics_source_backend(
     return "local"
 
 
-def collect_sweep_runs(sweep_path: str | Path) -> list[dict[str, Any]]:
+def collect_sweep_runs(
+    sweep_path: str | Path,
+    *,
+    ranking_metrics: list[dict[str, str]] | None = None,
+    rank_method: str = "lexicographic",
+) -> list[dict[str, Any]]:
     """
     Collect normalized run analysis records for a sweep.
 
@@ -93,6 +98,10 @@ def collect_sweep_runs(sweep_path: str | Path) -> list[dict[str, Any]]:
     sweep_data = _load_json(tracking_path)
     sweep_data["_tracking_dir"] = str(tracking_path.parent)
     sweep_data["_sweep_path"] = str(resolved_sweep_path)
+    sweep_data["_ranking_metrics"] = ranking_metrics or [
+        {"metric": "test/accuracy", "mode": "max"}
+    ]
+    sweep_data["_rank_method"] = rank_method
     runs = sweep_data.get("runs", {})
     collected_runs: list[dict[str, Any]] = []
     run_items = sorted(
@@ -172,6 +181,71 @@ def _format_metric_value(value: Any) -> str:
     return str(value)
 
 
+def _get_ranking_entries(run: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return normalized ranking entries for one run."""
+    ranking_entries = run.get("ranking_metrics")
+    if isinstance(ranking_entries, list) and ranking_entries:
+        return [entry for entry in ranking_entries if isinstance(entry, dict)]
+
+    selection_metric = run.get("selection_metric")
+    selection_mode = run.get("selection_mode")
+    if (
+        isinstance(selection_metric, str)
+        and selection_metric
+        and selection_mode in {"min", "max"}
+    ):
+        return [
+            {
+                "metric": selection_metric,
+                "resolved_metric": selection_metric,
+                "mode": selection_mode,
+                "value": run.get("selection_value"),
+                "best_epoch": run.get("best_epoch"),
+                "final_value": None,
+            }
+        ]
+    return []
+
+
+def _get_ranking_specs(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Resolve the shared ranking metric specs from the collected runs."""
+    for run in runs:
+        ranking_entries = _get_ranking_entries(run)
+        if ranking_entries:
+            return [
+                {"metric": str(entry["metric"]), "mode": str(entry["mode"])}
+                for entry in ranking_entries
+                if isinstance(entry.get("metric"), str)
+                and entry.get("mode") in {"min", "max"}
+            ]
+    return []
+
+
+def _get_rank_method(runs: list[dict[str, Any]]) -> str:
+    """Resolve the configured ranking method for the current sweep."""
+    for run in runs:
+        rank_method = run.get("rank_method")
+        if rank_method in {"lexicographic", "pareto"}:
+            return str(rank_method)
+    return "lexicographic"
+
+
+def _get_ranking_value(run: dict[str, Any], metric_name: str) -> Any:
+    """Return the ranking value for one requested metric on one run."""
+    for entry in _get_ranking_entries(run):
+        if entry.get("metric") == metric_name:
+            return entry.get("value")
+    return None
+
+
+def _get_ranking_best_epoch(run: dict[str, Any], metric_name: str) -> Any:
+    """Return the best epoch for one requested metric on one run."""
+    for entry in _get_ranking_entries(run):
+        if entry.get("metric") == metric_name:
+            return entry.get("best_epoch")
+    return None
+
+
 def _infer_metric_mode(metric_name: str) -> str | None:
     """Infer whether one metric should be minimized or maximized."""
     metric_lower = metric_name.lower()
@@ -214,10 +288,38 @@ def _infer_metric_mode(metric_name: str) -> str | None:
     return None
 
 
+def _build_requested_ranking_specs(
+    metric_names: list[str] | None,
+    metric_modes: list[str] | None,
+) -> list[dict[str, str]]:
+    """Build requested ranking specs from CLI arguments."""
+    resolved_metric_names = metric_names or ["test/accuracy"]
+    resolved_metric_modes = metric_modes or []
+    if resolved_metric_modes and len(resolved_metric_modes) != len(
+        resolved_metric_names
+    ):
+        raise ValueError("Provide one --mode per --metric, or omit --mode entirely.")
+
+    ranking_specs: list[dict[str, str]] = []
+    for index, metric_name in enumerate(resolved_metric_names):
+        metric_mode = (
+            resolved_metric_modes[index]
+            if index < len(resolved_metric_modes)
+            else (_infer_metric_mode(metric_name) or "max")
+        )
+        ranking_specs.append({"metric": metric_name, "mode": metric_mode})
+    return ranking_specs
+
+
 def _resolve_primary_metric_details(
     runs: list[dict[str, Any]],
 ) -> tuple[str, str, str | None]:
     """Resolve the primary metric, effective mode, and any override note."""
+    ranking_specs = _get_ranking_specs(runs)
+    if ranking_specs:
+        primary_spec = ranking_specs[0]
+        return primary_spec["metric"], primary_spec["mode"], None
+
     for run in runs:
         metric = run.get("selection_metric")
         explicit_mode = run.get("selection_mode")
@@ -243,24 +345,134 @@ def _resolve_primary_metric_details(
 
 def _sort_runs_for_display(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sort runs by selection value when available, otherwise by run index."""
-    runs_with_metric = [
-        run for run in runs if isinstance(run.get("selection_value"), (int, float))
-    ]
-    if not runs_with_metric:
-        return sorted(runs, key=lambda run: run["run_index"])
+    ranking_specs = _get_ranking_specs(runs)
+    if not ranking_specs:
+        runs_with_metric = [
+            run for run in runs if isinstance(run.get("selection_value"), (int, float))
+        ]
+        if not runs_with_metric:
+            return sorted(runs, key=lambda run: run["run_index"])
 
-    _, effective_mode, _ = _resolve_primary_metric_details(runs_with_metric)
-    reverse = effective_mode == "max"
-    metric_sorted = sorted(
-        runs_with_metric,
-        key=lambda run: float(run["selection_value"]),
-        reverse=reverse,
-    )
-    runs_without_metric = [
-        run for run in runs if not isinstance(run.get("selection_value"), (int, float))
+        _, effective_mode, _ = _resolve_primary_metric_details(runs_with_metric)
+        reverse = effective_mode == "max"
+        metric_sorted = sorted(
+            runs_with_metric,
+            key=lambda run: float(run["selection_value"]),
+            reverse=reverse,
+        )
+        runs_without_metric = [
+            run
+            for run in runs
+            if not isinstance(run.get("selection_value"), (int, float))
+        ]
+        runs_without_metric.sort(key=lambda run: run["run_index"])
+        ordered_runs = metric_sorted + runs_without_metric
+    elif _get_rank_method(runs) == "pareto":
+        ordered_runs = _sort_runs_by_pareto_front(runs, ranking_specs)
+    else:
+        ordered_runs = _sort_runs_lexicographically(runs, ranking_specs)
+
+    for rank, run in enumerate(ordered_runs, start=1):
+        run["_rank"] = rank
+    return ordered_runs
+
+
+def _sort_runs_lexicographically(
+    runs: list[dict[str, Any]],
+    ranking_specs: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Sort runs lexicographically using the configured ranking metrics."""
+    def _build_key(run: dict[str, Any]) -> tuple[Any, ...]:
+        key_parts: list[Any] = []
+        for ranking_spec in ranking_specs:
+            metric_value = _get_ranking_value(run, ranking_spec["metric"])
+            if not isinstance(metric_value, (int, float)):
+                key_parts.extend([1, float("inf")])
+                continue
+            sortable_value = (
+                float(metric_value)
+                if ranking_spec["mode"] == "min"
+                else -float(metric_value)
+            )
+            key_parts.extend([0, sortable_value])
+        key_parts.append(run["run_index"])
+        return tuple(key_parts)
+
+    return sorted(runs, key=_build_key)
+
+
+def _dominates(
+    lhs_run: dict[str, Any],
+    rhs_run: dict[str, Any],
+    ranking_specs: list[dict[str, str]],
+) -> bool:
+    """Return whether one run Pareto-dominates another."""
+    lhs_better = False
+    for ranking_spec in ranking_specs:
+        lhs_value = _get_ranking_value(lhs_run, ranking_spec["metric"])
+        rhs_value = _get_ranking_value(rhs_run, ranking_spec["metric"])
+        if not isinstance(lhs_value, (int, float)) or not isinstance(
+            rhs_value,
+            (int, float),
+        ):
+            return False
+        if ranking_spec["mode"] == "min":
+            if lhs_value > rhs_value:
+                return False
+            if lhs_value < rhs_value:
+                lhs_better = True
+        else:
+            if lhs_value < rhs_value:
+                return False
+            if lhs_value > rhs_value:
+                lhs_better = True
+    return lhs_better
+
+
+def _sort_runs_by_pareto_front(
+    runs: list[dict[str, Any]],
+    ranking_specs: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Sort runs by Pareto front and lexicographic tie-breaks."""
+    complete_runs = [
+        run
+        for run in runs
+        if all(
+            isinstance(_get_ranking_value(run, spec["metric"]), (int, float))
+            for spec in ranking_specs
+        )
     ]
-    runs_without_metric.sort(key=lambda run: run["run_index"])
-    return metric_sorted + runs_without_metric
+    incomplete_runs = [
+        run
+        for run in runs
+        if run not in complete_runs
+    ]
+    remaining_runs = complete_runs[:]
+    ordered_runs: list[dict[str, Any]] = []
+    front_index = 1
+    while remaining_runs:
+        current_front = [
+            run
+            for run in remaining_runs
+            if not any(
+                _dominates(other_run, run, ranking_specs)
+                for other_run in remaining_runs
+                if other_run is not run
+            )
+        ]
+        current_front = _sort_runs_lexicographically(current_front, ranking_specs)
+        for run in current_front:
+            run["_front"] = front_index
+        ordered_runs.extend(current_front)
+        remaining_runs = [
+            run for run in remaining_runs if run not in current_front
+        ]
+        front_index += 1
+
+    for run in incomplete_runs:
+        run["_front"] = None
+    ordered_runs.extend(_sort_runs_lexicographically(incomplete_runs, ranking_specs))
+    return ordered_runs
 
 
 def _summarize_status_counts(runs: list[dict[str, Any]]) -> dict[str, int]:
@@ -320,29 +532,16 @@ def _get_top_runs(
 
 def _collect_metric_statistics(
     runs: list[dict[str, Any]],
-    *,
-    primary_metric: str,
-    metric_columns: list[str],
 ) -> list[dict[str, str]]:
-    """Collect basic metric statistics from selection and best-metric values."""
+    """Collect basic statistics for the configured ranking metrics."""
     metric_values: dict[str, list[float]] = {}
-    if primary_metric != "-":
-        metric_values[primary_metric] = [
-            float(run["selection_value"])
+    for ranking_spec in _get_ranking_specs(runs):
+        metric_name = ranking_spec["metric"]
+        metric_values[metric_name] = [
+            float(_get_ranking_value(run, metric_name))
             for run in runs
-            if isinstance(run.get("selection_value"), (int, float))
+            if isinstance(_get_ranking_value(run, metric_name), (int, float))
         ]
-
-    for metric_name in metric_columns:
-        values: list[float] = []
-        for run in runs:
-            best_metrics = run.get("best_metrics")
-            if not isinstance(best_metrics, dict):
-                continue
-            metric_value = best_metrics.get(metric_name)
-            if isinstance(metric_value, (int, float)):
-                values.append(float(metric_value))
-        metric_values[metric_name] = values
 
     statistics: list[dict[str, str]] = []
     for metric_name, values in metric_values.items():
@@ -384,13 +583,24 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     primary_metric, primary_mode, primary_mode_note = _resolve_primary_metric_details(
         sorted_runs
     )
+    rank_method = _get_rank_method(sorted_runs)
+    ranking_specs = _get_ranking_specs(sorted_runs)
     status_counts = _summarize_status_counts(sorted_runs)
     top_runs = _get_top_runs(sorted_runs)
     lines = [
         f"Sweep: {sweep_path.name}",
         f"Tracked runs: {len(sorted_runs)}",
+        f"Rank method: {rank_method}",
         f"Primary metric: {primary_metric}",
         f"Mode: {primary_mode}",
+        (
+            "Ranking metrics: "
+            + ", ".join(
+                f"{spec['metric']} ({spec['mode']})" for spec in ranking_specs
+            )
+            if ranking_specs
+            else "Ranking metrics: -"
+        ),
         (
             "Status summary: "
             + ", ".join(
@@ -403,14 +613,33 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
     if primary_mode_note:
         lines.extend([f"Mode note: {primary_mode_note}", ""])
 
-    ranking_rows = [
+    ranking_headers = ["Rank"]
+    if rank_method == "pareto":
+        ranking_headers.append("Front")
+    ranking_headers.extend(["Run", "Status"])
+    ranking_headers.extend(
         [
-            str(rank),
-            run["run_name"],
-            str(run.get("status", "-")),
-            _format_metric_value(run.get("selection_value")),
-            str(run.get("best_epoch", "-")),
+            f"{spec['metric']} [{spec['mode']}]"
+            for spec in ranking_specs
         ]
+    )
+    ranking_rows = [
+        (
+            [str(run.get("_rank", rank))]
+            + (
+                [str(run.get("_front", "-"))]
+                if rank_method == "pareto"
+                else []
+            )
+            + [
+                run["run_name"],
+                str(run.get("status", "-")),
+                *[
+                    _format_metric_value(_get_ranking_value(run, spec["metric"]))
+                    for spec in ranking_specs
+                ],
+            ]
+        )
         for rank, run in enumerate(sorted_runs, start=1)
     ]
     lines.extend(
@@ -418,55 +647,28 @@ def _render_text_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str:
             "Ranking",
             *(
                 _render_table(
-                    ["Rank", "Run", "Status", "Value", "Best Epoch"],
+                    ranking_headers,
                     ranking_rows,
                 )
             ),
         ]
-    )
-
-    metric_columns = _select_common_best_metric_columns(
-        sorted_runs,
-        primary_metric=primary_metric,
     )
     if top_runs:
         lines.extend(["", "Top Performers"])
         for rank, run in enumerate(top_runs, start=1):
             lines.append(
                 f"{rank}. {run['run_name']} | "
-                f"value={_format_metric_value(run.get('selection_value'))} | "
-                f"best_epoch={run.get('best_epoch', '-')}"
+                + " | ".join(
+                    (
+                        f"{spec['metric']}="
+                        f"{_format_metric_value(_get_ranking_value(run, spec['metric']))}"
+                        f"@{_get_ranking_best_epoch(run, spec['metric']) or '-'}"
+                    )
+                    for spec in ranking_specs
+                )
             )
 
-    if metric_columns:
-        metric_rows = []
-        for run in sorted_runs:
-            best_metrics = run.get("best_metrics")
-            if not isinstance(best_metrics, dict):
-                continue
-            metric_rows.append(
-                [
-                    run["run_name"],
-                    *[
-                        _format_metric_value(best_metrics.get(metric_name))
-                        for metric_name in metric_columns
-                    ],
-                ]
-            )
-        if metric_rows:
-            lines.extend(
-                [
-                    "",
-                    "Common Best-Epoch Metrics",
-                    *(_render_table(["Run", *metric_columns], metric_rows)),
-                ]
-            )
-
-    metric_statistics = _collect_metric_statistics(
-        sorted_runs,
-        primary_metric=primary_metric,
-        metric_columns=metric_columns,
-    )
+    metric_statistics = _collect_metric_statistics(sorted_runs)
     if metric_statistics:
         stats_rows = [
             [
@@ -525,6 +727,8 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
     primary_metric, primary_mode, primary_mode_note = _resolve_primary_metric_details(
         sorted_runs
     )
+    rank_method = _get_rank_method(sorted_runs)
+    ranking_specs = _get_ranking_specs(sorted_runs)
     status_counts = _summarize_status_counts(sorted_runs)
     top_runs = _get_top_runs(sorted_runs)
     lines = [
@@ -532,8 +736,17 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
         "",
         f"- Sweep: `{sweep_path.name}`",
         f"- Tracked runs: {len(sorted_runs)}",
+        f"- Rank method: `{rank_method}`",
         f"- Primary metric: `{primary_metric}`",
         f"- Mode: `{primary_mode}`",
+        "- Ranking metrics: "
+        + (
+            ", ".join(
+                f"`{spec['metric']}` ({spec['mode']})" for spec in ranking_specs
+            )
+            if ranking_specs
+            else "-"
+        ),
         f"- Status summary: "
         + ", ".join(
             f"`{status}={count}`" for status, count in sorted(status_counts.items())
@@ -544,28 +757,39 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
         lines.extend([f"- Mode note: {primary_mode_note}", ""])
     lines.extend(["## Ranking", ""])
 
+    ranking_headers = ["Rank"]
+    if rank_method == "pareto":
+        ranking_headers.append("Front")
+    ranking_headers.extend(["Run", "Status"])
+    ranking_headers.extend(
+        [f"{spec['metric']} [{spec['mode']}]" for spec in ranking_specs]
+    )
     ranking_rows = [
-        [
-            str(rank),
-            run["run_name"],
-            str(run.get("status", "-")),
-            _format_metric_value(run.get("selection_value")),
-            str(run.get("best_epoch", "-")),
-        ]
+        (
+            [str(run.get("_rank", rank))]
+            + (
+                [str(run.get("_front", "-"))]
+                if rank_method == "pareto"
+                else []
+            )
+            + [
+                run["run_name"],
+                str(run.get("status", "-")),
+                *[
+                    _format_metric_value(_get_ranking_value(run, spec["metric"]))
+                    for spec in ranking_specs
+                ],
+            ]
+        )
         for rank, run in enumerate(sorted_runs, start=1)
     ]
     lines.extend(
         _render_markdown_table(
-            ["Rank", "Run", "Status", "Value", "Best Epoch"],
+            ranking_headers,
             ranking_rows,
         )
     )
     lines.append("")
-
-    metric_columns = _select_common_best_metric_columns(
-        sorted_runs,
-        primary_metric=primary_metric,
-    )
     if top_runs:
         lines.extend(["## Top Performers", ""])
         for rank, run in enumerate(top_runs, start=1):
@@ -573,47 +797,19 @@ def _render_markdown_report(sweep_path: Path, runs: list[dict[str, Any]]) -> str
                 [
                     f"### {rank}. {run['run_name']}",
                     "",
-                    f"- Value: `{_format_metric_value(run.get('selection_value'))}`",
-                    f"- Best epoch: `{run.get('best_epoch', '-')}`",
-                ]
-            )
-            best_metrics = run.get("best_metrics")
-            if isinstance(best_metrics, dict):
-                for metric_name in metric_columns[:3]:
-                    if metric_name in best_metrics:
-                        lines.append(
-                            f"- {metric_name}: "
-                            f"`{_format_metric_value(best_metrics.get(metric_name))}`"
-                        )
-            lines.append("")
-
-    if metric_columns:
-        metric_rows = []
-        for run in sorted_runs:
-            best_metrics = run.get("best_metrics")
-            if not isinstance(best_metrics, dict):
-                continue
-            metric_rows.append(
-                [
-                    run["run_name"],
                     *[
-                        _format_metric_value(best_metrics.get(metric_name))
-                        for metric_name in metric_columns
+                        (
+                            f"- `{spec['metric']}`: "
+                            f"`{_format_metric_value(_get_ranking_value(run, spec['metric']))}` "
+                            f"(best epoch `{_get_ranking_best_epoch(run, spec['metric']) or '-'}`)"
+                        )
+                        for spec in ranking_specs
                     ],
                 ]
             )
-        if metric_rows:
-            lines.extend(["## Common Best-Epoch Metrics", ""])
-            lines.extend(
-                _render_markdown_table(["Run", *metric_columns], metric_rows)
-            )
             lines.append("")
 
-    metric_statistics = _collect_metric_statistics(
-        sorted_runs,
-        primary_metric=primary_metric,
-        metric_columns=metric_columns,
-    )
+    metric_statistics = _collect_metric_statistics(sorted_runs)
     if metric_statistics:
         lines.extend(["## Metric Statistics", ""])
         lines.extend(
@@ -686,7 +882,13 @@ def main(argv: list[str] | None = None) -> int:
         epilog=(
             "Examples:\n"
             "  dl-analyze --sweep experiments/lr_sweep.yaml\n"
-            "  dl-analyze --sweep experiments/lr_sweep.yaml --json\n\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml --json\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml "
+            "--metric test/eer --mode min\n"
+            "  dl-analyze --sweep experiments/lr_sweep.yaml "
+            "--metric test/eer --mode min "
+            "--metric test/accuracy --mode max "
+            "--rank-method lexicographic\n\n"
             "This command reads the generated experiments/<sweep_name>/"
             "sweep_tracking.json and writes experiments/<sweep_name>/"
             "analysis.md. Use --json to also write analysis.json."
@@ -702,10 +904,44 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also write analysis.json and print the normalized run records.",
     )
+    parser.add_argument(
+        "--metric",
+        action="append",
+        dest="metrics",
+        help=(
+            "Metric used for ranking. Repeat to add lexicographic tie-breakers. "
+            "Defaults to test/accuracy."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        action="append",
+        choices=["min", "max"],
+        dest="modes",
+        help=(
+            "Optimization mode for each --metric. Repeat in the same order as "
+            "--metric. When omitted, modes are inferred or default to max."
+        ),
+    )
+    parser.add_argument(
+        "--rank-method",
+        choices=["lexicographic", "pareto"],
+        default="lexicographic",
+        help="How to rank runs from the requested metrics.",
+    )
     args = parser.parse_args(argv)
 
     sweep_path = Path(args.sweep).resolve()
-    runs = collect_sweep_runs(sweep_path)
+    try:
+        ranking_specs = _build_requested_ranking_specs(args.metrics, args.modes)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    runs = collect_sweep_runs(
+        sweep_path,
+        ranking_metrics=ranking_specs,
+        rank_method=args.rank_method,
+    )
     markdown_path, json_path = _write_analysis_reports(
         sweep_path,
         runs,

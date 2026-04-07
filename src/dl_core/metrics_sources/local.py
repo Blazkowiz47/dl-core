@@ -22,6 +22,45 @@ def _normalize_metric_key(key: str) -> str:
 class LocalMetricsSource(BaseMetricsSource):
     """Read normalized run data from local artifact files."""
 
+    def prepare_sweep(
+        self,
+        run_items: list[tuple[int, dict[str, Any]]],
+        sweep_data: dict[str, Any],
+        progress_callback: Any | None = None,
+    ) -> None:
+        """Prefetch requested local metric histories once per sweep."""
+        ranking_specs = self._get_requested_ranking_specs(sweep_data)
+        if not ranking_specs:
+            for _ in run_items:
+                if progress_callback is not None:
+                    progress_callback()
+            return
+
+        history_cache = sweep_data.setdefault("_local_metric_history_cache", {})
+        for run_index, run_data in run_items:
+            config_path = self._resolve_config_path(run_index, run_data, sweep_data)
+            artifact_dir = self._infer_artifact_dir(run_data, config_path)
+            history_path = self._resolve_metrics_path(
+                run_data,
+                artifact_dir,
+                filename="history.json",
+                tracker_key="metrics_history_path",
+            )
+
+            run_cache: dict[str, list[dict[str, int | float]]] = {}
+            if history_path is not None and history_path.exists():
+                history_payload = self.load_json(history_path)
+                for ranking_spec in ranking_specs:
+                    metric_name = ranking_spec["metric"]
+                    run_cache[metric_name] = self._extract_local_metric_history(
+                        history_payload,
+                        metric_name,
+                    )
+
+            history_cache[str(run_index)] = run_cache
+            if progress_callback is not None:
+                progress_callback()
+
     def collect_run(
         self,
         run_index: int,
@@ -64,6 +103,23 @@ class LocalMetricsSource(BaseMetricsSource):
             or Path(config_path or f"run_{run_index}.yaml").stem
         )
 
+        ranking_entries = self._build_requested_ranking_entries(
+            run_index=run_index,
+            summary=summary,
+            history_path=history_path,
+            sweep_data=sweep_data,
+        )
+        selection_metric = summary.get("selection_metric")
+        selection_mode = summary.get("selection_mode")
+        selection_value = self._resolve_selection_value(summary)
+        best_epoch = summary.get("best_epoch")
+        if ranking_entries:
+            first_entry = ranking_entries[0]
+            selection_metric = first_entry["metric"]
+            selection_mode = first_entry["mode"]
+            selection_value = first_entry["value"]
+            best_epoch = first_entry["best_epoch"]
+
         return {
             "run_index": run_index,
             "run_name": run_name,
@@ -89,13 +145,15 @@ class LocalMetricsSource(BaseMetricsSource):
                 str(history_path) if history_path is not None else None
             ),
             "summary_available": bool(summary),
-            "selection_metric": summary.get("selection_metric"),
-            "selection_mode": summary.get("selection_mode"),
-            "selection_value": self._resolve_selection_value(summary),
-            "best_epoch": summary.get("best_epoch"),
+            "selection_metric": selection_metric,
+            "selection_mode": selection_mode,
+            "selection_value": selection_value,
+            "best_epoch": best_epoch,
             "final_epoch": summary.get("final_epoch"),
             "best_metrics": summary.get("best_metrics", {}),
             "final_metrics": summary.get("final_metrics", {}),
+            "ranking_metrics": ranking_entries,
+            "rank_method": self._resolve_rank_method(sweep_data),
         }
 
     def _resolve_config_path(
@@ -276,3 +334,175 @@ class LocalMetricsSource(BaseMetricsSource):
                     return metric_value
 
         return selection_value
+
+    def _get_requested_ranking_specs(
+        self,
+        sweep_data: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        """Return explicit analyzer ranking specs, if configured."""
+        ranking_specs = sweep_data.get("_ranking_metrics")
+        if not isinstance(ranking_specs, list):
+            return []
+        normalized_specs: list[dict[str, str]] = []
+        for ranking_spec in ranking_specs:
+            if not isinstance(ranking_spec, dict):
+                continue
+            metric_name = ranking_spec.get("metric")
+            metric_mode = ranking_spec.get("mode")
+            if not isinstance(metric_name, str) or not metric_name:
+                continue
+            if metric_mode not in {"min", "max"}:
+                continue
+            normalized_specs.append({"metric": metric_name, "mode": metric_mode})
+        return normalized_specs
+
+    def _resolve_rank_method(self, sweep_data: dict[str, Any]) -> str:
+        """Return the configured analyzer rank method."""
+        rank_method = sweep_data.get("_rank_method")
+        if rank_method in {"lexicographic", "pareto"}:
+            return str(rank_method)
+        return "lexicographic"
+
+    def _extract_local_metric_history(
+        self,
+        history_payload: dict[str, Any],
+        metric_name: str,
+    ) -> list[dict[str, int | float]]:
+        """Extract one normalized local metric history from ``history.json``."""
+        split_name, separator, metric_key = metric_name.partition("/")
+        if not separator:
+            return []
+
+        split_history = history_payload.get(split_name)
+        if not isinstance(split_history, dict):
+            return []
+
+        normalized_metric_key = _normalize_metric_key(metric_key)
+        metric_history: list[dict[str, int | float]] = []
+        for epoch_key in sorted(split_history, key=lambda value: int(value)):
+            epoch_metrics = split_history.get(epoch_key)
+            if not isinstance(epoch_metrics, dict):
+                continue
+
+            metric_value = epoch_metrics.get(metric_key)
+            if not isinstance(metric_value, (int, float)):
+                for recorded_metric, recorded_value in epoch_metrics.items():
+                    if _normalize_metric_key(recorded_metric) == normalized_metric_key:
+                        metric_value = recorded_value
+                        break
+
+            if not isinstance(metric_value, (int, float)):
+                continue
+
+            metric_history.append(
+                {"step": int(epoch_key), "value": float(metric_value)}
+            )
+
+        return metric_history
+
+    def _resolve_best_epoch(
+        self,
+        history: list[dict[str, int | float]],
+        mode: str,
+    ) -> tuple[int | None, float | None]:
+        """Resolve the best epoch and value for one metric history."""
+        if not history:
+            return None, None
+
+        best_epoch: int | None = None
+        best_value: float | None = None
+        for point in history:
+            epoch = int(point["step"])
+            metric_value = float(point["value"])
+            if best_value is None:
+                best_epoch = epoch
+                best_value = metric_value
+                continue
+
+            is_better = (
+                metric_value < best_value if mode == "min" else metric_value > best_value
+            )
+            if is_better:
+                best_epoch = epoch
+                best_value = metric_value
+
+        return best_epoch, best_value
+
+    def _resolve_metric_from_mapping(
+        self,
+        metrics: dict[str, Any],
+        metric_name: str,
+    ) -> Any:
+        """Resolve one metric value from a metric mapping using normalized keys."""
+        if metric_name in metrics:
+            return metrics[metric_name]
+
+        normalized_metric_name = _normalize_metric_key(metric_name)
+        for recorded_metric, recorded_value in metrics.items():
+            if _normalize_metric_key(recorded_metric) == normalized_metric_name:
+                return recorded_value
+        return None
+
+    def _build_requested_ranking_entries(
+        self,
+        *,
+        run_index: int,
+        summary: dict[str, Any],
+        history_path: Path | None,
+        sweep_data: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Build normalized ranking entries from requested analyzer metrics."""
+        ranking_specs = self._get_requested_ranking_specs(sweep_data)
+        if not ranking_specs:
+            return []
+
+        history_cache = sweep_data.get("_local_metric_history_cache", {})
+        run_history_cache = (
+            history_cache.get(str(run_index), {})
+            if isinstance(history_cache, dict)
+            else {}
+        )
+        if not isinstance(run_history_cache, dict):
+            run_history_cache = {}
+
+        history_payload: dict[str, Any] | None = None
+        ranking_entries: list[dict[str, Any]] = []
+        final_metrics = summary.get("final_metrics", {})
+        best_metrics = summary.get("best_metrics", {})
+        for ranking_spec in ranking_specs:
+            metric_name = ranking_spec["metric"]
+            history = run_history_cache.get(metric_name)
+            if history is None:
+                if history_payload is None:
+                    history_payload = (
+                        self.load_json(history_path)
+                        if history_path is not None and history_path.exists()
+                        else {}
+                    )
+                history = self._extract_local_metric_history(history_payload, metric_name)
+
+            best_epoch, best_value = self._resolve_best_epoch(
+                history if isinstance(history, list) else [],
+                ranking_spec["mode"],
+            )
+            final_value = (
+                self._resolve_metric_from_mapping(final_metrics, metric_name)
+                if isinstance(final_metrics, dict)
+                else None
+            )
+            if final_value is None and isinstance(history, list) and history:
+                final_value = history[-1]["value"]
+            if best_value is None and isinstance(best_metrics, dict):
+                best_value = self._resolve_metric_from_mapping(best_metrics, metric_name)
+
+            ranking_entries.append(
+                {
+                    "metric": metric_name,
+                    "mode": ranking_spec["mode"],
+                    "value": best_value,
+                    "best_epoch": best_epoch,
+                    "final_value": final_value,
+                }
+            )
+
+        return ranking_entries
