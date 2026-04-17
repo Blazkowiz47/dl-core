@@ -179,6 +179,8 @@ Then:
    - `AGENTS.md`
 2. implement the generated dataset wrapper under `src/datasets/my_exp.py`
 3. adjust `configs/base.yaml` so it points at the dataset/model/trainer you want
+   and set the root-level reproducibility defaults you need (`seed` and
+   `deterministic`)
 4. smoke-check the generated helpers:
 
 ```bash

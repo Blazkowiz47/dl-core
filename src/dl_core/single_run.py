@@ -135,6 +135,8 @@ def _run_preflight(
     dataset_config = config.get("dataset", {})
     if not isinstance(dataset_config, dict) or not dataset_config.get("name"):
         raise ValueError("dataset.name is required for preflight")
+    dataset_config = dict(dataset_config)
+    dataset_config.setdefault("deterministic", config.get("deterministic", True))
     dataset_name = str(dataset_config["name"])
     dataset_class = DATASET_REGISTRY.get_class(dataset_name)
     DATASET_REGISTRY.get(dataset_name, dataset_config)

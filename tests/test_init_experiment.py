@@ -48,6 +48,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "name" not in config["metric_managers"]["standard"]
     assert "name" not in config["runtime"]
     assert "name" not in config["experiment"]
+    assert config["deterministic"] is True
     assert "# name: named-demo" in base_text
     assert "# ema:" in base_text
     assert "#   models: [main]" in base_text

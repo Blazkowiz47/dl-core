@@ -204,6 +204,7 @@ class EpochTrainer(ABC):
         self.config = config
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.seed = config.get("seed", 42)
+        self.deterministic = config.get("deterministic", True)
 
         self.accelerator: BaseAccelerator
         self.dataset_wrapper: BaseWrapper
@@ -451,6 +452,7 @@ class EpochTrainer(ABC):
                 named_trainer_config["seed"] = self.seed
         # Dataset config - check if single dataset (has 'name' key) or multiple datasets
         self.config["dataset"]["seed"] = self.seed
+        self.config["dataset"]["deterministic"] = self.deterministic
         # Model configs
         for model_name in self.config["models"]:
             self.config["models"][model_name]["seed"] = self.seed
@@ -480,7 +482,7 @@ class EpochTrainer(ABC):
         """
         self.logger.info("Setting up training components...")
         # Set random seeds
-        set_seeds(self.seed)
+        set_seeds(self.seed, self.deterministic)
         self._inject_seed_into_configs()
 
         self.setup_accelerator()

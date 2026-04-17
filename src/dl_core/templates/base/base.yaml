@@ -2,6 +2,7 @@
 # This template is intentionally generic and should work with dl-core alone.
 
 seed: 2025
+deterministic: true
 
 runtime:
   output_dir: artifacts

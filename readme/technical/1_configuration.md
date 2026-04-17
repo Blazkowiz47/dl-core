@@ -8,6 +8,8 @@ templates build on top of that base config.
 
 The common top-level sections are:
 
+- `seed`
+- `deterministic`
 - `runtime`
 - `experiment`
 - `accelerator`
@@ -122,6 +124,20 @@ trainer:
 
 That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`,
 which builds on the epoch-based `dl_core.core.EpochTrainer`.
+
+## Reproducibility
+
+Generated base configs expose reproducibility at the root level:
+
+```yaml
+seed: 2025
+deterministic: true
+```
+
+`seed` drives trainer setup, dataset splitting, worker seeding, and any seed
+values injected into downstream configs. `deterministic` is forwarded to the
+trainer and dataset seed helpers so PyTorch deterministic mode can be disabled
+explicitly when needed.
 
 ## Name Key Rules
 

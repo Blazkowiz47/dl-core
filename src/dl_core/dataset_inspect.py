@@ -77,11 +77,13 @@ def main(argv: list[str] | None = None) -> int:
     dataset_config = config.get("dataset", {})
     if not isinstance(dataset_config, dict) or not dataset_config.get("name"):
         parser.error("dataset.name is required for dl-inspect-dataset")
+    dataset_config = _force_local_loader_settings(dataset_config)
+    dataset_config.setdefault("deterministic", config.get("deterministic", True))
 
     dataset_name = str(dataset_config["name"])
     dataset = DATASET_REGISTRY.get(
         dataset_name,
-        _force_local_loader_settings(dataset_config),
+        dataset_config,
     )
 
     print(f"Config: {config_path}")

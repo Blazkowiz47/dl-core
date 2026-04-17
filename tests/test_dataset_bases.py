@@ -267,3 +267,24 @@ def test_dataset_allows_falsey_loader_overrides() -> None:
     assert loader is not None
     batches = list(loader)
     assert len(batches) == 2
+
+
+def test_dataset_reproducibility_uses_configured_deterministic_flag(
+    monkeypatch: Any,
+) -> None:
+    """Dataset seeding should pass the configured deterministic flag through."""
+
+    calls: list[tuple[int, bool]] = []
+
+    def _record_seed(seed: int, deterministic: bool = True) -> None:
+        calls.append((seed, deterministic))
+
+    monkeypatch.setattr("dl_core.core.base_dataset.set_seeds_local", _record_seed)
+
+    dataset = _OverrideDataset()
+    dataset.seed = 321
+    dataset.deterministic = False
+
+    dataset._ensure_reproducibility()
+
+    assert calls == [(321, False)]

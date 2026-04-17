@@ -68,6 +68,9 @@ uv run dl-init --root-dir .
 uv run dl-run --config configs/base.yaml
 ```
 
+Generated `configs/base.yaml` files include root-level `seed` and
+`deterministic` defaults so reproducibility can be controlled explicitly.
+
 ### Smoke-check generated dataset and model helpers
 
 ```bash

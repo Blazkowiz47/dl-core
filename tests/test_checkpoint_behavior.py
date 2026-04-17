@@ -358,10 +358,11 @@ def test_checkpoint_dir_cleanup_only_removes_current_run() -> None:
 
 
 def test_inject_seed_updates_named_trainer_config() -> None:
-    """Seed injection should update the named trainer section only."""
+    """Seed injection should update downstream configs used during setup."""
 
     trainer = _ConcreteTrainer()
     trainer.seed = 123
+    trainer.deterministic = False
     trainer.trainer_name = "standard"
     trainer.config = {
         "trainer": {"standard": {"epochs": 2}},
@@ -375,8 +376,53 @@ def test_inject_seed_updates_named_trainer_config() -> None:
     assert trainer.config["trainer"]["standard"]["seed"] == 123
     assert "seed" not in trainer.config["trainer"]
     assert trainer.config["dataset"]["seed"] == 123
+    assert trainer.config["dataset"]["deterministic"] is False
     assert trainer.config["models"]["main"]["seed"] == 123
     assert trainer.config["accelerator"]["seed"] == 123
+
+
+def test_setup_passes_deterministic_to_seed_helper(monkeypatch: Any) -> None:
+    """Trainer setup should forward the configured deterministic flag to seeding."""
+
+    seed_calls: list[tuple[int, bool]] = []
+    trainer = _ConcreteTrainer()
+    trainer.logger = logging.getLogger("test_setup_deterministic")
+    trainer.seed = 123
+    trainer.deterministic = False
+    trainer.trainer_name = "standard"
+    trainer.config = {
+        "trainer": {"standard": {"epochs": 1}},
+        "dataset": {"name": "dummy"},
+        "models": {},
+        "accelerator": {},
+        "metric_managers": {},
+        "callbacks": {},
+    }
+    trainer.models = {}
+    trainer.optimizers = {}
+    trainer.criterions = {}
+    trainer.schedulers = {}
+    trainer.data_loader = {}
+    trainer.metric_managers = {}
+    trainer.accelerator = _PrepareAcceleratorStub()
+
+    monkeypatch.setattr(
+        "dl_core.core.base_trainer.set_seeds",
+        lambda seed, deterministic=True: seed_calls.append((seed, deterministic)),
+    )
+    trainer.setup_accelerator = lambda: None
+    trainer.setup_data = lambda: None
+    trainer.setup_model = lambda: None
+    trainer.setup_criterion = lambda: None
+    trainer.setup_optimizer = lambda: None
+    trainer.setup_scheduler = lambda: None
+    trainer.setup_metrics = lambda: None
+    trainer.setup_ema = lambda: None
+    trainer.setup_callbacks = lambda: None
+
+    trainer._setup()
+
+    assert seed_calls == [(123, False)]
 
 
 def test_run_raises_setup_error_instead_of_exiting() -> None:

@@ -131,6 +131,12 @@ class BaseWrapper(ABC):
             default=42,
         ),
         config_field(
+            "deterministic",
+            "bool",
+            "Whether dataset-side seeding should enable deterministic torch behavior.",
+            default=True,
+        ),
+        config_field(
             "auto_split",
             "bool",
             "Automatically derive validation/test partitions when split files "
@@ -236,6 +242,7 @@ class BaseWrapper(ABC):
         # General configuration
         self.num_classes: int | None = config.get("num_classes")
         self.seed: int = config.get("seed", 42)
+        self.deterministic: bool = config.get("deterministic", True)
         self.rdir: str | None = config.get("rdir")
         self.sample_splits: dict[str, bool] = config.get(
             "sample_splits",
@@ -280,7 +287,7 @@ class BaseWrapper(ABC):
     # ============================================================================
     def _ensure_reproducibility(self) -> None:
         """Set seeds for reproducibility."""
-        set_seeds_local(self.seed)
+        set_seeds_local(self.seed, self.deterministic)
 
     def _resolve_split_override(self, value: Any, default: Any) -> Any:
         """Return a per-call override when provided, otherwise the stored default."""
