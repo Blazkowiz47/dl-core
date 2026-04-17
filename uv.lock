@@ -1143,7 +1143,7 @@ wheels = [
 
 [[package]]
 name = "deep-learning-azure"
-version = "0.0.12"
+version = "0.0.13"
 source = { editable = "../dl-azure" }
 dependencies = [
     { name = "azure-ai-ml" },
