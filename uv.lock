@@ -1170,7 +1170,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.0.19"
+version = "0.0.20"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },
@@ -1237,7 +1237,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-wandb"
-version = "0.0.8"
+version = "0.0.9"
 source = { editable = "../dl-wandb" }
 dependencies = [
     { name = "deep-learning-core" },
