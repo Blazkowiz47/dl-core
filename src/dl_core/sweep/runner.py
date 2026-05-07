@@ -177,7 +177,10 @@ def main():
             "  dl-sweep experiments/lr_sweep.yaml --resume\n"
             "  dl-sweep --sweep experiments/lr_sweep.yaml  # compatibility alias\n\n"
             "The sweep file normally lives under experiments/ and points at\n"
-            "configs/base.yaml via base_config."
+            "configs/base.yaml via base_config.\n\n"
+            "Azure note:\n"
+            "  Set executor.command in the sweep config when Azure should run\n"
+            "  a custom script instead of the default dl_core.worker command."
         ),
     )
 
