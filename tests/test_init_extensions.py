@@ -48,7 +48,19 @@ class FakeWandbExtension(InitExtension):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Register a test W&B flag."""
-        parser.add_argument("--with-wandb", action="store_true")
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(
+            "--with-wandb",
+            dest="with_wandb",
+            action="store_true",
+            default=None,
+        )
+        group.add_argument(
+            "--without-wandb",
+            dest="with_wandb",
+            action="store_false",
+            default=None,
+        )
 
     def is_enabled(
         self,
@@ -56,7 +68,8 @@ class FakeWandbExtension(InitExtension):
         discovered_extensions: dict[str, InitExtension],
     ) -> bool:
         """Enable W&B when the test flag is present."""
-        return bool(getattr(args, "with_wandb", False))
+        del discovered_extensions
+        return self.selection_state(args) is True
 
     def apply(self, context: ScaffoldContext) -> None:
         """Write a small marker file into the scaffold."""

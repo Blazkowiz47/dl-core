@@ -88,6 +88,18 @@ class InitExtension:
 
     name = ""
 
+    def display_name(self) -> str:
+        """Return a user-facing extension name for prompts and help text."""
+        return self.name
+
+    def selection_state(self, args: argparse.Namespace) -> bool | None:
+        """Return explicit CLI selection state for this extension, if any."""
+        attribute_name = f"with_{self.name.replace('-', '_')}"
+        value = getattr(args, attribute_name, None)
+        if value is None:
+            return None
+        return bool(value)
+
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Register extension-specific CLI arguments."""
 

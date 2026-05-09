@@ -2,11 +2,41 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
+import sys
 
+from pytest import MonkeyPatch
 import yaml
 
+from dl_core.init_extensions import InitExtension, ScaffoldContext
 from dl_core.init_experiment import create_experiment_scaffold, main as init_main
+
+
+class FakePromptExtension(InitExtension):
+    """Small init extension for interactive prompt tests."""
+
+    name = "wandb"
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Register a tri-state flag pair for the fake extension."""
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(
+            "--with-wandb",
+            dest="with_wandb",
+            action="store_true",
+            default=None,
+        )
+        group.add_argument(
+            "--without-wandb",
+            dest="with_wandb",
+            action="store_false",
+            default=None,
+        )
+
+    def apply(self, context: ScaffoldContext) -> None:
+        """Write a marker file into the scaffold."""
+        context.set_file("wandb.txt", "enabled\n")
 
 
 def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None:
@@ -95,10 +125,18 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "uv run python scripts/temporary/test_model.py" in agents_text
     assert "uv run dl-sweep experiments/lr_sweep.yaml --dry-run" in agents_text
     assert "uv run dl-analyze --sweep experiments/lr_sweep.yaml" in agents_text
+    assert "`experiments/experiments.log` automatically when it exists" in agents_text
+    assert "# named-demo Experiment Repository Guidelines" in agents_text
+    assert "## Sweep Safety Rules" in agents_text
+    assert "Never delete `experiments/<sweep_name>/sweep_tracking.json`." in agents_text
+    assert "Never run `rm -rf experiments/<sweep_name>` or any equivalent cleanup" in (
+        agents_text
+    )
     assert "uv run dl-core add dataset ExtraDataset" in agents_text
     assert "uv run dl-core add optimizer MyOptimizer" in agents_text
     assert "uv run dl-core add scheduler MyScheduler" in agents_text
     assert "uv run dl-core describe class dl_core.core.FrameWrapper" in agents_text
+    assert "<agent_spec>" not in agents_text
     assert "scripts/temporary/test_dataset.py" in readme_text
     assert "scripts/temporary/test_model.py" in readme_text
     assert "uv run python scripts/temporary/test_dataset.py" in helper_readme_text
@@ -133,6 +171,54 @@ def test_cli_allows_missing_name_with_root_dir(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert (target_dir / "pyproject.toml").exists()
+
+
+def test_cli_prompts_for_discovered_extensions_in_interactive_mode(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Interactive dl-init should prompt for installed extensions."""
+    target_dir = tmp_path / "cli_prompt_target"
+    target_dir.mkdir()
+    monkeypatch.setattr(
+        "dl_core.init_experiment.discover_init_extensions",
+        lambda: {"wandb": FakePromptExtension()},
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: "wandb")
+
+    exit_code = init_main(["--root-dir", str(target_dir)])
+
+    assert exit_code == 0
+    assert (target_dir / "wandb.txt").read_text(encoding="utf-8") == "enabled\n"
+
+
+def test_cli_skips_prompt_when_extension_flag_is_explicit(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Explicit extension flags should bypass the interactive prompt."""
+    target_dir = tmp_path / "cli_explicit_target"
+    target_dir.mkdir()
+    monkeypatch.setattr(
+        "dl_core.init_experiment.discover_init_extensions",
+        lambda: {"wandb": FakePromptExtension()},
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    def fail_input(_: str) -> str:
+        raise AssertionError("input() should not be called for explicit flags")
+
+    monkeypatch.setattr("builtins.input", fail_input)
+
+    exit_code = init_main(
+        ["--root-dir", str(target_dir), "--without-wandb"]
+    )
+
+    assert exit_code == 0
+    assert not (target_dir / "wandb.txt").exists()
 
 
 def test_scaffold_allows_uv_init_bootstrap_files(tmp_path: Path) -> None:
