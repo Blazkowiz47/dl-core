@@ -460,7 +460,12 @@ def main():
     # Run sweep using executor - now passing only config paths
     try:
         progress = executor.run_sweep(config_paths, max_workers=args.max_workers)
-        print(f"\n✓ Sweep complete: {progress['completed']}/{progress['total']} runs")
+        skipped = progress.get("skipped", 0)
+        skipped_text = f" ({skipped} already claimed/skipped)" if skipped else ""
+        print(
+            f"\n✓ Sweep complete: {progress['completed']}/{progress['total']} runs"
+            f"{skipped_text}"
+        )
         return 0
 
     except Exception as e:

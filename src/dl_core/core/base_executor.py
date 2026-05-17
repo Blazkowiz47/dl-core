@@ -52,6 +52,7 @@ class BaseExecutor(ABC):
         self.resume = resume
         self.completed_runs = []
         self.failed_runs = []
+        self.skipped_runs = []
         self.unknown_runs = []  # Jobs with indeterminate status due to connection issues
         self.logger = logging.getLogger(self.__class__.__name__)
         self.tracking_uri: Optional[str] = None
@@ -163,6 +164,13 @@ class BaseExecutor(ABC):
                 config_path = run_index_to_path[run_index]
                 try:
                     result = future.result()
+                    if result.get("skipped", False):
+                        self.skipped_runs.append(run_index)
+                        self.logger.info(
+                            f"Run {run_index + 1}/{total_runs} skipped"
+                        )
+                        continue
+
                     success = result.get("success", False)
 
                     if success:
@@ -212,16 +220,27 @@ class BaseExecutor(ABC):
         Returns:
             Dictionary with execution results (see execute_run for details)
         """
-        # Update tracker: running (thread-safe)
-        if self.tracker and not self.dry_run:
-            self.tracker.update_run_status(
-                run_index,
-                "running",
-                config_path=str(config_path.resolve()),
-            )
+        if not self._claim_run_for_execution(run_index, config_path):
+            return {"success": True, "skipped": True}
 
         # Call execute_run with the config path
         return self.execute_run(run_index, config_path)
+
+    def _claim_run_for_execution(self, run_index: int, config_path: Path) -> bool:
+        """
+        Claim one sweep run immediately before execution.
+
+        Returns:
+            True when execution should proceed, False when another process has
+            already claimed or finished the run.
+        """
+        if self.tracker is None or self.dry_run:
+            return True
+
+        return self.tracker.try_claim_run(
+            run_index,
+            config_path=str(config_path.resolve()),
+        )
 
     def _update_tracker(
         self,
@@ -274,6 +293,7 @@ class BaseExecutor(ABC):
         return {
             "completed": len(self.completed_runs),
             "failed": len(self.failed_runs),
+            "skipped": len(self.skipped_runs),
             "total": len(self.completed_runs) + len(self.failed_runs),
         }
 
@@ -355,7 +375,12 @@ class BaseExecutor(ABC):
             else:
                 # Sequential execution
                 for run_index, config_path in run_descriptors:
-                    self._update_tracker(run_index, "running", config_path)
+                    if not self._claim_run_for_execution(run_index, config_path):
+                        self.skipped_runs.append(run_index)
+                        self.logger.info(
+                            f"Run {run_index + 1}/{total_runs} skipped"
+                        )
+                        continue
 
                     result = self.execute_run(run_index, config_path)
                     success = result.get("success", False)

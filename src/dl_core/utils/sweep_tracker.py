@@ -203,6 +203,61 @@ class SweepTracker:
                 f"tracking_run_id={tracking_run_id}"
             )
 
+    def try_claim_run(
+        self,
+        run_index: int,
+        config_path: Optional[str] = None,
+        claimable_statuses: tuple[str, ...] = ("pending", "failed"),
+    ) -> bool:
+        """
+        Atomically mark a run as running if it is still claimable.
+
+        A sweep process may queue a run before another overlapping process
+        claims it. Re-checking under the tracker file lock immediately before
+        execution prevents duplicate launches from stale run lists.
+
+        Args:
+            run_index: Index of run in sweep
+            config_path: Path to the concrete run config file
+            claimable_statuses: Statuses that may transition to running
+
+        Returns:
+            True if this process claimed the run, False otherwise.
+        """
+        with self._locked_access():
+            sweep_data = self._read_json()
+
+            if not sweep_data:
+                logger.warning(f"Sweep JSON not found, cannot claim run {run_index}")
+                return False
+
+            run_key = str(run_index)
+            runs = sweep_data.setdefault("runs", {})
+            run_data = runs.setdefault(run_key, {})
+            current_status = run_data.get("status", "pending")
+
+            if current_status not in claimable_statuses:
+                logger.info(
+                    "Skipping run %s because tracker status is %s",
+                    run_index,
+                    current_status,
+                )
+                return False
+
+            now = datetime.now().isoformat()
+            run_data["status"] = "running"
+            run_data["updated_at"] = now
+            run_data.pop("error_message", None)
+
+            if config_path:
+                run_data["config_path"] = config_path
+
+            sweep_data["last_update"] = now
+            self._write_json(sweep_data)
+
+            logger.debug("Claimed run %s for execution", run_index)
+            return True
+
     def update_tracking_context(
         self,
         tracking_context: str,
@@ -254,11 +309,7 @@ class SweepTracker:
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
     def cleanup_lock_file(self) -> None:
-        """Remove the sweep lock file after sweep execution completes."""
-        try:
-            self.lock_path.unlink(missing_ok=True)
-        except OSError:
-            logger.debug("Failed to remove sweep lock file: %s", self.lock_path)
+        """Keep the sweep lock file for safe overlapping sweep coordination."""
 
     def get_completed_runs(self) -> List[int]:
         """
