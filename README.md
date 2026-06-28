@@ -7,13 +7,13 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current release: `deep-learning-core==0.0.24`.
+Current release: `deep-learning-core==0.0.25`.
 
 Compatible companion package floors:
 
-- `deep-learning-azure>=0.0.17,<0.1`
-- `deep-learning-mlflow>=0.0.10,<0.1`
-- `deep-learning-wandb>=0.0.11,<0.1`
+- `deep-learning-azure>=0.0.18,<0.1`
+- `deep-learning-mlflow>=0.0.11,<0.1`
+- `deep-learning-wandb>=0.0.12,<0.1`
 
 ## What's New?
 
