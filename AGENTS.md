@@ -28,6 +28,7 @@
     <rule>Use f-strings for string formatting.</rule>
     <rule>Keep functions focused and avoid unnecessary nesting.</rule>
     <rule>No formatter or linter configuration is defined in <code>pyproject.toml</code>; mirror nearby files instead of re-styling code arbitrarily.</rule>
+    <rule>Whenever package behavior, public APIs, CLI behavior, scaffold output, dependencies, or versions change, review <code>README.md</code> and the relevant <code>readme/</code> docs and keep them consistent with the code. If no documentation update is needed, state why.</rule>
   </development_rules>
 
   <architecture_rules>

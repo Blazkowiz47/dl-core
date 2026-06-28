@@ -4,6 +4,8 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
+Current public release: `deep-learning-core==0.0.24`.
+
 ## Companion Packages
 
 - [`dl-azure`](https://github.com/Blazkowiz47/dl-azure): Azure execution and

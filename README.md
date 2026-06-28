@@ -7,6 +7,14 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
+Current release: `deep-learning-core==0.0.24`.
+
+Compatible companion package floors:
+
+- `deep-learning-azure>=0.0.17,<0.1`
+- `deep-learning-mlflow>=0.0.10,<0.1`
+- `deep-learning-wandb>=0.0.11,<0.1`
+
 ## What's New?
 
 - `dl-init` is now the primary scaffold command
@@ -22,6 +30,9 @@ extras and companion extension packages.
   normal training weights and EMA resume metadata
 - `dl-run --validate-only` now performs a real preflight by resolving the
   configured components without starting training
+- `BaseTrainer` now exposes `select_checkpoint()` and
+  `post_training(checkpoint_path)` hooks for completed-run evaluation or export
+  work; the default checkpoint selection uses `best.pth` then `latest.pth`
 - `dl-inspect-dataset` now summarizes split sizes and one collated batch from
   the current config
 - `dl-smoke` now checks one dataset batch and one model forward pass from a
@@ -253,6 +264,20 @@ That means evaluator-side code can load:
 - `checkpoint["ema_models_state_dict"]["main"]` for EMA weights
 
 without needing to reconstruct EMA state manually.
+
+## Post-Training Checkpoint Hooks
+
+After a successful training loop, `BaseTrainer.run()` calls
+`select_checkpoint()` and passes the returned path into
+`post_training(checkpoint_path)`. This hook runs before run-analysis artifacts
+are persisted and before tracking callbacks upload finalized artifacts.
+
+The default `select_checkpoint()` implementation keeps the existing checkpoint
+callback behavior authoritative: it returns final `best.pth` when present,
+falls back to final `latest.pth`, and returns `None` if no checkpoint exists.
+Override `select_checkpoint()` when a project needs custom single- or
+multi-metric model selection, and override `post_training()` for completed-run
+evaluation, export, or report generation.
 
 If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.

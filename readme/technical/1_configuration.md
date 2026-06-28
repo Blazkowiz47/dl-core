@@ -125,6 +125,13 @@ trainer:
 That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`,
 which builds on the epoch-based `dl_core.core.EpochTrainer`.
 
+After successful training, `BaseTrainer.run()` calls `select_checkpoint()` and
+passes that path to `post_training(checkpoint_path)`. The default selector
+returns final `best.pth` when the checkpoint callback created it, falls back to
+final `latest.pth`, and otherwise returns `None`. Override `select_checkpoint()`
+for custom single- or multi-metric model selection, and override
+`post_training()` for completed-run evaluation or export work.
+
 ## Reproducibility
 
 Generated base configs expose reproducibility at the root level:
