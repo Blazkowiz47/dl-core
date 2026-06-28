@@ -30,11 +30,6 @@ def _resolve_metrics_source_backend(
     return "local"
 
 
-def _should_sync_run(run_data: dict[str, Any]) -> bool:
-    """Return whether a run should participate in artifact sync."""
-    return run_data.get("status") not in {"pending", "running"}
-
-
 def _build_parser() -> argparse.ArgumentParser:
     """Create the CLI parser for remote artifact sync."""
     parser = argparse.ArgumentParser(
@@ -84,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     run_items = [
         (int(run_index), run_data)
         for run_index, run_data in sweep_data.get("runs", {}).items()
-        if _should_sync_run(run_data)
+        if run_data.get("status") not in {"pending", "running"}
     ]
     run_items.sort(key=lambda item: item[0])
 

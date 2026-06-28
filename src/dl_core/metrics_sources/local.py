@@ -310,39 +310,6 @@ class LocalMetricsSource(BaseMetricsSource):
 
         return artifact_dir / "final" / "metrics" / filename
 
-    def _resolve_selection_config(
-        self,
-        config_path: Path | None,
-    ) -> tuple[str | None, str | None]:
-        """
-        Resolve the configured ranking metric and mode from a run config.
-
-        Args:
-            config_path: Local config path for the run
-
-        Returns:
-            Tuple of selection metric and selection mode.
-        """
-        if config_path is None or not config_path.exists():
-            return None, None
-
-        config = self.load_yaml(config_path)
-        callbacks_config = config.get("callbacks", {})
-        if not isinstance(callbacks_config, dict):
-            return None, None
-
-        checkpoint_config = callbacks_config.get("checkpoint")
-        if not isinstance(checkpoint_config, dict):
-            return None, None
-
-        monitor = checkpoint_config.get("monitor")
-        mode = checkpoint_config.get("mode", "min")
-        if not isinstance(monitor, str) or not monitor:
-            return None, None
-        if mode not in {"min", "max"}:
-            mode = "min"
-        return monitor, mode
-
     def _resolve_selection_value(self, summary: dict[str, Any]) -> Any:
         """
         Resolve the value used for ranking a run in analyzer output.

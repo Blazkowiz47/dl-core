@@ -42,16 +42,6 @@ def _sanitize_metric_filename(metric_name: str) -> str:
     return sanitized or "metric"
 
 
-def _qualify_phase_metrics(
-    scalars: dict[str, float],
-    phase: str | None,
-) -> dict[str, float]:
-    """Return phase-qualified scalars for phase hooks."""
-    if phase is None:
-        return scalars
-    return {f"{phase}/{key}": value for key, value in scalars.items()}
-
-
 @register_callback("local_metric_tracker")
 class LocalMetricTrackerCallback(Callback):
     """Append scalar metric values to per-metric JSONL files under run artifacts."""
@@ -92,12 +82,16 @@ class LocalMetricTrackerCallback(Callback):
             return
 
         scalars = _extract_scalars(logs)
-        scalars = _qualify_phase_metrics(scalars, phase)
         if phase is None:
             scalars = {
                 key: value
                 for key, value in scalars.items()
                 if not key.startswith(("train/", "validation/", "test/"))
+            }
+        else:
+            scalars = {
+                f"{phase}/{key}": value
+                for key, value in scalars.items()
             }
 
         for metric_name, value in scalars.items():

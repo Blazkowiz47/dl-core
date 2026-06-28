@@ -598,43 +598,6 @@ def _summarize_status_counts(runs: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
-def _resolve_primary_metric(runs: list[dict[str, Any]]) -> tuple[str, str]:
-    """Resolve the main selection metric and mode for one sweep report."""
-    metric, mode, _ = _resolve_primary_metric_details(runs)
-    return metric, mode
-
-
-def _select_common_best_metric_columns(
-    runs: list[dict[str, Any]],
-    *,
-    primary_metric: str,
-    max_columns: int = 4,
-) -> list[str]:
-    """Select a small set of common best-epoch metrics for report tables."""
-    metric_sets: list[set[str]] = []
-    for run in runs:
-        best_metrics = run.get("best_metrics")
-        if not isinstance(best_metrics, dict) or not best_metrics:
-            continue
-        run_metric_names = {
-            metric_name
-            for metric_name, value in best_metrics.items()
-            if isinstance(metric_name, str)
-            and metric_name
-            and isinstance(value, (int, float))
-        }
-        if run_metric_names:
-            metric_sets.append(run_metric_names)
-
-    if not metric_sets:
-        return []
-
-    common_metrics = set.intersection(*metric_sets)
-    common_metrics.discard(primary_metric)
-    ordered_metrics = sorted(common_metrics)
-    return ordered_metrics[:max_columns]
-
-
 def _get_top_runs(
     runs: list[dict[str, Any]],
     *,

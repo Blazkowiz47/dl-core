@@ -79,13 +79,6 @@ class StandardTrainer(EpochTrainer):
             key: value for key, value in component_cfg.items() if key != "name"
         }
 
-    def _trainable_parameters(self) -> list[torch.nn.Parameter]:
-        """Return only trainable model parameters."""
-        parameters = [param for param in self.model.parameters() if param.requires_grad]
-        if not parameters:
-            raise ValueError("Model has no trainable parameters")
-        return parameters
-
     def setup_model(self) -> None:
         """Setup model from config."""
         models_cfg = self.config.get("models")
@@ -153,9 +146,15 @@ class StandardTrainer(EpochTrainer):
             "optimizers",
             default_name="adam",
         )
+        trainable_parameters = [
+            param for param in self.model.parameters() if param.requires_grad
+        ]
+        if not trainable_parameters:
+            raise ValueError("Model has no trainable parameters")
+
         self.optimizers["main"] = OPTIMIZER_REGISTRY.get(
             optimizer_name,
-            self._trainable_parameters(),
+            trainable_parameters,
             **optimizer_kwargs,
         )
         self.logger.info(f"Initialized optimizer: {optimizer_name}")

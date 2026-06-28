@@ -29,14 +29,9 @@ from dl_core.sweep_scaffold import (
     normalize_tracking_backend,
 )
 
-
-def _list_supported_add_targets() -> list[str]:
-    """Return supported targets for ``dl-core add``."""
-    return sorted([*list_supported_component_types(), "sweep"])
-
-
 def main(argv: list[str] | None = None) -> int:
     """Run the ``dl-core`` command line interface."""
+    supported_add_targets = sorted([*list_supported_component_types(), "sweep"])
     parser = argparse.ArgumentParser(
         prog="dl-core",
         description="Utilities for working with dl-core experiment repositories.",
@@ -119,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         "component_type",
         help=(
             "Component type to generate. Supported values: "
-            f"{', '.join(_list_supported_add_targets())}"
+            f"{', '.join(supported_add_targets)}"
         ),
     )
     add_parser.add_argument(

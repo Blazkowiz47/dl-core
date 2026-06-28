@@ -16,16 +16,6 @@ def _as_non_empty_string(value: Any) -> str | None:
     return stripped or None
 
 
-def _resolve_project_root_name(*paths: Path) -> str | None:
-    """Resolve the nearest project root name from candidate paths."""
-    for path in paths:
-        project_root = find_project_root(path)
-        if project_root is None:
-            continue
-        return project_root.name
-    return None
-
-
 def resolve_config_experiment_name(
     config: dict[str, Any],
     *,
@@ -68,9 +58,10 @@ def resolve_config_experiment_name(
     if sweep_file is not None:
         candidate_paths.append(Path(sweep_file))
 
-    project_root_name = _resolve_project_root_name(*candidate_paths)
-    if project_root_name is not None:
-        return project_root_name
+    for candidate_path in candidate_paths:
+        project_root = find_project_root(candidate_path)
+        if project_root is not None:
+            return project_root.name
 
     template_name = _as_non_empty_string(config.get("template_name"))
     if template_name is not None:
