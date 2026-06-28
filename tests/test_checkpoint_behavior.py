@@ -330,6 +330,66 @@ def test_select_best_epoch_resolves_monitor_aliases() -> None:
     assert selection_value == 0.8
 
 
+def test_select_checkpoint_prefers_best_then_latest(tmp_path: Path) -> None:
+    """Default post-training checkpoint selection should use existing aliases."""
+
+    trainer = _ConcreteTrainer()
+    trainer.artifact_manager = ArtifactManager(
+        run_name="demo-run",
+        output_dir=str(tmp_path),
+        experiment_name="demo-exp",
+    )
+    best_path = trainer.artifact_manager.get_final_checkpoint_path("best.pth")
+    latest_path = trainer.artifact_manager.get_final_checkpoint_path("latest.pth")
+
+    assert trainer.select_checkpoint() is None
+
+    latest_path.write_text("latest", encoding="utf-8")
+    assert trainer.select_checkpoint() == latest_path
+
+    best_path.write_text("best", encoding="utf-8")
+    assert trainer.select_checkpoint() == best_path
+
+
+def test_run_calls_post_training_before_persisting_analysis(tmp_path: Path) -> None:
+    """Completed runs should expose the selected checkpoint to post-training hooks."""
+
+    trainer, _, callbacks, _, finalize_sync = _build_lifecycle_trainer(tmp_path)
+    best_path = trainer.artifact_manager.get_final_checkpoint_path("best.pth")
+    best_path.write_text("best", encoding="utf-8")
+    events: list[tuple[str, str | None]] = []
+
+    trainer.setup = lambda: None
+    trainer.perform_training = lambda: events.append(("training", None))
+
+    def _post_training(checkpoint_path: Path | None) -> None:
+        events.append(
+            (
+                "post_training",
+                str(checkpoint_path) if checkpoint_path is not None else None,
+            )
+        )
+
+    def _persist_run_analysis(status: str, error_message: str | None) -> None:
+        events.append(("persist", status))
+
+    trainer.post_training = _post_training
+    trainer.persist_run_analysis = _persist_run_analysis
+
+    trainer._run()
+
+    assert events == [
+        ("training", None),
+        ("post_training", str(best_path)),
+        ("persist", "completed"),
+    ]
+    assert trainer.selected_checkpoint_path == best_path
+    assert callbacks.training_end_calls[0][0]["selected_checkpoint_path"] == str(
+        best_path
+    )
+    assert finalize_sync == [True]
+
+
 def test_checkpoint_dir_cleanup_only_removes_current_run() -> None:
     """Empty-checkpoint cleanup should only remove the active run directory."""
 

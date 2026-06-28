@@ -88,6 +88,8 @@ class EpochTrainer(ABC):
         - generate_epoch_logs() - Custom epoch-level metrics
         - register_model_states() - Custom checkpoint state handling
         - load_model_states() - Custom checkpoint loading
+        - select_checkpoint() - Choose checkpoint used for post-training work
+        - post_training() - Run completed-training evaluation or export work
 
     Usage:
         class MyTrainer(BaseTrainer):
@@ -281,6 +283,7 @@ class EpochTrainer(ABC):
         self.stop_training = False  # For early stopping
         self.current_checkpoint: dict[str, Any] | None = None
         self.current_checkpoint_epoch: int | None = None
+        self.selected_checkpoint_path: Path | None = None
 
         self.logger.info(f"Initialized {self.__class__.__name__}")
 
@@ -357,6 +360,9 @@ class EpochTrainer(ABC):
                 self.overfit_single_batch()
             else:
                 self.perform_training()
+            phase = "post_training"
+            self.selected_checkpoint_path = self.select_checkpoint()
+            self.post_training(self.selected_checkpoint_path)
         except KeyboardInterrupt as e:
             run_status = "interrupted"
             interrupt_reason = self._consume_interrupt_reason()
@@ -410,6 +416,9 @@ class EpochTrainer(ABC):
             }
             if error_message is not None:
                 final_logs["error_message"] = error_message
+            selected_checkpoint_path = getattr(self, "selected_checkpoint_path", None)
+            if selected_checkpoint_path is not None:
+                final_logs["selected_checkpoint_path"] = str(selected_checkpoint_path)
             try:
                 self.persist_run_analysis(
                     status=run_status,
@@ -1596,6 +1605,7 @@ class EpochTrainer(ABC):
             if best_epoch is not None
             else {}
         )
+        selected_checkpoint_path = getattr(self, "selected_checkpoint_path", None)
 
         return {
             "status": status,
@@ -1611,6 +1621,11 @@ class EpochTrainer(ABC):
             "selection_metric": selection_metric,
             "selection_mode": selection_mode,
             "selection_value": selection_value,
+            "selected_checkpoint_path": (
+                str(selected_checkpoint_path)
+                if selected_checkpoint_path is not None
+                else None
+            ),
             "final_metrics": final_metrics,
             "best_metrics": best_metrics,
         }
@@ -1644,6 +1659,11 @@ class EpochTrainer(ABC):
             "metrics_history_path": str(self.artifact_manager.get_metrics_history_path()),
             "current_epoch": self.current_epoch,
             "total_epochs": self.epochs,
+            "selected_checkpoint_path": (
+                str(summary["selected_checkpoint_path"])
+                if summary.get("selected_checkpoint_path") is not None
+                else None
+            ),
         }
 
         self.artifact_manager.save_metrics(summary, filename="summary.json")
@@ -2593,6 +2613,41 @@ class EpochTrainer(ABC):
             filename: Optional checkpoint filename override
         """
         self._save_checkpoint(epoch, filename=filename)
+
+    def select_checkpoint(self) -> Path | None:
+        """
+        Return the checkpoint path used by post-training work.
+
+        The default keeps existing checkpoint-callback behavior authoritative by
+        preferring the callback-managed ``best.pth`` alias, then falling back to
+        the trainer-managed ``latest.pth`` alias. Override this method to choose
+        a checkpoint with custom single- or multi-metric logic.
+        """
+        artifact_manager = getattr(self, "artifact_manager", None)
+        if artifact_manager is None:
+            return None
+
+        for checkpoint_name in ("best.pth", "latest.pth"):
+            checkpoint_path = artifact_manager.get_final_checkpoint_path(
+                checkpoint_name
+            )
+            if checkpoint_path.exists():
+                return checkpoint_path
+
+        return None
+
+    def post_training(self, checkpoint_path: Path | None) -> None:
+        """
+        Run optional completed-training work after the main training loop.
+
+        Override this hook to evaluate or export a selected checkpoint after
+        training succeeds. The hook runs before run-analysis artifacts are
+        persisted and before tracking callbacks upload finalized artifacts.
+
+        Args:
+            checkpoint_path: Path returned by :meth:`select_checkpoint`, or
+                ``None`` when no checkpoint is available.
+        """
 
     def register_model_states(self, checkpoint_dict: dict) -> None:
         """
