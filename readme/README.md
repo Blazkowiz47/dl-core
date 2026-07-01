@@ -67,11 +67,15 @@ uv run dl-init --root-dir .
 ### Run a local training job
 
 ```bash
-uv run dl-run --config configs/base.yaml
+uv run dl-run --config configs/base.yaml --validate-only
+cp configs/base.yaml experiments/debug.yaml
+uv run dl-run --config experiments/debug.yaml --validate-only
+uv run dl-run --config experiments/debug.yaml
 ```
 
 Generated `configs/base.yaml` files include root-level `seed` and
-`deterministic` defaults so reproducibility can be controlled explicitly.
+`deterministic` defaults so reproducibility can be controlled explicitly. Keep
+concrete single-run configs under `experiments/`, including debug runs.
 
 ### Smoke-check generated dataset and model helpers
 

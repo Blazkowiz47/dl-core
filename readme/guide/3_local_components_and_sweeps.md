@@ -104,7 +104,9 @@ The core dataset bases are intended for different data shapes:
 ## Local Training
 
 ```bash
-uv run dl-run --config configs/base.yaml
+uv run dl-run --config configs/base.yaml --validate-only
+cp configs/base.yaml experiments/debug.yaml
+uv run dl-run --config experiments/debug.yaml
 ```
 
 ## Sweeps

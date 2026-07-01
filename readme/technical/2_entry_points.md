@@ -73,7 +73,7 @@ scripts.
 Runs a single local training job through the local executor.
 
 ```bash
-uv run dl-run --config configs/base.yaml
+uv run dl-run --config experiments/debug.yaml
 ```
 
 Useful flags:

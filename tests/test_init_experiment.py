@@ -56,6 +56,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert (target_dir / "experiments" / "lr_sweep.yaml").exists()
     assert (target_dir / "experiments" / "experiments.log").exists()
     assert (target_dir / "AGENTS.md").exists()
+    assert (target_dir / "CLAUDE.md").exists()
     assert (target_dir / "pyrightconfig.json").exists()
     assert (target_dir / "scripts" / "temporary" / "README.md").exists()
     assert (target_dir / "scripts" / "temporary" / "test_dataset.py").exists()
@@ -114,19 +115,30 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     lr_sweep = yaml.safe_load(lr_sweep_text)
     experiments_log = (target_dir / "experiments" / "experiments.log").read_text()
     agents_text = (target_dir / "AGENTS.md").read_text()
+    claude_text = (target_dir / "CLAUDE.md").read_text()
     assert 'extends_template: "../configs/base_sweep.yaml"' in lr_sweep_text
     assert lr_sweep["fixed"]["accelerators"] == "preset:accelerators.cpu"
     assert lr_sweep["fixed"]["executors"] == "preset:executors.local"
     assert lr_sweep["tracking"]["run_name_template"] == "lr_{optimizers.lr}"
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
-    assert "uv run dl-run --config configs/base.yaml" in agents_text
+    assert "uv run dl-run --config configs/base.yaml --validate-only" in agents_text
+    assert "uv run dl-run --config experiments/<run_name>.yaml" in agents_text
     assert "uv run python scripts/temporary/test_dataset.py" in agents_text
     assert "uv run python scripts/temporary/test_model.py" in agents_text
     assert "uv run dl-sweep experiments/lr_sweep.yaml --dry-run" in agents_text
     assert "uv run dl-analyze --sweep experiments/lr_sweep.yaml" in agents_text
     assert "`experiments/experiments.log` automatically when it exists" in agents_text
     assert "# named-demo Experiment Repository Guidelines" in agents_text
+    assert "## Execution Safety" in agents_text
+    assert "## Config Rules" in agents_text
+    assert "## Code Hygiene" in agents_text
+    assert "Even one-off single-run configs belong under `experiments/`." in agents_text
+    assert "Do not extract one-off logic into a separate function" in agents_text
+    assert "unless the logic is used more than twice" in agents_text
+    assert "`CLAUDE.md` should only point at this file with `@AGENTS.md`" in (
+        agents_text
+    )
     assert "## Sweep Safety Rules" in agents_text
     assert "Never delete `experiments/<sweep_name>/sweep_tracking.json`." in agents_text
     assert "Never run `rm -rf experiments/<sweep_name>` or any equivalent cleanup" in (
@@ -137,6 +149,10 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "uv run dl-core add scheduler MyScheduler" in agents_text
     assert "uv run dl-core describe class dl_core.core.FrameWrapper" in agents_text
     assert "<agent_spec>" not in agents_text
+    assert claude_text == "@AGENTS.md\n"
+    assert "`CLAUDE.md`: Claude-compatible pointer to `AGENTS.md`" in readme_text
+    assert "concrete single-run and sweep experiment configs" in readme_text
+    assert "   - `CLAUDE.md`" in readme_text
     assert "scripts/temporary/test_dataset.py" in readme_text
     assert "scripts/temporary/test_model.py" in readme_text
     assert "uv run python scripts/temporary/test_dataset.py" in helper_readme_text
@@ -252,12 +268,16 @@ def test_scaffold_allows_existing_agents_and_pyright_files(tmp_path: Path) -> No
     target_dir = tmp_path / "custom_test"
     target_dir.mkdir()
     (target_dir / "AGENTS.md").write_text("temp\n", encoding="utf-8")
+    (target_dir / "CLAUDE.md").write_text("custom claude\n", encoding="utf-8")
     (target_dir / "pyrightconfig.json").write_text("{}", encoding="utf-8")
 
     created_dir = create_experiment_scaffold(root_dir=str(target_dir))
 
     assert created_dir == target_dir.resolve()
     assert (created_dir / "AGENTS.md").read_text(encoding="utf-8") == "temp\n"
+    assert (created_dir / "CLAUDE.md").read_text(encoding="utf-8") == (
+        "custom claude\n"
+    )
     assert (created_dir / "pyrightconfig.json").read_text(encoding="utf-8") == "{}"
     assert (created_dir / "configs" / "base.yaml").exists()
 

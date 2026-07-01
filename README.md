@@ -149,7 +149,9 @@ that repository, run `uv sync`, then run:
 uv run dl-run --config configs/base.yaml --validate-only
 uv run dl-inspect-dataset --config configs/base.yaml
 uv run dl-smoke --config configs/base.yaml
-uv run dl-run --config configs/base.yaml
+cp configs/base.yaml experiments/debug.yaml
+uv run dl-run --config experiments/debug.yaml --validate-only
+uv run dl-run --config experiments/debug.yaml
 uv run dl-sweep experiments/lr_sweep.yaml --preview
 uv run dl-sweep experiments/lr_sweep.yaml --only "*seed_2025*"
 uv run dl-sweep experiments/lr_sweep.yaml
@@ -188,10 +190,12 @@ Then:
    - `scripts/temporary/test_model.py`
    - `experiments/lr_sweep.yaml`
    - `AGENTS.md`
+   - `CLAUDE.md`
 2. implement the generated dataset wrapper under `src/datasets/my_exp.py`
 3. adjust `configs/base.yaml` so it points at the dataset/model/trainer you want
-   and set the root-level reproducibility defaults you need (`seed` and
-   `deterministic`)
+   and set the shared reproducibility defaults you need (`seed` and
+   `deterministic`). Keep concrete single-run configs in `experiments/`,
+   including debug and baseline runs.
 4. smoke-check the generated helpers:
 
 ```bash
@@ -205,7 +209,9 @@ uv run python scripts/temporary/test_model.py
 uv run dl-run --config configs/base.yaml --validate-only
 uv run dl-inspect-dataset --config configs/base.yaml
 uv run dl-smoke --config configs/base.yaml
-uv run dl-run --config configs/base.yaml
+cp configs/base.yaml experiments/debug.yaml
+uv run dl-run --config experiments/debug.yaml --validate-only
+uv run dl-run --config experiments/debug.yaml
 ```
 
 Once that works, move on to:

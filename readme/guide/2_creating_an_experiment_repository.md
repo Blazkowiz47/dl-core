@@ -32,6 +32,8 @@ uv run dl-init --name my-exp --root-dir . --with-mlflow
 
 ```text
 my-exp/
+  AGENTS.md
+  CLAUDE.md
   pyproject.toml
   configs/
     base.yaml
@@ -78,6 +80,8 @@ By default:
 - `configs/presets.yaml`
 - `experiments/lr_sweep.yaml`
 - `experiments/experiments.log`
+- `AGENTS.md`
+- `CLAUDE.md`
 
 Start there before editing the wrapper classes. After updating the dataset or
 model wrapper, use:
@@ -88,3 +92,8 @@ uv run python scripts/temporary/test_model.py
 ```
 
 before committing to a full `dl-run`.
+
+Use `configs/base.yaml` for reusable shared defaults. Before a real single run,
+copy or derive it into a named file under `experiments/`, for example
+`experiments/debug.yaml`, validate that concrete config, and run `dl-run`
+against the `experiments/` file.

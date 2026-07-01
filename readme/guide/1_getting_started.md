@@ -54,7 +54,7 @@ Inside the generated repository:
 ```bash
 uv add --editable ../dl-core
 uv sync
-uv run dl-run --config configs/base.yaml
+uv run dl-run --config configs/base.yaml --validate-only
 ```
 
 If that succeeds, your local package plus experiment repo integration is

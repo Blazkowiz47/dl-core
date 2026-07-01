@@ -190,12 +190,16 @@ def test_scaffold_smoke_repo_runs_dl_run_and_dl_sweep() -> None:
         repo_dir = root_dir / repo_name
         _write_dummy_dataset_wrapper(repo_dir, dataset_name)
         _update_base_config(repo_dir, dataset_name)
+        shutil.copyfile(
+            repo_dir / "configs" / "base.yaml",
+            repo_dir / "experiments" / "debug.yaml",
+        )
         _update_lr_sweep(repo_dir)
 
         _run_entrypoint(
             "dl-run",
             "--config",
-            "configs/base.yaml",
+            "experiments/debug.yaml",
             cwd=repo_dir,
         )
         _run_entrypoint(

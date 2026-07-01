@@ -24,7 +24,9 @@ uv run python -m compileall src/dl_core
 From a generated experiment repository:
 
 ```bash
-uv run dl-run --config configs/base.yaml
+uv run dl-run --config configs/base.yaml --validate-only
+cp configs/base.yaml experiments/debug.yaml
+uv run dl-run --config experiments/debug.yaml
 uv run dl-sweep experiments/lr_sweep.yaml
 ```
 

@@ -44,6 +44,8 @@ The scaffold gives you:
 - `src/trainers/my_exp.py`
 - `src/models/resnet_example.py`
 - `src/bootstrap.py`
+- `AGENTS.md`
+- `CLAUDE.md`
 
 ## 4. Run Locally
 
@@ -57,9 +59,13 @@ uv run python scripts/temporary/test_model.py
 Then move on to the full commands:
 
 ```bash
-uv run dl-run --config configs/base.yaml
+uv run dl-run --config configs/base.yaml --validate-only
+cp configs/base.yaml experiments/debug.yaml
+uv run dl-run --config experiments/debug.yaml --validate-only
+uv run dl-run --config experiments/debug.yaml
 uv run dl-sweep experiments/lr_sweep.yaml
 ```
 
 Before running, set `dataset.rdir` to a real dataset or replace the local
-dataset wrapper with a dummy-data implementation for smoke testing.
+dataset wrapper with a dummy-data implementation for smoke testing. Keep the
+concrete run config under `experiments/`, even for a one-off debug run.
