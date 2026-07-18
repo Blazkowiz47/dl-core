@@ -16,6 +16,7 @@ Example usage:
 
 from logging import Logger, getLogger
 from typing import Any, Dict, List, Optional, Type, Union
+import warnings
 
 logger = getLogger(__name__)
 
@@ -37,7 +38,7 @@ class ComponentRegistry:
         self._components: Dict[str, Type] = {}
         self.component_type = component_type
 
-    def regiter_class(self, name: str, cls: Type):
+    def register_class(self, name: str, cls: Type) -> None:
         """
         Register a component class directly.
         Args:
@@ -54,6 +55,29 @@ class ComponentRegistry:
                 )
         else:
             self._components[name] = cls
+
+    def regiter_class(self, name: str, cls: Type) -> None:
+        """Register a class through the deprecated misspelled method name."""
+        warnings.warn(
+            "ComponentRegistry.regiter_class() is deprecated; use register_class().",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.register_class(name, cls)
+
+    def unregister(self, name: str, expected_class: Type | None = None) -> bool:
+        """Remove one registration, optionally only when its class still matches."""
+        registered_class = self._components.get(name)
+        if registered_class is None:
+            return False
+        if expected_class is not None and registered_class is not expected_class:
+            return False
+        del self._components[name]
+        return True
+
+    def registered_items(self) -> dict[str, Type]:
+        """Return a shallow copy of exact registration names and classes."""
+        return dict(self._components)
 
     def register(self, names: Union[str, List[str]]):
         """
@@ -224,6 +248,26 @@ TRACKER_REGISTRY = ComponentRegistry("Tracker")
 METRICS_SOURCE_REGISTRY = ComponentRegistry("MetricsSource")
 BIOMETRIC_PREPROCESSOR_REGISTRY = ComponentRegistry("BiometricPreprocessor")
 FACE_DETECTOR_REGISTRY = ComponentRegistry("FaceDetector")
+
+COMPONENT_REGISTRIES = (
+    MODEL_REGISTRY,
+    TRAINER_REGISTRY,
+    DATASET_REGISTRY,
+    CRITERION_REGISTRY,
+    METRIC_MANAGER_REGISTRY,
+    CALLBACK_REGISTRY,
+    ACCELERATOR_REGISTRY,
+    METRIC_REGISTRY,
+    AUGMENTATION_REGISTRY,
+    SAMPLER_REGISTRY,
+    OPTIMIZER_REGISTRY,
+    SCHEDULER_REGISTRY,
+    EXECUTOR_REGISTRY,
+    TRACKER_REGISTRY,
+    METRICS_SOURCE_REGISTRY,
+    BIOMETRIC_PREPROCESSOR_REGISTRY,
+    FACE_DETECTOR_REGISTRY,
+)
 
 
 def register_model(names: Union[str, List[str]]):

@@ -74,6 +74,18 @@ class ScaffoldContext:
             1,
         )
 
+    def add_gitignore_patterns(self, *patterns: str) -> None:
+        """Append missing ignore patterns to the generated project gitignore."""
+        relative = Path(".gitignore")
+        content = self.files.get(relative, "")
+        existing_lines = set(content.splitlines())
+        missing = [pattern for pattern in patterns if pattern not in existing_lines]
+        if not missing:
+            return
+        prefix = content.rstrip()
+        suffix = "\n".join(missing)
+        self.files[relative] = f"{prefix}\n{suffix}\n" if prefix else f"{suffix}\n"
+
     def append_bootstrap_import(self, import_line: str) -> None:
         """Append an import to the generated bootstrap module."""
         self.append_line(Path("src") / "bootstrap.py", import_line)

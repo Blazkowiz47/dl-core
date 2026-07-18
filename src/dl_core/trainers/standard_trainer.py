@@ -186,7 +186,6 @@ class StandardTrainer(EpochTrainer):
     ) -> dict[str, float]:
         """Single training step."""
         labels = batch_data["label"]
-        paths = batch_data["path"]
 
         # Zero gradients
         self.optimizers["main"].zero_grad()
@@ -222,7 +221,6 @@ class StandardTrainer(EpochTrainer):
         # Update metrics
         if self.metric_managers:
             with torch.no_grad():
-                attack_types = batch_data.get("attack_type")
                 for manager in self.metric_managers.values():
                     manager.update("train", model_output["probabilities"], batch_data)
 
@@ -231,7 +229,6 @@ class StandardTrainer(EpochTrainer):
     def test_step(self, batch_data: dict[str, torch.Tensor]) -> dict[str, float]:
         """Single test step."""
         labels = batch_data["label"]
-        paths = batch_data["path"]
 
         # Forward pass with mixed precision autocast
         with self.accelerator.autocast_context():
@@ -249,7 +246,6 @@ class StandardTrainer(EpochTrainer):
 
         # Update metrics
         if self.metric_managers:
-            attack_types = batch_data.get("attack_type")
             for manager in self.metric_managers.values():
                 manager.update("test", model_output["probabilities"], batch_data)
 
@@ -258,7 +254,6 @@ class StandardTrainer(EpochTrainer):
     def validation_step(self, batch_data: dict[str, torch.Tensor]) -> dict[str, float]:
         """Single validation step."""
         labels = batch_data["label"]
-        paths = batch_data["path"]
 
         # Forward pass with mixed precision autocast
         with self.accelerator.autocast_context():
@@ -276,7 +271,6 @@ class StandardTrainer(EpochTrainer):
 
         # Update metrics
         if self.metric_managers:
-            attack_types = batch_data.get("attack_type")
             for manager in self.metric_managers.values():
                 manager.update("validation", model_output["probabilities"], batch_data)
 

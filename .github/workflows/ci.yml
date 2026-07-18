@@ -12,10 +12,14 @@ on:
 
 jobs:
   validate:
-    name: Validate Package
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - name: Check out repository
@@ -25,36 +29,26 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install ${{ matrix.python-version }}
 
-      - name: Create virtual environment
-        run: uv venv
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python ${{ matrix.python-version }}
 
-      - name: Install test dependencies
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import tomllib
+      - name: Run Ruff
+        run: uv run --no-sync ruff check src tests
 
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          dependencies = pyproject["project"]["dependencies"]
-          dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
-          Path("requirements-ci.txt").write_text(
-              "\n".join([*dependencies, *dev_dependencies, "twine"]) + "\n",
-              encoding="utf-8",
-          )
-          PY
-          uv pip install --python .venv/bin/python -r requirements-ci.txt
-          uv pip install --python .venv/bin/python --no-deps --editable .
-
-      - name: Run tests
-        run: VIRTUAL_ENV="$PWD/.venv" PATH="$PWD/.venv/bin:$PATH" .venv/bin/python -m pytest
+      - name: Run tests with coverage
+        run: >-
+          uv run --no-sync python -m pytest
+          --cov=dl_core
+          --cov-report=term
+          --cov-fail-under=45
 
       - name: Compile package
-        run: .venv/bin/python -m compileall src/dl_core
+        run: uv run --no-sync python -m compileall src/dl_core
 
       - name: Build distribution artifacts
         run: uv build --no-sources
 
       - name: Check distribution metadata
-        run: .venv/bin/python -m twine check dist/*
+        run: uv run --no-sync twine check dist/*

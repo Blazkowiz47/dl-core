@@ -21,7 +21,6 @@ from dl_core.component_scaffold import (
     list_supported_dataset_bases,
     list_supported_component_types,
     list_supported_trainer_bases,
-    normalize_component_type,
 )
 from dl_core.sweep_scaffold import (
     create_sweep_scaffold,

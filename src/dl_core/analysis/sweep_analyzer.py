@@ -970,7 +970,7 @@ def _render_markdown_report(
             if ranking_specs
             else "-"
         ),
-        f"- Status summary: "
+        "- Status summary: "
         + ", ".join(
             f"`{status}={count}`" for status, count in sorted(status_counts.items())
         ),

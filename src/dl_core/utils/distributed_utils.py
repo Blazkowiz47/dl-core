@@ -157,8 +157,6 @@ def gather_tensors(tensor: torch.Tensor, accelerator: Any) -> torch.Tensor:
     if not accelerator.use_distributed:
         return tensor
 
-    # Track original device to restore at the end
-    original_device = tensor.device
     move_back_to_cpu = False
 
     # If tensor is on CPU but using NCCL backend, move to GPU temporarily
@@ -167,8 +165,6 @@ def gather_tensors(tensor: torch.Tensor, accelerator: Any) -> torch.Tensor:
         tensor = tensor.to(accelerator.device)
         move_back_to_cpu = True
 
-    # Store original shape for reconstruction
-    original_shape = tensor.shape
     batch_size = tensor.shape[0]
     other_dims = tensor.shape[1:]  # All dimensions after batch
 

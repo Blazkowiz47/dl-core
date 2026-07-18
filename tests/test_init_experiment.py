@@ -70,6 +70,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     helper_readme_text = (
         target_dir / "scripts" / "temporary" / "README.md"
     ).read_text()
+    gitignore_text = (target_dir / ".gitignore").read_text()
     assert list(config["models"].keys()) == ["resnet_example"]
     assert "name" not in config["models"]["resnet_example"]
     assert config["dataset"]["name"] == component_name
@@ -157,6 +158,11 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "scripts/temporary/test_model.py" in readme_text
     assert "uv run python scripts/temporary/test_dataset.py" in helper_readme_text
     assert "uv run python scripts/temporary/test_model.py" in helper_readme_text
+    assert ".env\n" in gitignore_text
+    assert "!.env.example" in gitignore_text
+    assert "mlruns/" in gitignore_text
+    assert "wandb/" in gitignore_text
+    assert "outputs/" in gitignore_text
 
 def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> None:
     """Omitting --name should initialize the provided directory in place."""

@@ -449,7 +449,7 @@ provided through `dl-azure`.
 
 ## Documentation
 
-- [Documentation Index](https://github.com/Blazkowiz47/dl-core/tree/main/readme)
+- [Documentation Index](https://github.com/Blazkowiz47/dl-core/tree/master/readme)
 - [GitHub Repository](https://github.com/Blazkowiz47/dl-core)
 
 ## License
@@ -460,5 +460,7 @@ MIT. See [LICENSE](LICENSE).
 
 ```bash
 uv run --extra dev pytest
+uv run --extra dev ruff check src tests
 uv run python -m compileall src/dl_core
+uv build --no-sources
 ```

@@ -303,7 +303,6 @@ def test_dl_analyze_writes_markdown_report(
 
     exit_code = main(["--sweep", str(sweep_path)])
     captured = capsys.readouterr()
-    stdout = captured.out
     stderr = captured.err
     markdown_path = get_sweep_analysis_markdown_path(sweep_path)
 
