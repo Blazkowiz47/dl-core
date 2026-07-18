@@ -132,10 +132,15 @@ class ComponentRegistry:
             cls = self._components[name]
             return cls(*args, **kwargs)
 
-        # Then try prefix matching for flexible naming (e.g., resnet18 -> resnet)
-        for registered_name, cls in self._components.items():
-            if name.startswith(registered_name):
-                return cls(*args, **kwargs)
+        # Then prefer the most specific prefix (e.g., standard_act before standard).
+        matching_names = [
+            registered_name
+            for registered_name in self._components
+            if name.startswith(registered_name)
+        ]
+        if matching_names:
+            cls = self._components[max(matching_names, key=len)]
+            return cls(*args, **kwargs)
 
         # If no match found, provide helpful error message
         available_names = list(self._components.keys())
@@ -168,7 +173,7 @@ class ComponentRegistry:
             return True
 
         # Check prefix match
-        for registered_name in self._components.keys():
+        for registered_name in self._components:
             if name.startswith(registered_name):
                 return True
 
@@ -201,10 +206,14 @@ class ComponentRegistry:
         if name in self._components:
             return self._components[name]
 
-        # Then try prefix matching
-        for registered_name, cls in self._components.items():
-            if name.startswith(registered_name):
-                return cls
+        # Then prefer the most specific matching prefix.
+        matching_names = [
+            registered_name
+            for registered_name in self._components
+            if name.startswith(registered_name)
+        ]
+        if matching_names:
+            return self._components[max(matching_names, key=len)]
 
         # If no match found, provide helpful error message
         available_names = list(self._components.keys())

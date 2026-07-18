@@ -20,19 +20,8 @@ class ConfigValidator:
     - Config structure and consistency
     """
 
-    REQUIRED_SECTIONS = ["models", "dataset", "optimizers", "accelerator"]
-    OPTIONAL_SECTIONS = [
-        "runtime",
-        "trainer",
-        "schedulers",
-        "criterions",
-        "callbacks",
-        "metric_managers",
-        "experiment",
-        "executor",
-        "ema",
-    ]
-    VALID_ACCELERATORS = ["cpu", "single_gpu", "multi_gpu"]
+    REQUIRED_SECTIONS = ("models", "dataset", "optimizers")
+    VALID_ACCELERATORS = ("cpu", "single_gpu", "multi_gpu")
 
     def __init__(self, config_path: str):
         """
@@ -58,11 +47,19 @@ class ConfigValidator:
             return False
 
         try:
-            with open(self.config_path, "r") as f:
-                self.config = yaml.safe_load(f)
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                loaded_config = yaml.safe_load(f)
+            if not isinstance(loaded_config, dict):
+                self.errors.append("Config root must be a YAML mapping")
+                self.config = {}
+                return False
+            self.config = loaded_config
             return True
         except yaml.YAMLError as e:
             self.errors.append(f"YAML parsing error: {e}")
+            return False
+        except OSError as e:
+            self.errors.append(f"Failed to read config: {e}")
             return False
 
     def validate(self) -> bool:
@@ -74,6 +71,7 @@ class ConfigValidator:
         """
         self.errors = []
         self.warnings = []
+        self.config = {}
 
         # Load config
         if not self.load_config():
@@ -102,6 +100,9 @@ class ConfigValidator:
             return
 
         dataset = self.config["dataset"]
+        if not isinstance(dataset, dict):
+            self.errors.append("'dataset' must be a dict")
+            return
 
         # Check classes (REQUIRED)
         classes = dataset.get("classes")
@@ -117,6 +118,12 @@ class ConfigValidator:
                     "'dataset.class_order' is deprecated; rename to 'classes'"
                 )
                 classes = legacy_classes
+        if classes is not None and (
+            not isinstance(classes, list)
+            or not all(isinstance(class_name, str) for class_name in classes)
+        ):
+            self.errors.append("'dataset.classes' must be a list of strings")
+            classes = None
 
         # Check num_classes
         if "num_classes" in dataset and classes is not None:
@@ -131,7 +138,11 @@ class ConfigValidator:
         # Check dataset paths (warning only)
         for key in ["train_root", "val_root", "test_root"]:
             if key in dataset:
-                path = Path(dataset[key])
+                path_value = dataset[key]
+                if not isinstance(path_value, str):
+                    self.errors.append(f"'dataset.{key}' must be a path string")
+                    continue
+                path = Path(path_value)
                 if not path.exists():
                     self.warnings.append(f"Dataset path does not exist: {key}={path}")
 
@@ -152,14 +163,9 @@ class ConfigValidator:
                 self.errors.append("'models' dict is empty")
                 return
 
-            # Check each model has a 'name' parameter
             for model_key, model_config in models.items():
                 if not isinstance(model_config, dict):
                     self.errors.append(f"Model '{model_key}' config must be a dict")
-                elif "name" not in model_config:
-                    self.warnings.append(
-                        f"Model '{model_key}' missing 'name' parameter (will use key name)"
-                    )
 
         elif isinstance(models, list):
             self.errors.append(
@@ -192,10 +198,6 @@ class ConfigValidator:
             for opt_key, opt_config in optimizers.items():
                 if not isinstance(opt_config, dict):
                     self.errors.append(f"Optimizer '{opt_key}' config must be a dict")
-                elif "name" not in opt_config:
-                    self.warnings.append(
-                        f"Optimizer '{opt_key}' missing 'name' parameter (will use key name)"
-                    )
 
         elif isinstance(optimizers, list):
             self.errors.append(
@@ -226,11 +228,6 @@ class ConfigValidator:
                 self.errors.append(
                     f"Scheduler '{scheduler_key}' config must be a dict"
                 )
-            elif "name" not in scheduler_config:
-                self.warnings.append(
-                    f"Scheduler '{scheduler_key}' missing 'name' parameter "
-                    f"(will use key name)"
-                )
 
     def _check_accelerator_config(self) -> None:
         """Validate top-level accelerator configuration."""
@@ -240,12 +237,14 @@ class ConfigValidator:
             self.errors.append(
                 "Missing required top-level 'accelerator' configuration"
             )
-            if "runtime" in self.config and "accelerator" in self.config["runtime"]:
+            runtime_config = self.config.get("runtime")
+            if isinstance(runtime_config, dict) and "accelerator" in runtime_config:
                 self.errors.append(
                     "Found deprecated 'runtime.accelerator'; move it to top-level "
                     "'accelerator'"
                 )
-            if "training" in self.config and "accelerator" in self.config["training"]:
+            training_config = self.config.get("training")
+            if isinstance(training_config, dict) and "accelerator" in training_config:
                 self.errors.append(
                     "Found deprecated 'training.accelerator'; move it to top-level "
                     "'accelerator'"
@@ -274,12 +273,8 @@ class ConfigValidator:
             return
 
         experiment = self.config["experiment"]
-
-        # Experiment name recommended
-        if "name" not in experiment:
-            self.warnings.append(
-                "Missing 'experiment.name' - recommended for organizing runs"
-            )
+        if not isinstance(experiment, dict):
+            self.errors.append("'experiment' must be a dict")
 
     def print_report(self) -> bool:
         """

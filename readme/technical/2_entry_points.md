@@ -88,7 +88,8 @@ Notes:
 - `--validate-only` now performs a lightweight preflight: it validates the
   config, resolves the configured components, safely instantiates the dataset,
   models, criterions, optimizer, and optional scheduler, then exits without
-  starting training
+  starting training. Malformed YAML roots and section types are reported as
+  validation errors instead of failing with an internal exception.
 
 ## `dl-smoke`
 
