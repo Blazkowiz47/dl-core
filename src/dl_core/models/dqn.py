@@ -50,4 +50,4 @@ class DQNMLP(nn.Module):
         return self._forward(observations)
 
     def _forward(self, observations: torch.Tensor) -> torch.Tensor:
-        return self.network(observations)
+        return self.network(observations.reshape(observations.shape[0], -1))

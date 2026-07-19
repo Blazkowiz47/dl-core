@@ -144,9 +144,13 @@ subclasses and requires `environment` in place of the supervised `dataset`,
 ## Deep Q-Networks
 
 `DQNTrainer` is registered as `dqn`. It supports `Discrete` actions with either
-`Discrete` or `Box` observations. The built-in `dqn_mlp` model flattens vector
-observations; image and structured observations should use a registered custom
-Q-network returning a `[batch, actions]` tensor or `{"q_values": tensor}`.
+`Discrete` or `Box` observations, including non-zero `Discrete` starts. The
+built-in `dqn_mlp` model flattens `Box` observations; image-shaped observations
+can instead use a registered custom Q-network returning a floating-point
+`[batch, actions]` tensor or `{"q_values": tensor}`. Structured `Dict` and
+`Tuple` observation spaces are not currently supported. Custom networks receive
+`Box` batches in their original shape and `Discrete` observations as one-hot
+batches.
 
 ```yaml
 models:
@@ -177,7 +181,11 @@ trainer:
 
 DQN uses uniform replay, a hard-updated target network, Huber loss, and Double
 DQN targets by default. True termination removes the bootstrap target;
-truncation retains it. Replay sampling and epsilon exploration use separately
+truncation retains it. Training and evaluation action and observation spaces
+must match exactly, including `Box` bounds and dtypes. Target synchronization is
+scheduled by environment transitions even when a synchronization step falls
+between replay updates, and model forwards honor the configured accelerator's
+autocast context. Replay sampling and epsilon exploration use separately
 checkpointed generators. Saving replay memory makes checkpoints larger but
 allows exact off-policy continuation; set `checkpoint_replay_buffer: false` to
 resume with an empty buffer. Gradient accumulation is currently rejected for

@@ -97,36 +97,18 @@ class DQNTrainer(RLTrainer):
             raise TypeError("DQNTrainer requires a Discrete action space")
         if not isinstance(self.environment.observation_space, (Box, Discrete)):
             raise TypeError("DQNTrainer requires a Box or Discrete observation space")
-        if type(self.evaluation_environment.action_space) is not type(
-            self.environment.action_space
-        ) or type(self.evaluation_environment.observation_space) is not type(
-            self.environment.observation_space
-        ):
-            raise ValueError("Training and evaluation spaces must use matching types")
-        if (
-            self.evaluation_environment.action_space.n
-            != self.environment.action_space.n
-            or self.evaluation_environment.action_space.start
-            != self.environment.action_space.start
-        ):
+        if self.evaluation_environment.action_space != self.environment.action_space:
             raise ValueError("Training and evaluation action spaces must match")
+        if (
+            self.evaluation_environment.observation_space
+            != self.environment.observation_space
+        ):
+            raise ValueError("Training and evaluation observation spaces must match")
         if isinstance(self.environment.observation_space, Discrete):
-            if (
-                self.evaluation_environment.observation_space.n
-                != self.environment.observation_space.n
-                or self.evaluation_environment.observation_space.start
-                != self.environment.observation_space.start
-            ):
-                raise ValueError("Training and evaluation observation spaces must match")
             observation_shape: tuple[int, ...] = ()
             observation_dtype = np.int64
             input_dim = int(self.environment.observation_space.n)
         else:
-            if (
-                self.evaluation_environment.observation_space.shape
-                != self.environment.observation_space.shape
-            ):
-                raise ValueError("Training and evaluation observation shapes must match")
             observation_shape = self.environment.observation_space.shape
             observation_dtype = np.float32
             input_dim = int(np.prod(observation_shape))
@@ -194,9 +176,16 @@ class DQNTrainer(RLTrainer):
             raise TypeError("optimizers must be a flat mapping")
         optimizer_config = dict(optimizer_config)
         optimizer_name = str(optimizer_config.pop("name", "adam"))
+        trainable_parameters = [
+            parameter
+            for parameter in self.models["online"].parameters()
+            if parameter.requires_grad
+        ]
+        if not trainable_parameters:
+            raise ValueError("DQN q_network has no trainable parameters")
         self.optimizers["q_network"] = OPTIMIZER_REGISTRY.get(
             optimizer_name,
-            self.models["online"].parameters(),
+            trainable_parameters,
             **optimizer_config,
         )
         self.replay_buffer = ReplayBuffer(
@@ -223,7 +212,7 @@ class DQNTrainer(RLTrainer):
             was_training = self.models["online"].training
             try:
                 self.models["online"].eval()
-                with torch.no_grad():
+                with torch.no_grad(), self.accelerator.autocast_context():
                     q_values = self._q_values(
                         self.models["online"],
                         self._observations_to_tensor(observation_batch),
@@ -256,6 +245,10 @@ class DQNTrainer(RLTrainer):
             or len(self.replay_buffer) < self.batch_size
             or self.global_step % self.train_frequency != 0
         ):
+            if self.global_step % self.target_update_frequency == 0:
+                self.models["target"].load_state_dict(
+                    self.accelerator.unwrap_model(self.models["online"]).state_dict()
+                )
             return None
 
         losses: list[float] = []
@@ -271,32 +264,33 @@ class DQNTrainer(RLTrainer):
             action_indices = batch.actions.long() - int(
                 self.environment.action_space.start
             )
-            current_q_values = self._q_values(
-                self.models["online"],
-                observations,
-            ).gather(1, action_indices.reshape(-1, 1)).squeeze(1)
-            with torch.no_grad():
-                target_next_q_values = self._q_values(
-                    self.models["target"],
-                    next_observations,
-                )
-                if self.double_dqn:
-                    online_next_actions = torch.argmax(
-                        self._q_values(self.models["online"], next_observations),
-                        dim=1,
-                        keepdim=True,
+            with self.accelerator.autocast_context():
+                current_q_values = self._q_values(
+                    self.models["online"],
+                    observations,
+                ).gather(1, action_indices.reshape(-1, 1)).squeeze(1)
+                with torch.no_grad():
+                    target_next_q_values = self._q_values(
+                        self.models["target"],
+                        next_observations,
                     )
-                    next_q_values = target_next_q_values.gather(
-                        1,
-                        online_next_actions,
-                    ).squeeze(1)
-                else:
-                    next_q_values = target_next_q_values.max(dim=1).values
-                targets = batch.rewards + (
-                    self.gamma * (~batch.terminated).float() * next_q_values
-                )
+                    if self.double_dqn:
+                        online_next_actions = torch.argmax(
+                            self._q_values(self.models["online"], next_observations),
+                            dim=1,
+                            keepdim=True,
+                        )
+                        next_q_values = target_next_q_values.gather(
+                            1,
+                            online_next_actions,
+                        ).squeeze(1)
+                    else:
+                        next_q_values = target_next_q_values.max(dim=1).values
+                    targets = batch.rewards + (
+                        self.gamma * (~batch.terminated).float() * next_q_values
+                    )
 
-            loss = functional.smooth_l1_loss(current_q_values, targets)
+                loss = functional.smooth_l1_loss(current_q_values, targets)
             self.optimizers["q_network"].zero_grad(set_to_none=True)
             self.accelerator.backward(loss, self.models["online"])
             self.accelerator.optimizer_step(
@@ -327,7 +321,7 @@ class DQNTrainer(RLTrainer):
                 indices,
                 num_classes=self.environment.observation_space.n,
             ).float()
-        return tensor.float().reshape(tensor.shape[0], -1)
+        return tensor.float()
 
     def _q_values(self, model: nn.Module, observations: torch.Tensor) -> torch.Tensor:
         output = model(observations)
@@ -337,8 +331,12 @@ class DQNTrainer(RLTrainer):
             raise TypeError(
                 "DQN models must return [batch, actions] tensors or {'q_values': tensor}"
             )
+        if output.shape[0] != observations.shape[0]:
+            raise ValueError("DQN model output batch dimension does not match its input")
         if output.shape[1] != self.environment.action_space.n:
             raise ValueError("DQN model action dimension does not match the environment")
+        if not output.is_floating_point():
+            raise TypeError("DQN model Q-values must use a floating-point dtype")
         return output
 
     def algorithm_state_dict(self) -> dict[str, Any]:
@@ -358,6 +356,8 @@ class DQNTrainer(RLTrainer):
 
     def load_algorithm_state_dict(self, state: dict[str, Any]) -> None:
         """Restore exploration and optional replay state."""
+        if not isinstance(state, dict):
+            raise TypeError("Checkpoint algorithm state must be a mapping")
         if state.get("observation_space") != repr(self.environment.observation_space):
             raise ValueError("Checkpoint observation space does not match")
         if state.get("action_space") != repr(self.environment.action_space):

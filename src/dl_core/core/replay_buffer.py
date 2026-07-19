@@ -154,6 +154,8 @@ class ReplayBuffer:
             raise ValueError("Replay buffer size is invalid")
         if not 0 <= position < self.capacity:
             raise ValueError("Replay buffer position is invalid")
+        if size < self.capacity and position != size:
+            raise ValueError("Replay buffer position is inconsistent with its size")
         arrays = {
             "observations": self.observations,
             "actions": self.actions,
@@ -166,6 +168,8 @@ class ReplayBuffer:
             source = np.asarray(state.get(key))
             if source.shape != destination[:size].shape:
                 raise ValueError(f"Replay buffer {key} shape is invalid")
+            if source.dtype != destination.dtype:
+                raise ValueError(f"Replay buffer {key} dtype is invalid")
             destination[:size] = source
         generator_state = state.get("random_generator_state")
         if not isinstance(generator_state, dict):
