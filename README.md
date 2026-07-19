@@ -7,7 +7,7 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current release: `deep-learning-core==0.0.25`.
+Current release: `deep-learning-core==0.0.26`.
 
 Compatible companion package floors:
 
