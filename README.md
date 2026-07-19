@@ -18,6 +18,8 @@ Compatible companion package floors:
 ## What's New?
 
 - `dl-init` is now the primary scaffold command
+- Gymnasium-compatible environments can now be registered and created through
+  the first-class RL environment contract
 - `dl-core list` makes built-in and local registry discovery easier
 - `dl-core add` defaults to plain base classes unless `--base` is given
 - `dl-analyze` is the primary sweep-analysis CLI

@@ -243,6 +243,7 @@ class ComponentRegistry:
 MODEL_REGISTRY = ComponentRegistry("Model")
 TRAINER_REGISTRY = ComponentRegistry("Trainer")
 DATASET_REGISTRY = ComponentRegistry("Dataset")
+ENVIRONMENT_REGISTRY = ComponentRegistry("Environment")
 CRITERION_REGISTRY = ComponentRegistry("Criterion")
 METRIC_MANAGER_REGISTRY = ComponentRegistry("MetricManager")
 CALLBACK_REGISTRY = ComponentRegistry("Callback")
@@ -262,6 +263,7 @@ COMPONENT_REGISTRIES = (
     MODEL_REGISTRY,
     TRAINER_REGISTRY,
     DATASET_REGISTRY,
+    ENVIRONMENT_REGISTRY,
     CRITERION_REGISTRY,
     METRIC_MANAGER_REGISTRY,
     CALLBACK_REGISTRY,
@@ -292,6 +294,11 @@ def register_trainer(names: Union[str, List[str]]):
 def register_dataset(names: Union[str, List[str]]):
     """Convenience decorator for registering datasets."""
     return DATASET_REGISTRY.register(names)
+
+
+def register_environment(names: Union[str, List[str]]):
+    """Convenience decorator for registering reinforcement-learning environments."""
+    return ENVIRONMENT_REGISTRY.register(names)
 
 
 def register_criterion(names: Union[str, List[str]]):
@@ -377,6 +384,7 @@ def get_all_registered_components() -> Dict[str, List[str]]:
         "models": MODEL_REGISTRY.list_registered(),
         "trainers": TRAINER_REGISTRY.list_registered(),
         "datasets": DATASET_REGISTRY.list_registered(),
+        "environments": ENVIRONMENT_REGISTRY.list_registered(),
         "criterions": CRITERION_REGISTRY.list_registered(),
         "metric_managers": METRIC_MANAGER_REGISTRY.list_registered(),
         "callbacks": CALLBACK_REGISTRY.list_registered(),

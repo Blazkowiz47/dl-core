@@ -11,6 +11,7 @@ LOCAL_COMPONENT_SUBPACKAGES = (
     "callbacks",
     "criterions",
     "datasets",
+    "environments",
     "executors",
     "metric_managers",
     "metrics",

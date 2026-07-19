@@ -43,6 +43,7 @@ mechanics.
 - [Sweep System](./technical/3_sweep_system.md)
 - [Local Component Loading](./technical/4_local_component_loading.md)
 - [Testing](./technical/5_testing.md)
+- [Reinforcement Learning](./technical/6_reinforcement_learning.md)
 
 ## Common Tasks
 

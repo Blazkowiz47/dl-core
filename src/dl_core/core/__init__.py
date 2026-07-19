@@ -30,6 +30,7 @@ from .base_trainer import BaseTrainer
 from .epoch_trainer import EpochTrainer
 from .sequence_trainer import SequenceStepOutput, SequenceTrainer
 from .base_transform import BaseTransform
+from .rl_types import Environment, EpisodeResult, Transition
 from .config_metadata import ConfigFieldSpec, config_field
 
 # Registry system
@@ -39,6 +40,7 @@ from .registry import (
     CALLBACK_REGISTRY,
     CRITERION_REGISTRY,
     DATASET_REGISTRY,
+    ENVIRONMENT_REGISTRY,
     EXECUTOR_REGISTRY,
     FACE_DETECTOR_REGISTRY,
     METRIC_MANAGER_REGISTRY,
@@ -59,6 +61,7 @@ from .registry import (
     register_callback,
     register_criterion,
     register_dataset,
+    register_environment,
     register_executor,
     register_face_detector,
     register_metric,
@@ -102,11 +105,15 @@ __all__ = [
     "FaceDetection",
     "LandmarkDetection",
     "ConfigFieldSpec",
+    "Environment",
+    "Transition",
+    "EpisodeResult",
     # Registry system
     "ComponentRegistry",
     "MODEL_REGISTRY",
     "TRAINER_REGISTRY",
     "DATASET_REGISTRY",
+    "ENVIRONMENT_REGISTRY",
     "CRITERION_REGISTRY",
     "METRIC_REGISTRY",
     "METRIC_MANAGER_REGISTRY",
@@ -124,6 +131,7 @@ __all__ = [
     "register_model",
     "register_trainer",
     "register_dataset",
+    "register_environment",
     "register_face_detector",
     "register_criterion",
     "register_metric",

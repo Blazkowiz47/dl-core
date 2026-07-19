@@ -20,6 +20,7 @@ _BUILTIN_COMPONENT_MODULES = (
     "callbacks",
     "criterions",
     "datasets",
+    "environments",
     "executors",
     "metrics_sources",
     "metric_managers",
