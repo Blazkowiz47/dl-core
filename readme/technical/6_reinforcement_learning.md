@@ -81,6 +81,9 @@ trainer:
     checkpoint_frequency: 100
 ```
 
+Set a positive `total_timesteps`, `max_episodes`, or both. When both are set,
+training stops at the first budget reached.
+
 Training and evaluation environments are separate instances. Evaluation uses
 deterministic action selection, evaluation model mode, and a distinct seed
 range, so evaluation does not consume training-environment state. Set
@@ -130,4 +133,10 @@ trainer:
 Exploratory actions and greedy tie-breaking use a trainer-owned random generator
 whose state is included in checkpoints. Deterministic evaluation always chooses
 the lowest-index maximizing action. Non-zero starts on Gymnasium `Discrete`
-spaces are supported.
+spaces are supported. Training and evaluation spaces must have matching sizes
+and starts. Checkpoint loading validates both space definitions, the Q-table,
+epsilon, and exploration-generator state before resuming.
+
+The standard configuration validator recognizes registered `RLTrainer`
+subclasses and requires `environment` in place of the supervised `dataset`,
+`models`, and `optimizers` sections.

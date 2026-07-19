@@ -36,8 +36,8 @@ class RLTrainer(ABC):
         config_field(
             "total_timesteps",
             "int",
-            "Maximum number of training environment transitions.",
-            required=True,
+            "Maximum training transitions; zero uses the max_episodes budget.",
+            default=0,
         ),
         config_field(
             "max_episodes",

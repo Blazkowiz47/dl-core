@@ -53,6 +53,28 @@ class QLearningTrainer(RLTrainer):
             raise TypeError("QLearningTrainer requires a Discrete observation space")
         if not isinstance(self.environment.action_space, Discrete):
             raise TypeError("QLearningTrainer requires a Discrete action space")
+        if not isinstance(self.evaluation_environment.observation_space, Discrete):
+            raise TypeError(
+                "QLearningTrainer requires a Discrete evaluation observation space"
+            )
+        if not isinstance(self.evaluation_environment.action_space, Discrete):
+            raise TypeError(
+                "QLearningTrainer requires a Discrete evaluation action space"
+            )
+        if (
+            self.evaluation_environment.observation_space.n
+            != self.environment.observation_space.n
+            or self.evaluation_environment.observation_space.start
+            != self.environment.observation_space.start
+            or self.evaluation_environment.action_space.n
+            != self.environment.action_space.n
+            or self.evaluation_environment.action_space.start
+            != self.environment.action_space.start
+        ):
+            raise ValueError(
+                "Training and evaluation environments must use identical "
+                "Discrete observation and action spaces"
+            )
 
         self.learning_rate = float(self.trainer_config.get("learning_rate", 0.1))
         self.gamma = float(self.trainer_config.get("gamma", 0.99))
@@ -144,18 +166,56 @@ class QLearningTrainer(RLTrainer):
             "q_table": self.q_table,
             "epsilon": self.epsilon,
             "random_generator_state": self.random_generator.bit_generator.state,
+            "observation_space": {
+                "n": int(self.environment.observation_space.n),
+                "start": int(self.environment.observation_space.start),
+            },
+            "action_space": {
+                "n": int(self.environment.action_space.n),
+                "start": int(self.environment.action_space.start),
+            },
         }
 
     def load_algorithm_state_dict(self, state: dict[str, Any]) -> None:
         """Restore Q-table and exploration-generator state."""
-        q_table = np.asarray(state.get("q_table"), dtype=np.float64)
+        if not isinstance(state, dict):
+            raise TypeError("Checkpoint algorithm state must be a mapping")
+        expected_observation_space = {
+            "n": int(self.environment.observation_space.n),
+            "start": int(self.environment.observation_space.start),
+        }
+        expected_action_space = {
+            "n": int(self.environment.action_space.n),
+            "start": int(self.environment.action_space.start),
+        }
+        if state.get("observation_space") != expected_observation_space:
+            raise ValueError(
+                "Checkpoint observation space does not match the configured environment"
+            )
+        if state.get("action_space") != expected_action_space:
+            raise ValueError(
+                "Checkpoint action space does not match the configured environment"
+            )
+        if "q_table" not in state:
+            raise ValueError("Checkpoint does not contain a Q-table")
+        q_table = np.asarray(state["q_table"], dtype=np.float64)
         if q_table.shape != self.q_table.shape:
             raise ValueError(
                 f"Checkpoint Q-table shape {q_table.shape} does not match "
                 f"{self.q_table.shape}"
             )
+        if not np.isfinite(q_table).all():
+            raise ValueError("Checkpoint Q-table must contain only finite values")
         self.q_table[...] = q_table
-        self.epsilon = float(state.get("epsilon", self.epsilon_start))
-        random_generator_state = state.get("random_generator_state")
-        if random_generator_state is not None:
-            self.random_generator.bit_generator.state = random_generator_state
+        if "epsilon" not in state:
+            raise ValueError("Checkpoint does not contain epsilon")
+        epsilon = float(state["epsilon"])
+        if not np.isfinite(epsilon) or not 0.0 <= epsilon <= 1.0:
+            raise ValueError("Checkpoint epsilon must be finite and in [0, 1]")
+        self.epsilon = epsilon
+        if "random_generator_state" not in state:
+            raise ValueError("Checkpoint does not contain random generator state")
+        random_generator_state = state["random_generator_state"]
+        if not isinstance(random_generator_state, dict):
+            raise TypeError("Checkpoint random generator state must be a mapping")
+        self.random_generator.bit_generator.state = random_generator_state

@@ -90,9 +90,30 @@ class ConfigValidator:
 
     def _check_required_sections(self) -> None:
         """Check all required top-level sections present."""
-        for section in self.REQUIRED_SECTIONS:
+        required_sections = self.REQUIRED_SECTIONS
+        trainer_section = self.config.get("trainer")
+        if isinstance(trainer_section, dict) and len(trainer_section) == 1:
+            trainer_name = next(iter(trainer_section))
+            from dl_core.core import RLTrainer, TRAINER_REGISTRY
+
+            try:
+                trainer_class = TRAINER_REGISTRY.get_class(trainer_name)
+            except NotImplementedError:
+                trainer_class = None
+            if trainer_class is not None and issubclass(trainer_class, RLTrainer):
+                required_sections = ("environment",)
+
+        for section in required_sections:
             if section not in self.config:
                 self.errors.append(f"Missing required section: '{section}'")
+        if required_sections == ("environment",):
+            environment = self.config.get("environment")
+            if environment is not None and not isinstance(environment, dict):
+                self.errors.append("'environment' must be a dict")
+            elif isinstance(environment, dict) and not isinstance(
+                environment.get("name"), str
+            ):
+                self.errors.append("'environment.name' must be a string")
 
     def _check_dataset_config(self) -> None:
         """Validate dataset configuration."""

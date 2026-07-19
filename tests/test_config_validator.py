@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from dl_core import load_builtin_components
 from dl_core.utils.config_validator import ConfigValidator
 
 
@@ -98,3 +99,26 @@ def test_validator_rejects_non_string_dataset_paths(tmp_path: Path) -> None:
 
     assert validator.validate() is False
     assert "'dataset.train_root' must be a path string" in validator.errors
+
+
+def test_validator_accepts_environment_instead_of_supervised_components_for_rl(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config_path = tmp_path / "q-learning.yaml"
+    config_path.write_text(
+        (
+            "environment:\n"
+            "  name: gymnasium\n"
+            "  id: FrozenLake-v1\n"
+            "trainer:\n"
+            "  q_learning:\n"
+            "    total_timesteps: 100\n"
+            "accelerator: cpu\n"
+        ),
+        encoding="utf-8",
+    )
+    validator = ConfigValidator(str(config_path))
+
+    assert validator.validate() is True
+    assert validator.errors == []

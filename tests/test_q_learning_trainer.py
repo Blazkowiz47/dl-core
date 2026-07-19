@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from gymnasium.spaces import Discrete
 
 from dl_core import load_builtin_components
 from dl_core.core import TRAINER_REGISTRY, Transition
@@ -45,6 +47,13 @@ def test_q_learning_trainer_is_registered_and_validates_discrete_spaces(
     load_builtin_components()
 
     assert TRAINER_REGISTRY.get_class("q_learning") is QLearningTrainer
+    total_timesteps = next(
+        field
+        for field in QLearningTrainer.CONFIG_FIELDS
+        if field["name"] == "total_timesteps"
+    )
+    assert total_timesteps["default"] == 0
+    assert total_timesteps["required"] is False
 
     config = _config(tmp_path)
     config["environment"] = {"name": "gymnasium", "id": "CartPole-v1"}
@@ -117,5 +126,50 @@ def test_q_learning_epsilon_decay_and_checkpoint_round_trip(tmp_path: Path) -> N
     assert restored.epsilon == pytest.approx(0.5)
     assert np.array_equal(restored.q_table, trainer.q_table)
     assert restored.select_action(2, deterministic=True) == 3
+    assert restored.select_action(2, deterministic=False) == trainer.select_action(
+        2,
+        deterministic=False,
+    )
     trainer.close()
     restored.close()
+
+
+def test_q_learning_supports_nonzero_discrete_starts(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = QLearningTrainer(_config(tmp_path))
+    trainer.setup_accelerator()
+    trainer.environment = SimpleNamespace(
+        observation_space=Discrete(3, start=5),
+        action_space=Discrete(2, start=7),
+    )
+    trainer.evaluation_environment = SimpleNamespace(
+        observation_space=Discrete(3, start=5),
+        action_space=Discrete(2, start=7),
+    )
+    trainer.setup_algorithm()
+    trainer.q_table[1] = [1.0, 2.0]
+
+    assert trainer.select_action(6, deterministic=True) == 8
+    assert all(
+        action in (7, 8)
+        for action in (
+            trainer.select_action(5, deterministic=False) for _ in range(20)
+        )
+    )
+
+
+def test_q_learning_rejects_incompatible_checkpoint_spaces(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = QLearningTrainer(_config(tmp_path))
+    trainer.setup()
+    state = trainer.algorithm_state_dict()
+    state["observation_space"] = {"n": 16, "start": 1}
+
+    with pytest.raises(ValueError, match="observation space"):
+        trainer.load_algorithm_state_dict(state)
+
+    state = trainer.algorithm_state_dict()
+    del state["random_generator_state"]
+    with pytest.raises(ValueError, match="random generator state"):
+        trainer.load_algorithm_state_dict(state)
+    trainer.close()
