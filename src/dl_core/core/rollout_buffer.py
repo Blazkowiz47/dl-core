@@ -181,18 +181,43 @@ class RolloutBuffer:
         )
         if not isinstance(state, dict) or any(name not in state for name in field_names):
             raise ValueError("Rollout checkpoint state is incomplete")
+        if any(not isinstance(state[name], (list, tuple)) for name in field_names):
+            raise ValueError("Rollout checkpoint fields must be sequences")
         lengths = {len(state[name]) for name in field_names}
         if len(lengths) != 1:
             raise ValueError("Rollout checkpoint fields have inconsistent lengths")
-        self.clear()
-        for values, target in (
-            (state["observations"], self.observations),
-            (state["actions"], self.actions),
-            (state["rewards"], self.rewards),
-            (state["values"], self.values),
-            (state["log_probabilities"], self.log_probabilities),
-            (state["next_values"], self.next_values),
-            (state["terminated"], self.terminated),
-            (state["truncated"], self.truncated),
+        observations = [np.asarray(value).copy() for value in state["observations"]]
+        actions = [np.asarray(value).copy() for value in state["actions"]]
+        if len({value.shape for value in observations}) > 1:
+            raise ValueError("Rollout checkpoint observation shapes are inconsistent")
+        if len({value.shape for value in actions}) > 1:
+            raise ValueError("Rollout checkpoint action shapes are inconsistent")
+        try:
+            rewards = [float(value) for value in state["rewards"]]
+            values = [float(value) for value in state["values"]]
+            log_probabilities = [
+                float(value) for value in state["log_probabilities"]
+            ]
+            next_values = [float(value) for value in state["next_values"]]
+        except (TypeError, ValueError) as error:
+            raise ValueError("Rollout checkpoint scalar fields are invalid") from error
+        if not np.isfinite(
+            np.asarray([rewards, values, log_probabilities, next_values])
+        ).all():
+            raise ValueError("Rollout checkpoint scalar fields must be finite")
+        if any(
+            not isinstance(value, (bool, np.bool_))
+            for name in ("terminated", "truncated")
+            for value in state[name]
         ):
-            target.extend(values)
+            raise ValueError("Rollout checkpoint boundary fields must be booleans")
+
+        self._clear()
+        self.observations.extend(observations)
+        self.actions.extend(actions)
+        self.rewards.extend(rewards)
+        self.values.extend(values)
+        self.log_probabilities.extend(log_probabilities)
+        self.next_values.extend(next_values)
+        self.terminated.extend(bool(value) for value in state["terminated"])
+        self.truncated.extend(bool(value) for value in state["truncated"])

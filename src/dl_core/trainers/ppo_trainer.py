@@ -96,6 +96,8 @@ class PPOTrainer(RLTrainer):
         if self.evaluation_environment.action_space != action_space:
             raise ValueError("Training and evaluation action spaces must match")
         if isinstance(action_space, Box):
+            if not np.issubdtype(action_space.dtype, np.floating):
+                raise TypeError("PPO continuous actions require a floating-point Box")
             if not np.isfinite(action_space.low).all() or not np.isfinite(
                 action_space.high
             ).all():
@@ -138,12 +140,19 @@ class PPOTrainer(RLTrainer):
             raise ValueError("rollout_steps and update_epochs must be positive")
         if self.minibatch_size <= 0:
             raise ValueError("minibatch_size must be positive")
-        if self.clip_range <= 0.0:
+        if not np.isfinite(self.clip_range) or self.clip_range <= 0.0:
             raise ValueError("clip_range must be positive")
-        if self.value_clip_range is not None and self.value_clip_range <= 0.0:
+        if self.value_clip_range is not None and (
+            not np.isfinite(self.value_clip_range) or self.value_clip_range <= 0.0
+        ):
             raise ValueError("value_clip_range must be positive when provided")
-        if self.value_loss_coefficient < 0.0 or self.entropy_coefficient < 0.0:
-            raise ValueError("loss coefficients cannot be negative")
+        if (
+            not np.isfinite(self.value_loss_coefficient)
+            or not np.isfinite(self.entropy_coefficient)
+            or self.value_loss_coefficient < 0.0
+            or self.entropy_coefficient < 0.0
+        ):
+            raise ValueError("loss coefficients must be finite and non-negative")
         if self.accelerator.gradient_accumulation_steps != 1:
             raise ValueError("PPOTrainer requires gradient_accumulation_steps=1")
 
@@ -197,44 +206,53 @@ class PPOTrainer(RLTrainer):
         if not self.environment.observation_space.contains(observation):
             raise ValueError("Observation is outside the configured space")
         observation_batch = np.expand_dims(np.asarray(observation), axis=0)
-        with torch.no_grad(), self.accelerator.autocast_context():
-            distribution, value = self._distribution_and_value(
-                self._observations_to_tensor(observation_batch)
-            )
-            if isinstance(distribution, Categorical):
-                policy_action = (
-                    torch.argmax(distribution.logits, dim=1)
-                    if deterministic
-                    else distribution.sample()
+        policy = self.models["policy"]
+        was_training = policy.training
+        try:
+            if deterministic:
+                policy.eval()
+            with torch.no_grad(), self.accelerator.autocast_context():
+                distribution, value = self._distribution_and_value(
+                    self._observations_to_tensor(observation_batch)
                 )
-                log_probability = distribution.log_prob(policy_action)
-                environment_action: Any = int(policy_action.item()) + int(
-                    self.environment.action_space.start
-                )
-                stored_action: Any = int(policy_action.item())
-            else:
-                raw_action = distribution.mean if deterministic else distribution.sample()
-                log_probability = distribution.log_prob(raw_action).sum(dim=1)
-                bounded_action = torch.tanh(raw_action)
-                action_space = self.environment.action_space
-                action_scale = torch.as_tensor(
-                    (action_space.high - action_space.low) / 2.0,
-                    dtype=bounded_action.dtype,
-                    device=bounded_action.device,
-                ).reshape(1, -1)
-                action_bias = torch.as_tensor(
-                    (action_space.high + action_space.low) / 2.0,
-                    dtype=bounded_action.dtype,
-                    device=bounded_action.device,
-                ).reshape(1, -1)
-                environment_action = (
-                    (bounded_action * action_scale) + action_bias
-                ).reshape(action_space.shape)
-                environment_action = environment_action.cpu().numpy().astype(
-                    action_space.dtype,
-                    copy=False,
-                )
-                stored_action = raw_action.reshape(action_space.shape).cpu().numpy()
+                if isinstance(distribution, Categorical):
+                    policy_action = (
+                        torch.argmax(distribution.logits, dim=1)
+                        if deterministic
+                        else distribution.sample()
+                    )
+                    log_probability = distribution.log_prob(policy_action)
+                    environment_action: Any = int(policy_action.item()) + int(
+                        self.environment.action_space.start
+                    )
+                    stored_action: Any = int(policy_action.item())
+                else:
+                    raw_action = (
+                        distribution.mean if deterministic else distribution.sample()
+                    )
+                    log_probability = distribution.log_prob(raw_action).sum(dim=1)
+                    bounded_action = torch.tanh(raw_action)
+                    action_space = self.environment.action_space
+                    action_scale = torch.as_tensor(
+                        (action_space.high - action_space.low) / 2.0,
+                        dtype=bounded_action.dtype,
+                        device=bounded_action.device,
+                    ).reshape(1, -1)
+                    action_bias = torch.as_tensor(
+                        (action_space.high + action_space.low) / 2.0,
+                        dtype=bounded_action.dtype,
+                        device=bounded_action.device,
+                    ).reshape(1, -1)
+                    environment_action = (
+                        (bounded_action * action_scale) + action_bias
+                    ).reshape(action_space.shape)
+                    environment_action = environment_action.cpu().numpy().astype(
+                        action_space.dtype,
+                        copy=False,
+                    )
+                    stored_action = raw_action.reshape(action_space.shape).cpu().numpy()
+        finally:
+            policy.train(was_training)
         return ActionOutput(
             action=environment_action,
             info={
@@ -405,6 +423,8 @@ class PPOTrainer(RLTrainer):
         value = output["value"]
         if value.shape != (observations.shape[0],):
             raise ValueError("PPO value output must have shape [batch]")
+        if not value.is_floating_point():
+            raise TypeError("PPO value output must use a floating-point dtype")
         if isinstance(self.environment.action_space, Discrete):
             logits = output.get("logits")
             if not isinstance(logits, torch.Tensor) or logits.shape != (
@@ -412,6 +432,8 @@ class PPOTrainer(RLTrainer):
                 self.environment.action_space.n,
             ):
                 raise ValueError("PPO discrete policy logits have an invalid shape")
+            if not logits.is_floating_point():
+                raise TypeError("PPO policy logits must use a floating-point dtype")
             return Categorical(logits=logits), value
         mean = output.get("mean")
         log_std = output.get("log_std")
@@ -424,6 +446,8 @@ class PPOTrainer(RLTrainer):
             or log_std.shape != expected_shape
         ):
             raise ValueError("PPO continuous policy parameters have an invalid shape")
+        if not mean.is_floating_point() or not log_std.is_floating_point():
+            raise TypeError("PPO policy parameters must use floating-point dtypes")
         return Normal(mean, torch.exp(log_std.clamp(-20.0, 2.0))), value
 
     def algorithm_state_dict(self) -> dict[str, Any]:
@@ -449,5 +473,34 @@ class PPOTrainer(RLTrainer):
         generator_state = state.get("random_generator_state")
         if not isinstance(generator_state, dict):
             raise ValueError("Checkpoint minibatch generator state is invalid")
-        self.rollout_buffer.load_state_dict(rollout_state)
-        self.random_generator.bit_generator.state = generator_state
+        restored_buffer = RolloutBuffer()
+        restored_buffer.load_state_dict(rollout_state)
+        observation_space = self.environment.observation_space
+        action_space = self.environment.action_space
+        if any(
+            not observation_space.contains(observation)
+            for observation in restored_buffer.observations
+        ):
+            raise ValueError("Checkpoint rollout contains an invalid observation")
+        if isinstance(action_space, Discrete):
+            if any(
+                action.shape != ()
+                or not np.issubdtype(action.dtype, np.integer)
+                or not 0 <= int(action) < action_space.n
+                for action in restored_buffer.actions
+            ):
+                raise ValueError("Checkpoint rollout contains an invalid policy action")
+        elif any(
+            action.shape != action_space.shape
+            or not np.issubdtype(action.dtype, np.floating)
+            or not np.isfinite(action).all()
+            for action in restored_buffer.actions
+        ):
+            raise ValueError("Checkpoint rollout contains an invalid policy action")
+        restored_generator = np.random.default_rng()
+        try:
+            restored_generator.bit_generator.state = generator_state
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("Checkpoint minibatch generator state is invalid") from error
+        self.rollout_buffer = restored_buffer
+        self.random_generator = restored_generator

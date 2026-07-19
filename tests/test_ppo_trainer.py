@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
+from gymnasium.spaces import Box, Discrete
 
 from dl_core import load_builtin_components
 from dl_core.core import RolloutBuffer, TRAINER_REGISTRY, Transition
@@ -82,6 +84,25 @@ def test_rollout_buffer_distinguishes_termination_and_truncation() -> None:
 
     assert batch.advantages.tolist() == pytest.approx([0.5, 2.3])
     assert batch.returns.tolist() == pytest.approx([1.0, 2.8])
+
+
+def test_rollout_buffer_rejects_invalid_checkpoint_state() -> None:
+    buffer = RolloutBuffer()
+    buffer.add(
+        observation=np.zeros(2, dtype=np.float32),
+        action=0,
+        reward=1.0,
+        value=0.5,
+        log_probability=-0.1,
+        next_value=0.6,
+        terminated=False,
+        truncated=False,
+    )
+    state = buffer.state_dict()
+    state["log_probabilities"] = [float("nan")]
+
+    with pytest.raises(ValueError, match="must be finite"):
+        buffer.load_state_dict(state)
 
 
 def test_ppo_is_registered_and_builtin_model_supports_both_policy_types(
@@ -177,6 +198,35 @@ def test_ppo_continuous_actions_respect_box_bounds(tmp_path: Path) -> None:
     assert trainer.environment.action_space.contains(deterministic.action)
     assert np.asarray(sampled.info["policy_action"]).shape == (1,)
     trainer.close()
+
+
+def test_ppo_supports_nonzero_discrete_starts(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = PPOTrainer(_config(tmp_path))
+    trainer.setup()
+    trainer.environment.observation_space = Discrete(16, start=3)
+    trainer.evaluation_environment.observation_space = Discrete(16, start=3)
+    trainer.environment.action_space = Discrete(4, start=7)
+    trainer.evaluation_environment.action_space = Discrete(4, start=7)
+
+    action_output = trainer.select_action(3, deterministic=True)
+
+    assert trainer.environment.action_space.contains(action_output.action)
+    assert action_output.info["policy_action"] == action_output.action - 7
+    trainer.close()
+
+
+def test_ppo_rejects_integer_box_actions(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = PPOTrainer(_config(tmp_path))
+    trainer.setup_accelerator()
+    trainer.environment = trainer.evaluation_environment = SimpleNamespace(
+        observation_space=Box(-1.0, 1.0, shape=(2,), dtype=np.float32),
+        action_space=Box(0, 3, shape=(1,), dtype=np.int64),
+    )
+
+    with pytest.raises(TypeError, match="floating-point Box"):
+        trainer.setup_algorithm()
 
 
 def test_ppo_checkpoint_restores_partial_rollout(tmp_path: Path) -> None:

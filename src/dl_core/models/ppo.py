@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import torch
@@ -49,6 +50,9 @@ class PPOActorCritic(nn.Module):
             isinstance(size, int) and size > 0 for size in hidden_sizes
         ):
             raise ValueError("hidden_sizes must be a list of positive integers")
+        initial_log_std = float(config.get("initial_log_std", 0.0))
+        if not math.isfinite(initial_log_std):
+            raise ValueError("initial_log_std must be finite")
 
         layers: list[nn.Module] = []
         previous_size = input_dim
@@ -62,7 +66,7 @@ class PPOActorCritic(nn.Module):
             self.log_std = nn.Parameter(
                 torch.full(
                     (action_dim,),
-                    float(config.get("initial_log_std", 0.0)),
+                    initial_log_std,
                 )
             )
         else:

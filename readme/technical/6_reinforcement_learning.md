@@ -193,8 +193,10 @@ DQN because each replay update is an independent optimizer step.
 
 ## Proximal Policy Optimization
 
-`PPOTrainer` is registered as `ppo`. It supports `Discrete` and finite `Box`
-actions with `Discrete` or `Box` observations. The built-in
+`PPOTrainer` is registered as `ppo`. It supports `Discrete` and finite,
+floating-point `Box` actions with `Discrete` or `Box` observations. Integer and
+boolean `Box` actions are rejected because they do not define a continuous
+policy. The built-in
 `ppo_actor_critic` model uses a shared MLP encoder, categorical logits for
 discrete actions, and a diagonal Gaussian for continuous actions.
 
@@ -229,7 +231,15 @@ collects across episode boundaries and updates at the configured rollout length
 or when the final training budget is reached, so no final partial rollout is
 discarded. Continuous actions use a tanh transform into the environment bounds;
 PPO stores the corresponding raw Gaussian action because the fixed transform
-Jacobian cancels in the old/new probability ratio.
+Jacobian cancels in the old/new probability ratio. The reported entropy and
+entropy bonus use the pre-squash Gaussian entropy.
+
+Custom policies receive `Box` observations in their original batched shape and
+`Discrete` observations as one-hot batches. They must return a floating-point
+`value` tensor shaped `[batch]`, plus either `logits` shaped `[batch, actions]`
+or continuous `mean` and `log_std` tensors shaped `[batch, action_dimensions]`.
+Policy modules should avoid dropout and other stochastic training-mode layers,
+because PPO must reproduce the behavior-policy probability for stored actions.
 
 The initial PPO implementation collects a single environment stream. This keeps
 episode callbacks and deterministic checkpoint continuation identical to the
