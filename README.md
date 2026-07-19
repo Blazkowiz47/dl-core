@@ -15,11 +15,10 @@ Compatible companion package floors:
 - `deep-learning-mlflow>=0.0.11,<0.1`
 - `deep-learning-wandb>=0.0.12,<0.1`
 
-## What's New?
+## What's New in 0.0.26?
 
-- `dl-init` is now the primary scaffold command
-- Gymnasium-compatible environments can now be registered and created through
-  the first-class RL environment contract
+- Gymnasium-compatible environments can now be registered, discovered, and
+  created through a first-class environment contract
 - `RLTrainer` provides an episode-based lifecycle, deterministic evaluation,
   RL callback hooks, and resumable algorithm checkpoints alongside
   `EpochTrainer`
@@ -31,28 +30,15 @@ Compatible companion package floors:
   bounded-continuous actor-critic policies
 - `SACTrainer` adds replay-based bounded-continuous control with twin critics,
   Polyak targets, and optional automatic entropy tuning
-- `dl-core list` makes built-in and local registry discovery easier
-- `dl-core add` defaults to plain base classes unless `--base` is given
-- `dl-analyze` is the primary sweep-analysis CLI
-- `dl-analyze` now supports explicit ranking metrics and rank methods
-- `dl-analyze` now persists `analysis_cache.json` next to `sweep_tracking.json`
-- `dl-analyze` now writes versioned reports under `analysis/vN.md`
-- `dl-sync --sweep ... --artifacts` now syncs tracked remote artifacts into the
-  local repository when the active backend supports it
-- EMA checkpoints now include a drop-in `ema_models_state_dict` alongside the
-  normal training weights and EMA resume metadata
-- `dl-run --validate-only` now performs a real preflight by resolving the
-  configured components without starting training
-- `BaseTrainer` now exposes `select_checkpoint()` and
-  `post_training(checkpoint_path)` hooks for completed-run evaluation or export
-  work; the default checkpoint selection uses `best.pth` then `latest.pth`
-- `dl-inspect-dataset` now summarizes split sizes and one collated batch from
-  the current config
-- `dl-smoke` now checks one dataset batch and one model forward pass from a
-  config file
-- local artifacts now use:
-  - `artifacts/runs/<run_name>/...`
-  - `artifacts/sweeps/<sweep_name>/<run_name>/...`
+- `dl-run --validate-only` now resolves RL environments, models, optimizers,
+  and callbacks without resetting or stepping an environment
+- `dl-core add trainer MyPolicy --base rltrainer` scaffolds custom algorithms
+  against the episode-oriented lifecycle
+- the local metric callback records RL episode, update, and evaluation metrics
+- local component loading now cleans up registrations and import paths between
+  projects, while registry lookups prefer the most specific matching prefix
+- configuration validation rejects malformed root and component structures
+  more consistently
 
 ## Install
 
