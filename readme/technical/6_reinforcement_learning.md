@@ -296,8 +296,10 @@ Before `learning_starts`, SAC samples uniformly within the action bounds. It
 then uses reparameterized Gaussian actions followed by a tanh transform and
 affine scaling into the environment bounds. The policy objective includes the
 full transformed-action log density, including the tanh Jacobian and action
-scale. The default entropy target is the negative flattened action dimension;
-set `automatic_entropy_tuning: false` to keep `initial_alpha` fixed.
+scale. Gaussian density and transform calculations stay in float32 under mixed
+precision to avoid underflow at small standard deviations. The default entropy
+target is the negative flattened action dimension; set
+`automatic_entropy_tuning: false` to keep `initial_alpha` fixed.
 
 The replay target uses the lower target-critic estimate. True termination
 removes the bootstrap term, while truncation retains it. Target critics receive
@@ -310,8 +312,11 @@ Custom actors receive the same observation batches as PPO and must return
 floating-point `mean` and `log_std` tensors shaped
 `[batch, action_dimensions]`. Custom twin critics receive observation and
 bounded action batches and must return floating-point `q1` and `q2` tensors
-shaped `[batch]`. All outputs must be finite. Replay contents and both sampling
-generators are checkpointed by default; disabling replay checkpointing reduces
-checkpoint size but resumes with empty replay memory. Gradient accumulation is
-currently rejected because SAC performs distinct critic, actor, and temperature
-optimizer steps in each replay update.
+shaped `[batch]`. All outputs must be finite. Custom actors should avoid dropout
+and other stochastic training-mode layers because their extra randomness is not
+part of the reported Gaussian density. Replay contents, both sampling
+generators, and continuation-sensitive SAC settings are checkpointed and
+validated by default; disabling replay checkpointing reduces checkpoint size
+but resumes with empty replay memory. Gradient accumulation is currently
+rejected because SAC performs distinct critic, actor, and temperature optimizer
+steps in each replay update.

@@ -277,16 +277,31 @@ class SACTrainer(RLTrainer):
         )
         self.random_generator = np.random.default_rng(self.seed)
         device = self.accelerator.get_device()
+        with np.errstate(over="ignore", invalid="ignore"):
+            action_low = action_space.low.astype(np.float64)
+            action_high = action_space.high.astype(np.float64)
+            action_scale = (action_high - action_low) / 2.0
+            action_bias = (action_high + action_low) / 2.0
         self.action_scale = torch.as_tensor(
-            (action_space.high - action_space.low) / 2.0,
+            action_scale,
             dtype=torch.float32,
             device=device,
         ).reshape(1, -1)
         self.action_bias = torch.as_tensor(
-            (action_space.high + action_space.low) / 2.0,
+            action_bias,
             dtype=torch.float32,
             device=device,
         ).reshape(1, -1)
+        if (
+            not torch.isfinite(self.action_scale).all()
+            or not torch.isfinite(self.action_bias).all()
+            or not torch.all(self.action_scale > 0.0)
+            or not torch.all(
+                self.action_bias - self.action_scale
+                < self.action_bias + self.action_scale
+            )
+        ):
+            raise ValueError("SAC action bounds must be representable in float32")
         self.fixed_alpha = torch.tensor(
             self.initial_alpha,
             dtype=torch.float32,
@@ -310,7 +325,8 @@ class SACTrainer(RLTrainer):
         actor = self.models["actor"]
         was_training = actor.training
         try:
-            actor.eval()
+            if deterministic:
+                actor.eval()
             with torch.no_grad(), self.accelerator.autocast_context():
                 actions, _ = self._sample_action_and_log_probability(
                     observations,
@@ -318,7 +334,7 @@ class SACTrainer(RLTrainer):
                 )
         finally:
             actor.train(was_training)
-        return (
+        action = (
             actions[0]
             .reshape(action_space.shape)
             .detach()
@@ -326,6 +342,7 @@ class SACTrainer(RLTrainer):
             .numpy()
             .astype(action_space.dtype)
         )
+        return np.clip(action, action_space.low, action_space.high)
 
     def process_transition(
         self,
@@ -340,6 +357,8 @@ class SACTrainer(RLTrainer):
             raise ValueError("Transition next observation is outside the configured space")
         if not action_space.contains(transition.action):
             raise ValueError("Transition action is outside the configured space")
+        if not np.isfinite(transition.reward):
+            raise ValueError("Transition reward must be finite")
         self.replay_buffer.add(transition)
         if (
             self.global_step < self.learning_starts
@@ -380,6 +399,8 @@ class SACTrainer(RLTrainer):
                     targets = batch.rewards + (
                         self.gamma * (~batch.terminated).float() * next_q
                     )
+                    if not torch.isfinite(targets).all():
+                        raise FloatingPointError("SAC critic targets must be finite")
                 current_q1, current_q2 = self._q_values(
                     self.models["critics"],
                     observations,
@@ -389,6 +410,8 @@ class SACTrainer(RLTrainer):
                     current_q1,
                     targets,
                 ) + functional.mse_loss(current_q2, targets)
+                if not torch.isfinite(critic_loss):
+                    raise FloatingPointError("SAC critic loss must be finite")
             self.optimizers["critics"].zero_grad(set_to_none=True)
             self.accelerator.backward(critic_loss, self.models["critics"])
             self.accelerator.optimizer_step(
@@ -419,6 +442,8 @@ class SACTrainer(RLTrainer):
                         self._alpha().detach() * log_probabilities
                         - torch.minimum(policy_q1, policy_q2)
                     ).mean()
+                    if not torch.isfinite(actor_loss):
+                        raise FloatingPointError("SAC actor loss must be finite")
                 self.optimizers["actor"].zero_grad(set_to_none=True)
                 self.accelerator.backward(actor_loss, self.models["actor"])
                 self.accelerator.optimizer_step(
@@ -440,6 +465,8 @@ class SACTrainer(RLTrainer):
                 alpha_loss = -(
                     log_alpha * (log_probabilities.detach() + self.target_entropy)
                 ).mean()
+                if not torch.isfinite(alpha_loss):
+                    raise FloatingPointError("SAC temperature loss must be finite")
                 self.optimizers["temperature"].zero_grad(set_to_none=True)
                 self.accelerator.backward(alpha_loss, temperature)
                 self.accelerator.optimizer_step(
@@ -519,18 +546,30 @@ class SACTrainer(RLTrainer):
             raise TypeError("SAC actor outputs must use floating-point dtypes")
         if not torch.isfinite(mean).all() or not torch.isfinite(log_std).all():
             raise ValueError("SAC actor outputs must be finite")
-        log_std = log_std.clamp(self.log_std_min, self.log_std_max)
+        # Gaussian statistics and the change-of-variables correction are kept in
+        # float32 because exp(-20) underflows in fp16 under autocast.
+        mean = mean.float()
+        log_std = log_std.float().clamp(self.log_std_min, self.log_std_max)
         distribution = Normal(mean, log_std.exp())
         raw_actions = mean if deterministic else distribution.rsample()
         squashed_actions = torch.tanh(raw_actions)
         scale = self.action_scale.to(dtype=squashed_actions.dtype)
         bias = self.action_bias.to(dtype=squashed_actions.dtype)
         actions = squashed_actions * scale + bias
+        log_tanh_jacobian = 2.0 * (
+            math.log(2.0)
+            - raw_actions
+            - functional.softplus(-2.0 * raw_actions)
+        )
         log_probabilities = (
             distribution.log_prob(raw_actions)
-            - torch.log(1.0 - squashed_actions.pow(2) + 1e-6)
+            - log_tanh_jacobian
             - torch.log(scale)
         ).sum(dim=1)
+        if not torch.isfinite(actions).all() or not torch.isfinite(
+            log_probabilities
+        ).all():
+            raise FloatingPointError("SAC actions and log probabilities must be finite")
         return actions, log_probabilities
 
     def _q_values(
@@ -557,8 +596,12 @@ class SACTrainer(RLTrainer):
 
     def _alpha(self) -> torch.Tensor:
         if self.automatic_entropy_tuning:
-            return self.models["temperature"]()
-        return self.fixed_alpha
+            alpha = self.models["temperature"]()
+        else:
+            alpha = self.fixed_alpha
+        if not torch.isfinite(alpha) or alpha <= 0.0:
+            raise FloatingPointError("SAC entropy temperature must be finite and positive")
+        return alpha
 
     def algorithm_state_dict(self) -> dict[str, Any]:
         """Return entropy, exploration, and optional replay state."""
@@ -573,6 +616,17 @@ class SACTrainer(RLTrainer):
                 else None
             ),
             "checkpoint_replay_buffer": self.checkpoint_replay_buffer,
+            "training_parameters": {
+                "gamma": self.gamma,
+                "buffer_size": self.buffer_size,
+                "batch_size": self.batch_size,
+                "learning_starts": self.learning_starts,
+                "train_frequency": self.train_frequency,
+                "gradient_steps": self.gradient_steps,
+                "tau": self.tau,
+                "log_std_min": self.log_std_min,
+                "log_std_max": self.log_std_max,
+            },
             "observation_space": repr(self.environment.observation_space),
             "action_space": repr(self.environment.action_space),
         }
@@ -585,7 +639,7 @@ class SACTrainer(RLTrainer):
             raise ValueError("Checkpoint observation space does not match")
         if state.get("action_space") != repr(self.environment.action_space):
             raise ValueError("Checkpoint action space does not match")
-        if bool(state.get("automatic_entropy_tuning")) != self.automatic_entropy_tuning:
+        if state.get("automatic_entropy_tuning") is not self.automatic_entropy_tuning:
             raise ValueError("Checkpoint entropy-tuning policy does not match config")
         target_entropy = float(state.get("target_entropy", float("nan")))
         if not np.isfinite(target_entropy) or target_entropy != self.target_entropy:
@@ -595,8 +649,21 @@ class SACTrainer(RLTrainer):
             raise ValueError("Checkpoint alpha must be finite and positive")
         if not np.isclose(alpha, float(self._alpha().detach().item())):
             raise ValueError("Checkpoint alpha does not match restored model state")
-        if bool(state.get("checkpoint_replay_buffer")) != self.checkpoint_replay_buffer:
+        if state.get("checkpoint_replay_buffer") is not self.checkpoint_replay_buffer:
             raise ValueError("Checkpoint replay-buffer policy does not match config")
+        expected_training_parameters = {
+            "gamma": self.gamma,
+            "buffer_size": self.buffer_size,
+            "batch_size": self.batch_size,
+            "learning_starts": self.learning_starts,
+            "train_frequency": self.train_frequency,
+            "gradient_steps": self.gradient_steps,
+            "tau": self.tau,
+            "log_std_min": self.log_std_min,
+            "log_std_max": self.log_std_max,
+        }
+        if state.get("training_parameters") != expected_training_parameters:
+            raise ValueError("Checkpoint SAC training parameters do not match config")
 
         generator_state = state.get("random_generator_state")
         if not isinstance(generator_state, dict):
@@ -604,7 +671,7 @@ class SACTrainer(RLTrainer):
         restored_generator = np.random.default_rng()
         try:
             restored_generator.bit_generator.state = generator_state
-        except (TypeError, ValueError) as error:
+        except (KeyError, TypeError, ValueError) as error:
             raise ValueError(
                 "Checkpoint exploration generator state is invalid"
             ) from error

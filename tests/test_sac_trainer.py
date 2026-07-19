@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 import torch
 from gymnasium.spaces import Box
+from torch.distributions import Normal
+from torch.nn import functional
 
 from dl_core import load_builtin_components
 from dl_core.core import TRAINER_REGISTRY, Transition
@@ -112,6 +114,50 @@ def test_sac_actions_respect_box_bounds_and_restore_actor_mode(tmp_path: Path) -
     trainer.close()
 
 
+def test_sac_uses_stable_float32_squashed_gaussian_density(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+
+    def saturated_half_precision_actor(
+        _actor: torch.nn.Module,
+        observations: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        shape = (observations.shape[0], 1)
+        return {
+            "mean": torch.full(shape, 20.0, device=observations.device).half(),
+            "log_std": torch.full(shape, -20.0, device=observations.device).half(),
+        }
+
+    trainer.models["actor"].forward = MethodType(
+        saturated_half_precision_actor,
+        trainer.models["actor"],
+    )
+    observations = trainer._observations_to_tensor(
+        np.zeros((1, 3), dtype=np.float32)
+    )
+
+    actions, log_probabilities = trainer._sample_action_and_log_probability(
+        observations,
+        deterministic=True,
+    )
+
+    raw_action = torch.tensor([20.0])
+    log_tanh_jacobian = 2.0 * (
+        np.log(2.0) - raw_action - functional.softplus(-2.0 * raw_action)
+    )
+    expected = (
+        Normal(raw_action, torch.exp(torch.tensor([-20.0]))).log_prob(raw_action)
+        - log_tanh_jacobian
+        - torch.log(torch.tensor([2.0]))
+    ).sum()
+    assert actions.dtype == torch.float32
+    assert log_probabilities.dtype == torch.float32
+    assert torch.isfinite(log_probabilities).all()
+    assert log_probabilities.item() == pytest.approx(expected.item())
+    trainer.close()
+
+
 def test_sac_rejects_non_floating_or_unbounded_action_spaces(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = SACTrainer(_config(tmp_path))
@@ -129,6 +175,13 @@ def test_sac_rejects_non_floating_or_unbounded_action_spaces(tmp_path: Path) -> 
         action_space=Box(-np.inf, np.inf, shape=(1,), dtype=np.float32),
     )
     with pytest.raises(ValueError, match="finite Box bounds"):
+        trainer.setup_algorithm()
+
+    trainer.environment = trainer.evaluation_environment = SimpleNamespace(
+        observation_space=observation_space,
+        action_space=Box(1e100, 2e100, shape=(1,), dtype=np.float64),
+    )
+    with pytest.raises(ValueError, match="representable in float32"):
         trainer.setup_algorithm()
 
 
@@ -202,6 +255,38 @@ def test_sac_soft_updates_target_critics(tmp_path: Path) -> None:
     trainer.close()
 
 
+def test_sac_temperature_update_uses_detached_policy_density(tmp_path: Path) -> None:
+    load_builtin_components()
+    config = _config(tmp_path, automatic_entropy_tuning=True)
+    config["optimizers"] = {
+        "actor": {"name": "sgd", "lr": 0.0},
+        "critics": {"name": "sgd", "lr": 0.0},
+        "temperature": {"name": "sgd", "lr": 0.1},
+    }
+    trainer = SACTrainer(config)
+    trainer.setup()
+    _use_zero_policy_statistics(trainer)
+    trainer.global_step = 1
+
+    trainer.process_transition(
+        Transition(
+            observation=np.zeros(3, dtype=np.float32),
+            action=np.zeros(1, dtype=np.float32),
+            reward=0.0,
+            next_observation=np.zeros(3, dtype=np.float32),
+            terminated=True,
+            truncated=False,
+        )
+    )
+
+    assert trainer._alpha().item() == pytest.approx(0.2 * np.exp(-0.1))
+    assert all(parameter.grad is None for parameter in trainer.models["actor"].parameters())
+    assert all(
+        parameter.requires_grad for parameter in trainer.models["critics"].parameters()
+    )
+    trainer.close()
+
+
 def test_sac_checkpoint_restores_temperature_target_and_replay(tmp_path: Path) -> None:
     load_builtin_components()
     config = _config(tmp_path, automatic_entropy_tuning=True)
@@ -230,6 +315,12 @@ def test_sac_checkpoint_restores_temperature_target_and_replay(tmp_path: Path) -
             parameter.fill_(0.25)
     checkpoint_path = trainer.save_checkpoint("sac.pth")
     assert checkpoint_path is not None
+    expected_action = trainer.select_action(observation, deterministic=False)
+    expected_random_value = trainer.random_generator.random()
+    expected_replay_reward = trainer.replay_buffer.sample(
+        1,
+        torch.device("cpu"),
+    ).rewards.item()
 
     restored = SACTrainer(config)
     restored.setup()
@@ -237,6 +328,15 @@ def test_sac_checkpoint_restores_temperature_target_and_replay(tmp_path: Path) -
 
     assert len(restored.replay_buffer) == 1
     assert restored._alpha().item() == pytest.approx(np.exp(-0.75))
+    assert np.array_equal(
+        restored.select_action(observation, deterministic=False),
+        expected_action,
+    )
+    assert restored.random_generator.random() == expected_random_value
+    assert restored.replay_buffer.sample(
+        1,
+        torch.device("cpu"),
+    ).rewards.item() == expected_replay_reward
     assert all(
         torch.equal(restored_parameter, parameter)
         for restored_parameter, parameter in zip(
@@ -247,3 +347,24 @@ def test_sac_checkpoint_restores_temperature_target_and_replay(tmp_path: Path) -
     )
     trainer.close()
     restored.close()
+
+
+def test_sac_checkpoint_rejects_changed_training_parameters_atomically(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+    state = trainer.algorithm_state_dict()
+    state["training_parameters"]["tau"] = 0.25
+
+    with pytest.raises(ValueError, match="training parameters"):
+        trainer.load_algorithm_state_dict(state)
+
+    state = trainer.algorithm_state_dict()
+    state["random_generator_state"] = {"invalid": True}
+    replay_buffer = trainer.replay_buffer
+    with pytest.raises(ValueError, match="generator state"):
+        trainer.load_algorithm_state_dict(state)
+    assert trainer.replay_buffer is replay_buffer
+    trainer.close()
