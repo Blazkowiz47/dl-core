@@ -25,6 +25,8 @@ Compatible companion package floors:
   `EpochTrainer`
 - `QLearningTrainer` adds tabular epsilon-greedy learning for finite discrete
   Gymnasium environments
+- `DQNTrainer` adds replay-based discrete control with target networks,
+  Double-DQN targets, and a built-in MLP Q-network
 - `dl-core list` makes built-in and local registry discovery easier
 - `dl-core add` defaults to plain base classes unless `--base` is given
 - `dl-analyze` is the primary sweep-analysis CLI

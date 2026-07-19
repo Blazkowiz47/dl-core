@@ -140,3 +140,45 @@ epsilon, and exploration-generator state before resuming.
 The standard configuration validator recognizes registered `RLTrainer`
 subclasses and requires `environment` in place of the supervised `dataset`,
 `models`, and `optimizers` sections.
+
+## Deep Q-Networks
+
+`DQNTrainer` is registered as `dqn`. It supports `Discrete` actions with either
+`Discrete` or `Box` observations. The built-in `dqn_mlp` model flattens vector
+observations; image and structured observations should use a registered custom
+Q-network returning a `[batch, actions]` tensor or `{"q_values": tensor}`.
+
+```yaml
+models:
+  q_network:
+    name: dqn_mlp
+    hidden_sizes: [128, 128]
+
+optimizers:
+  name: adam
+  lr: 0.001
+
+trainer:
+  dqn:
+    total_timesteps: 100000
+    gamma: 0.99
+    buffer_size: 100000
+    batch_size: 64
+    learning_starts: 1000
+    train_frequency: 1
+    gradient_steps: 1
+    target_update_frequency: 1000
+    double_dqn: true
+    epsilon_start: 1.0
+    epsilon_end: 0.05
+    epsilon_decay_steps: 50000
+    checkpoint_replay_buffer: true
+```
+
+DQN uses uniform replay, a hard-updated target network, Huber loss, and Double
+DQN targets by default. True termination removes the bootstrap target;
+truncation retains it. Replay sampling and epsilon exploration use separately
+checkpointed generators. Saving replay memory makes checkpoints larger but
+allows exact off-policy continuation; set `checkpoint_replay_buffer: false` to
+resume with an empty buffer. Gradient accumulation is currently rejected for
+DQN because each replay update is an independent optimizer step.
