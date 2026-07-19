@@ -103,10 +103,20 @@ class RLTrainer(ABC):
             trainer_config.get("checkpoint_frequency", 100)
         )
         self.continue_model = trainer_config.get("continue_model")
+        if self.total_timesteps < 0:
+            raise ValueError("total_timesteps cannot be negative")
+        if self.max_episodes is not None and self.max_episodes <= 0:
+            raise ValueError("max_episodes must be positive when provided")
         if self.total_timesteps <= 0 and self.max_episodes is None:
             raise ValueError("RL training requires total_timesteps or max_episodes")
         if self.max_episode_steps <= 0:
             raise ValueError("max_episode_steps must be positive")
+        if self.evaluation_frequency < 0:
+            raise ValueError("evaluation_frequency cannot be negative")
+        if self.evaluation_episodes < 0:
+            raise ValueError("evaluation_episodes cannot be negative")
+        if self.checkpoint_frequency < 0:
+            raise ValueError("checkpoint_frequency cannot be negative")
 
         self.accelerator: BaseAccelerator
         self.environment: Environment[Any, Any]
@@ -175,13 +185,31 @@ class RLTrainer(ABC):
 
             callbacks = getattr(self, "callbacks", None)
             if callbacks is not None:
-                callbacks.on_training_end(final_logs, synchronize=False)
-            self.close()
+                try:
+                    callbacks.on_training_end(final_logs, synchronize=False)
+                except Exception as callback_error:
+                    self.logger.warning(
+                        f"Failed to finalize RL callbacks: {callback_error}"
+                    )
+            try:
+                self.close()
+            except Exception as close_error:
+                self.logger.warning(f"Failed to close RL environments: {close_error}")
             accelerator = getattr(self, "accelerator", None)
             if accelerator is not None:
-                accelerator.cleanup()
+                try:
+                    accelerator.cleanup()
+                except Exception as cleanup_error:
+                    self.logger.warning(
+                        f"Failed to clean up RL accelerator: {cleanup_error}"
+                    )
             if callbacks is not None:
-                callbacks.on_training_finalized(final_logs)
+                try:
+                    callbacks.on_training_finalized(final_logs)
+                except Exception as callback_error:
+                    self.logger.warning(
+                        f"Failed to run finalized RL callbacks: {callback_error}"
+                    )
 
         if pending_error is not None:
             raise pending_error
@@ -360,7 +388,7 @@ class RLTrainer(ABC):
         observation, reset_info = environment.reset(seed=episode_seed)
         self.callbacks.on_episode_start(
             episode,
-            {"phase": phase, "global_step": self.global_step, **reset_info},
+            {**reset_info, "phase": phase, "global_step": self.global_step},
         )
 
         episode_return = 0.0
@@ -406,7 +434,7 @@ class RLTrainer(ABC):
             )
             if training:
                 update_logs = self.process_transition(transition)
-                if update_logs:
+                if update_logs is not None:
                     self.update_step += 1
                     self.callbacks.on_update_end(self.update_step, update_logs)
             observation = next_observation
@@ -419,15 +447,17 @@ class RLTrainer(ABC):
             truncated=truncated,
             final_info=final_info,
         )
-        self.callbacks.on_episode_end(
-            episode,
-            {
-                "phase": phase,
-                "episode/return": episode_return,
-                "episode/length": length,
-                "global_step": self.global_step,
-            },
-        )
+        episode_logs: dict[str, Any] = {
+            "phase": phase,
+            "episode/return": episode_return,
+            "episode/length": length,
+            "episode/terminated": terminated,
+            "episode/truncated": truncated,
+            "global_step": self.global_step,
+        }
+        if isinstance(final_info.get("is_success"), (bool, int, float)):
+            episode_logs["episode/success"] = float(final_info["is_success"])
+        self.callbacks.on_episode_end(episode, episode_logs)
         if training:
             self.current_episode += 1
             self.current_epoch = self.current_episode
@@ -438,13 +468,27 @@ class RLTrainer(ABC):
         return self._evaluate()
 
     def _evaluate(self) -> dict[str, float]:
-        results = [
-            self.run_episode(
-                training=False,
-                episode=(self.current_episode * self.evaluation_episodes) + index,
-            )
-            for index in range(self.evaluation_episodes)
-        ]
+        if self.evaluation_episodes == 0:
+            raise RuntimeError("evaluation_episodes must be positive to evaluate")
+
+        model_modes = {name: model.training for name, model in self.models.items()}
+        try:
+            for model in self.models.values():
+                model.eval()
+            with torch.no_grad():
+                results = [
+                    self.run_episode(
+                        training=False,
+                        episode=(
+                            self.current_episode * self.evaluation_episodes
+                        )
+                        + index,
+                    )
+                    for index in range(self.evaluation_episodes)
+                ]
+        finally:
+            for name, model in self.models.items():
+                model.train(model_modes[name])
         returns = np.asarray([result.episode_return for result in results], dtype=float)
         lengths = np.asarray([result.length for result in results], dtype=float)
         metrics = {
@@ -479,6 +523,10 @@ class RLTrainer(ABC):
                 callback_states[f"callback_{index}_{callback.__class__.__name__}"] = state
         checkpoint = {
             "trainer_type": "reinforcement_learning",
+            "trainer_name": self.trainer_name,
+            "trainer_class": (
+                f"{self.__class__.__module__}.{self.__class__.__qualname__}"
+            ),
             "config": self.config,
             "current_episode": self.current_episode,
             "global_step": self.global_step,
@@ -503,6 +551,7 @@ class RLTrainer(ABC):
             "numpy_random_state": np.random.get_state(),
             "torch_random_state": torch.random.get_rng_state(),
         }
+        checkpoint.update(self.accelerator.get_accelerator_state())
         if torch.cuda.is_available():
             checkpoint["cuda_random_state"] = torch.cuda.get_rng_state_all()
         checkpoint_path = self.artifact_manager.get_final_checkpoint_path(filename)
@@ -522,18 +571,39 @@ class RLTrainer(ABC):
         )
         if checkpoint.get("trainer_type") != "reinforcement_learning":
             raise ValueError("Checkpoint is not an RLTrainer checkpoint")
-        for name, state in checkpoint.get("models_state_dict", {}).items():
-            if name not in self.models:
-                raise KeyError(f"Checkpoint contains unknown model: {name}")
+        trainer_class = f"{self.__class__.__module__}.{self.__class__.__qualname__}"
+        checkpoint_trainer_class = checkpoint.get("trainer_class")
+        if (
+            checkpoint_trainer_class is not None
+            and checkpoint_trainer_class != trainer_class
+        ):
+            raise ValueError(
+                f"Checkpoint trainer '{checkpoint_trainer_class}' does not match "
+                f"'{trainer_class}'"
+            )
+
+        model_states = checkpoint.get("models_state_dict", {})
+        if set(model_states) != set(self.models):
+            raise ValueError("Checkpoint model names do not match the configured models")
+        for name, state in model_states.items():
             self.accelerator.unwrap_model(self.models[name]).load_state_dict(state)
-        for name, state in checkpoint.get("optimizers_state_dict", {}).items():
-            if name not in self.optimizers:
-                raise KeyError(f"Checkpoint contains unknown optimizer: {name}")
+
+        optimizer_states = checkpoint.get("optimizers_state_dict", {})
+        if set(optimizer_states) != set(self.optimizers):
+            raise ValueError(
+                "Checkpoint optimizer names do not match the configured optimizers"
+            )
+        for name, state in optimizer_states.items():
             self.optimizers[name].load_state_dict(state)
-        for name, state in checkpoint.get("schedulers_state_dict", {}).items():
-            if name not in self.schedulers:
-                raise KeyError(f"Checkpoint contains unknown scheduler: {name}")
+
+        scheduler_states = checkpoint.get("schedulers_state_dict", {})
+        if set(scheduler_states) != set(self.schedulers):
+            raise ValueError(
+                "Checkpoint scheduler names do not match the configured schedulers"
+            )
+        for name, state in scheduler_states.items():
             self.schedulers[name].load_state_dict(state)
+        self.accelerator.load_accelerator_state(checkpoint)
 
         self.current_episode = int(checkpoint.get("current_episode", 0))
         self.current_epoch = self.current_episode
@@ -555,17 +625,25 @@ class RLTrainer(ABC):
         if "torch_random_state" in checkpoint:
             torch.random.set_rng_state(checkpoint["torch_random_state"].cpu())
         if torch.cuda.is_available() and "cuda_random_state" in checkpoint:
-            torch.cuda.set_rng_state_all(checkpoint["cuda_random_state"])
+            torch.cuda.set_rng_state_all(
+                [state.cpu() for state in checkpoint["cuda_random_state"]]
+            )
 
     def close(self) -> None:
         """Close environments owned by this trainer."""
         self._close()
 
     def _close(self) -> None:
+        close_error: Exception | None = None
         for attribute in ("environment", "evaluation_environment"):
             environment = getattr(self, attribute, None)
             if environment is not None:
-                environment.close()
+                try:
+                    environment.close()
+                except Exception as error:
+                    close_error = close_error or error
+        if close_error is not None:
+            raise close_error
 
     @abstractmethod
     def setup_algorithm(self) -> None:

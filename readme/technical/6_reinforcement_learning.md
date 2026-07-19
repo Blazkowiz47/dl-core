@@ -82,11 +82,14 @@ trainer:
 ```
 
 Training and evaluation environments are separate instances. Evaluation uses
-deterministic action selection and a distinct seed range, so evaluation does not
-consume training-environment state. Checkpoints retain common counters, model,
-optimizer, scheduler, callback, random-generator, metric-history, and
-algorithm-specific state. Environment simulator state is not serialized; a
-resumed run begins at a new episode boundary.
+deterministic action selection, evaluation model mode, and a distinct seed
+range, so evaluation does not consume training-environment state. Set
+`evaluation_episodes: 0` to disable evaluation. Checkpoints retain the trainer
+identity, common counters, model, optimizer, scheduler, accelerator, callback,
+random-generator, metric-history, and algorithm-specific state. Environment
+simulator state is not serialized; a resumed run begins at a new episode
+boundary. A checkpoint is rejected when its trainer implementation or component
+names do not match the configured trainer.
 
 RL callbacks can implement `on_episode_start`, `on_episode_end`,
 `on_update_end`, and `on_evaluation_end`. The existing run-level
