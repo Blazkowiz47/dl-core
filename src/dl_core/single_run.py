@@ -7,7 +7,9 @@ For sweep orchestration, use `dl-sweep` instead.
 """
 
 import argparse
+from copy import deepcopy
 import sys
+from tempfile import TemporaryDirectory
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,7 @@ from dl_core.core import (
     METRIC_MANAGER_REGISTRY,
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
+    RLTrainer,
     SCHEDULER_REGISTRY,
     TRAINER_REGISTRY,
 )
@@ -124,13 +127,84 @@ def _run_preflight(
         },
         config_path=config_path,
     )
-    output_dir = config.get("runtime", {}).get("output_dir", "artifacts")
+    runtime_config = config.get("runtime", {})
+    if not isinstance(runtime_config, dict):
+        raise ValueError("'runtime' must be a mapping")
+    output_dir = runtime_config.get("output_dir", "artifacts")
     trainer_name = _resolve_trainer_name(config)
 
     trainer_class = TRAINER_REGISTRY.get_class(trainer_name)
     executor_class = EXECUTOR_REGISTRY.get_class(mode)
-    accelerator_type = str(config.get("accelerator", {}).get("type", "cpu"))
+    accelerator_config = config.get("accelerator", {"type": "cpu"})
+    accelerator_type = (
+        accelerator_config
+        if isinstance(accelerator_config, str)
+        else str(accelerator_config.get("type", "cpu"))
+    )
     accelerator_class = ACCELERATOR_REGISTRY.get_class(accelerator_type)
+
+    if issubclass(trainer_class, RLTrainer):
+        preflight_config = deepcopy(config)
+        preflight_config["runtime"] = dict(runtime_config)
+        trainer_section = dict(preflight_config.get("trainer", {}))
+        trainer_config = dict(trainer_section.get(trainer_name, {}))
+        trainer_config["continue_model"] = None
+        trainer_section[trainer_name] = trainer_config
+        preflight_config["trainer"] = trainer_section
+
+        with TemporaryDirectory(prefix="dl-core-rl-preflight-") as temp_dir:
+            preflight_config["runtime"]["output_dir"] = temp_dir
+            trainer = TRAINER_REGISTRY.get(trainer_name, preflight_config)
+            try:
+                trainer.setup()
+                environment_entry = (
+                    f"{preflight_config['environment']['name']} -> "
+                    f"{_component_path(type(trainer.environment))} "
+                    f"(observation={trainer.environment.observation_space}, "
+                    f"action={trainer.environment.action_space})"
+                )
+                model_entries = [
+                    (
+                        f"{name} -> {_component_path(type(model))} "
+                        f"({sum(parameter.numel() for parameter in model.parameters()):,} "
+                        "params)"
+                    )
+                    for name, model in trainer.models.items()
+                ]
+                optimizer_entries = [
+                    f"{name} -> {_component_path(type(optimizer))}"
+                    for name, optimizer in trainer.optimizers.items()
+                ]
+                callback_entries = [
+                    _component_path(type(callback))
+                    for callback in trainer.callbacks.callbacks
+                ]
+            finally:
+                try:
+                    trainer.close()
+                finally:
+                    accelerator = getattr(trainer, "accelerator", None)
+                    if accelerator is not None:
+                        accelerator.cleanup()
+
+        print("\n✓ RL preflight complete")
+        print(f"   Config: {config_path}")
+        print(f"   Mode: {mode}")
+        print(f"   Run name: {run_name}")
+        print(f"   Experiment: {experiment_name}")
+        print(f"   Output dir: {output_dir}")
+        print(f"   Executor: {mode} -> {_component_path(executor_class)}")
+        print(
+            f"   Accelerator: {accelerator_type} -> "
+            f"{_component_path(accelerator_class)}"
+        )
+        print(f"   Trainer: {trainer_name} -> {_component_path(trainer_class)}")
+        print(f"   Environment: {environment_entry}")
+        _print_component_list("Models", model_entries)
+        _print_component_list("Optimizers", optimizer_entries)
+        _print_component_list("Callbacks", callback_entries)
+        print("   No environment steps or training updates were run.")
+        return
 
     dataset_config = config.get("dataset", {})
     if not isinstance(dataset_config, dict) or not dataset_config.get("name"):

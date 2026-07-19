@@ -94,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             "  dl-core add trainer MyTrainer\n"
             "  dl-core add trainer TextTrainer --base nlptrainer\n"
             "  dl-core add trainer RecursiveTrainer --base acttrainer\n"
+            "  dl-core add trainer MyPolicy --base rltrainer\n"
             "  dl-core add callback MyMetrics\n"
             "  dl-core add callback MyLogger --base metric_logger\n"
             "  dl-core add metric_manager MyManager\n"

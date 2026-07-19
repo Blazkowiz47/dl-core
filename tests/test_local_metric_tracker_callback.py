@@ -68,6 +68,18 @@ def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
                 "note": "ignored",
             },
         )
+        callback.on_episode_end(
+            2,
+            {"episode/return": 4.5, "global_step": 21},
+        )
+        callback.on_update_end(
+            3,
+            {"dqn/loss": 0.2, "global_step": 22},
+        )
+        callback.on_evaluation_end(
+            22,
+            {"evaluation/mean_return": 5.0, "global_step": 22},
+        )
 
         series_dir = artifact_manager.get_metric_streams_dir()
         test_accuracy_records = _read_jsonl(series_dir / "test_accuracy.jsonl")
@@ -75,6 +87,11 @@ def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
         validation_records = _read_jsonl(series_dir / "validation_accuracy.jsonl")
         global_step_records = _read_jsonl(
             series_dir / "general_state_global_step.jsonl"
+        )
+        episode_records = _read_jsonl(series_dir / "episode_return.jsonl")
+        update_records = _read_jsonl(series_dir / "dqn_loss.jsonl")
+        evaluation_records = _read_jsonl(
+            series_dir / "evaluation_mean_return.jsonl"
         )
 
         assert test_accuracy_records == [
@@ -97,5 +114,29 @@ def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
                 "step": 1,
                 "epoch": 1,
                 "value": 32.0,
+            }
+        ]
+        assert episode_records == [
+            {
+                "metric": "episode/return",
+                "step": 21,
+                "episode": 2,
+                "value": 4.5,
+            }
+        ]
+        assert update_records == [
+            {
+                "metric": "dqn/loss",
+                "step": 22,
+                "update": 3,
+                "value": 0.2,
+            }
+        ]
+        assert evaluation_records == [
+            {
+                "metric": "evaluation/mean_return",
+                "step": 22,
+                "global_step": 22,
+                "value": 5.0,
             }
         ]

@@ -52,6 +52,17 @@ dl-core list environment
 dl-core describe environment gymnasium
 ```
 
+An RL config can be resolved without stepping the environment or running an
+update:
+
+```bash
+dl-run --config experiments/sac.yaml --validate-only
+```
+
+The preflight creates the environment, algorithm models, optimizers, and
+callbacks in a temporary artifact directory, reports their resolved types and
+spaces, and closes the runtime immediately.
+
 Robotics-specific worlds, robots, sensors, and physics backends are deliberately
 outside the core environment contract and can be layered on through a future
 companion package.
@@ -98,6 +109,16 @@ RL callbacks can implement `on_episode_start`, `on_episode_end`,
 `on_update_end`, and `on_evaluation_end`. The existing run-level
 `on_training_start`, `on_training_end`, and `on_training_finalized` hooks remain
 shared with epoch training.
+
+The built-in local metric tracker and the MLflow and W&B companion callbacks
+record episode, algorithm-update, and evaluation metrics as well as supervised
+epoch metrics.
+
+Custom algorithms can start from the episode lifecycle scaffold:
+
+```bash
+dl-core add trainer MyPolicy --base rltrainer
+```
 
 The initial RL runtime supports CPU and single-GPU algorithms. Distributed
 environment collection is rejected explicitly until its synchronization and

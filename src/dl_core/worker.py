@@ -20,7 +20,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from dl_core import load_builtin_components, load_local_components
-from dl_core.core import TRAINER_REGISTRY
+from dl_core.core import RLTrainer, TRAINER_REGISTRY
 from dl_core.core.base_trainer import BaseTrainer
 from dl_core.utils.checkpoint_utils import (
     find_latest_checkpoint_local,
@@ -153,7 +153,7 @@ def main():
             logger.info(f"Auto-resuming from local checkpoint: {ckpt_path}")
 
     # Create and run trainer (run() calls setup() then train())
-    trainer: BaseTrainer = TRAINER_REGISTRY.get(trainer_name, config)
+    trainer: BaseTrainer | RLTrainer = TRAINER_REGISTRY.get(trainer_name, config)
     setup_logging(logger_level, trainer.artifact_manager.get_logs_dir() / "train.log")
     try:
         trainer.run()

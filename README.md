@@ -328,6 +328,7 @@ Common local component scaffolds:
 ```bash
 uv run dl-core add model MyResNet
 uv run dl-core add trainer MyTrainer
+uv run dl-core add trainer MyPolicy --base rltrainer
 uv run dl-core add callback MyMetrics
 uv run dl-core add metric_manager MyManager
 uv run dl-core add sampler MySampler

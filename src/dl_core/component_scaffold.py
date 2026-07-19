@@ -318,6 +318,12 @@ _CORE_TRAINER_BASE_SPECS = {
             "Local trainer scaffold based on AdaptiveComputationTrainer."
         ),
     ),
+    "rltrainer": ComponentBaseSpec(
+        canonical_name="rltrainer",
+        import_path="dl_core.core",
+        base_class="RLTrainer",
+        class_docstring="Local trainer scaffold based on RLTrainer.",
+    ),
 }
 
 _DATASET_BASE_ALIASES = {
@@ -360,6 +366,11 @@ _TRAINER_BASE_ALIASES = {
     "adaptive_computation": "acttrainer",
     "adaptive_computation_trainer": "acttrainer",
     "adaptivecomputationtrainer": "acttrainer",
+    "rl": "rltrainer",
+    "rl_trainer": "rltrainer",
+    "rltrainer": "rltrainer",
+    "reinforcement_learning": "rltrainer",
+    "reinforcement_learning_trainer": "rltrainer",
 }
 
 
@@ -1024,6 +1035,14 @@ def _trainer_component(
             base_class=base_class,
             class_docstring=class_docstring,
         )
+    if base_class == "RLTrainer":
+        return _rl_trainer_component(
+            registry_literal=registry_literal,
+            class_name=class_name,
+            import_path=import_path,
+            base_class=base_class,
+            class_docstring=class_docstring,
+        )
     return _epoch_trainer_component(
         registry_literal=registry_literal,
         class_name=class_name,
@@ -1031,6 +1050,61 @@ def _trainer_component(
         base_class=base_class,
         class_docstring=class_docstring,
     )
+
+
+def _rl_trainer_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render an episode-oriented reinforcement-learning trainer scaffold."""
+
+    return f'''"""Local reinforcement-learning trainer scaffold."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dl_core.core import ActionOutput, Transition, register_trainer
+from {import_path} import {base_class}
+
+
+@register_trainer({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def setup_algorithm(self) -> None:
+        """Create algorithm models, optimizers, buffers, and state."""
+        raise NotImplementedError("TODO: initialize the RL algorithm.")
+
+    def select_action(
+        self,
+        observation: Any,
+        *,
+        deterministic: bool,
+    ) -> Any | ActionOutput[Any]:
+        """Select one action for an environment observation."""
+        raise NotImplementedError("TODO: implement action selection.")
+
+    def process_transition(
+        self,
+        transition: Transition[Any, Any],
+    ) -> dict[str, float] | None:
+        """Consume one transition and optionally return update metrics."""
+        raise NotImplementedError("TODO: implement the RL update.")
+
+    def algorithm_state_dict(self) -> dict[str, Any]:
+        """Return resumable state not owned by models or optimizers."""
+        return {{}}
+
+    def load_algorithm_state_dict(self, state: dict[str, Any]) -> None:
+        """Restore algorithm-specific resumable state."""
+        if state:
+            raise ValueError("TODO: validate and restore algorithm state.")
+'''
 
 
 def _epoch_trainer_component(

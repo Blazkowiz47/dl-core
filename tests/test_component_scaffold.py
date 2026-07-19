@@ -373,6 +373,7 @@ def test_supported_trainer_scaffold_bases_are_available() -> None:
         "epochtrainer",
         "nlptrainer",
         "acttrainer",
+        "rltrainer",
     ]
 
 
@@ -497,6 +498,44 @@ def test_cli_add_trainer_supports_act_base(tmp_path: Path) -> None:
     )
     assert "def adaptive_train_step(" in component_text
     assert "-> AdaptiveComputationStepOutput:" in component_text
+
+
+def test_cli_add_trainer_supports_rl_base(tmp_path: Path) -> None:
+    """Trainer scaffolds should support the episode-oriented RL base."""
+    target_dir = create_experiment_scaffold(
+        "trainer-rl-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "trainer",
+            "PolicyGradient",
+            "--base",
+            "rltrainer",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "trainers" / "policygradient.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import RLTrainer" in component_text
+    assert "class PolicyGradientTrainer(RLTrainer):" in component_text
+    assert "def setup_algorithm(self) -> None:" in component_text
+    assert "def select_action(" in component_text
+    assert "def process_transition(" in component_text
+    assert "def algorithm_state_dict(self)" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    assert TRAINER_REGISTRY.get_class("policygradient").__name__ == (
+        "PolicyGradientTrainer"
+    )
 
 
 def test_cli_add_dataset_defaults_to_base_wrapper(tmp_path: Path) -> None:

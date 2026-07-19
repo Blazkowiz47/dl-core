@@ -50,7 +50,7 @@ class LocalMetricTrackerCallback(Callback):
         config_field(
             "log_frequency",
             "int",
-            "Persist tracked scalar metrics every N epochs.",
+            "Persist tracked scalar metrics every N epochs or RL events.",
             default=1,
         )
     ]
@@ -68,17 +68,19 @@ class LocalMetricTrackerCallback(Callback):
 
     def _append_scalars(
         self,
-        epoch: int,
+        index: int,
         logs: dict[str, Any] | None,
         *,
         phase: str | None = None,
+        index_name: str = "epoch",
+        step: int | None = None,
     ) -> None:
         """Append scalar metrics to per-metric JSONL files."""
         if not self.enabled:
             return
         if not self.is_main_process():
             return
-        if epoch % self.log_frequency != 0:
+        if index % self.log_frequency != 0:
             return
 
         scalars = _extract_scalars(logs)
@@ -97,8 +99,8 @@ class LocalMetricTrackerCallback(Callback):
         for metric_name, value in scalars.items():
             payload = {
                 "metric": metric_name,
-                "step": epoch,
-                "epoch": epoch,
+                "step": index if step is None else step,
+                index_name: index,
                 "value": value,
             }
             filename = f"{_sanitize_metric_filename(metric_name)}.jsonl"
@@ -130,3 +132,39 @@ class LocalMetricTrackerCallback(Callback):
         """Append non-phase epoch metrics after train/validation/test complete."""
         super().on_epoch_end(epoch, logs)
         self._append_scalars(epoch, logs, phase=None)
+
+    def _on_episode_end(
+        self,
+        episode: int,
+        logs: dict[str, Any] | None = None,
+    ) -> None:
+        super()._on_episode_end(episode, logs)
+        step = int(logs.get("global_step", episode)) if logs else episode
+        self._append_scalars(
+            episode,
+            logs,
+            index_name="episode",
+            step=step,
+        )
+
+    def _on_update_end(
+        self,
+        update: int,
+        logs: dict[str, Any] | None = None,
+    ) -> None:
+        super()._on_update_end(update, logs)
+        step = int(logs.get("global_step", update)) if logs else update
+        self._append_scalars(update, logs, index_name="update", step=step)
+
+    def _on_evaluation_end(
+        self,
+        step: int,
+        logs: dict[str, Any] | None = None,
+    ) -> None:
+        super()._on_evaluation_end(step, logs)
+        self._append_scalars(
+            step,
+            logs,
+            index_name="global_step",
+            step=step,
+        )

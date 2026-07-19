@@ -436,6 +436,11 @@ class RLTrainer(ABC):
                 update_logs = self.process_transition(transition)
                 if update_logs is not None:
                     self.update_step += 1
+                    update_logs = {
+                        **update_logs,
+                        "update": float(self.update_step),
+                        "global_step": float(self.global_step),
+                    }
                     self.callbacks.on_update_end(self.update_step, update_logs)
             observation = next_observation
 
