@@ -55,3 +55,44 @@ dl-core describe environment gymnasium
 Robotics-specific worlds, robots, sensors, and physics backends are deliberately
 outside the core environment contract and can be layered on through a future
 companion package.
+
+## RL Trainer Lifecycle
+
+`RLTrainer` is a sibling of `EpochTrainer`. It owns episode and environment-step
+counters, independent training and evaluation environments, callback dispatch,
+artifact persistence, and resumable checkpoints. Algorithm implementations
+provide action selection, transition processing, and their additional state.
+
+The common trainer configuration is episode-driven:
+
+```yaml
+environment:
+  name: gymnasium
+  id: FrozenLake-v1
+  kwargs:
+    is_slippery: false
+
+trainer:
+  q_learning:
+    total_timesteps: 20000
+    max_episode_steps: 200
+    evaluation_frequency: 20
+    evaluation_episodes: 5
+    checkpoint_frequency: 100
+```
+
+Training and evaluation environments are separate instances. Evaluation uses
+deterministic action selection and a distinct seed range, so evaluation does not
+consume training-environment state. Checkpoints retain common counters, model,
+optimizer, scheduler, callback, random-generator, metric-history, and
+algorithm-specific state. Environment simulator state is not serialized; a
+resumed run begins at a new episode boundary.
+
+RL callbacks can implement `on_episode_start`, `on_episode_end`,
+`on_update_end`, and `on_evaluation_end`. The existing run-level
+`on_training_start`, `on_training_end`, and `on_training_finalized` hooks remain
+shared with epoch training.
+
+The initial RL runtime supports CPU and single-GPU algorithms. Distributed
+environment collection is rejected explicitly until its synchronization and
+sampling semantics are defined.

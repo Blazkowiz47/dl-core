@@ -360,6 +360,70 @@ class Callback(ABC):
         if not self.is_main_process():
             return
 
+    def on_episode_start(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Run at the beginning of a reinforcement-learning episode."""
+        self._on_episode_start(episode, logs)
+
+    def _on_episode_start(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self.is_main_process():
+            return
+
+    def on_episode_end(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Run after a reinforcement-learning episode completes."""
+        self._on_episode_end(episode, logs)
+
+    def _on_episode_end(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self.is_main_process():
+            return
+
+    def on_update_end(
+        self,
+        update: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Run after an RL algorithm update completes."""
+        self._on_update_end(update, logs)
+
+    def _on_update_end(
+        self,
+        update: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self.is_main_process():
+            return
+
+    def on_evaluation_end(
+        self,
+        step: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Run after an RL evaluation group completes."""
+        self._on_evaluation_end(step, logs)
+
+    def _on_evaluation_end(
+        self,
+        step: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self.is_main_process():
+            return
+
     def get_state(self) -> dict | None:
         """
         Get callback state for checkpoint saving.
@@ -744,6 +808,81 @@ class CallbackList:
                     callback.on_early_stop(epoch, logs)
                 except Exception as e:
                     self._handle_callback_error(callback, "on_early_stop", e)
+
+    def on_episode_start(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Dispatch the RL episode-start hook."""
+        self._on_episode_start(episode, logs)
+
+    def _on_episode_start(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self._dispatch_rl_hook("on_episode_start", episode, logs)
+
+    def on_episode_end(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Dispatch the RL episode-end hook."""
+        self._on_episode_end(episode, logs)
+
+    def _on_episode_end(
+        self,
+        episode: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self._dispatch_rl_hook("on_episode_end", episode, logs)
+
+    def on_update_end(
+        self,
+        update: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Dispatch the RL update-end hook."""
+        self._on_update_end(update, logs)
+
+    def _on_update_end(
+        self,
+        update: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self._dispatch_rl_hook("on_update_end", update, logs)
+
+    def on_evaluation_end(
+        self,
+        step: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Dispatch the RL evaluation-end hook."""
+        self._on_evaluation_end(step, logs)
+
+    def _on_evaluation_end(
+        self,
+        step: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self._dispatch_rl_hook("on_evaluation_end", step, logs)
+
+    def _dispatch_rl_hook(
+        self,
+        hook_name: str,
+        index: int,
+        logs: Optional[Dict[str, Any]],
+    ) -> None:
+        for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
+            if not callback.enabled:
+                continue
+            try:
+                getattr(callback, hook_name)(index, logs)
+            except Exception as error:
+                self._handle_callback_error(callback, hook_name, error)
 
     def _handle_callback_error(
         self, callback: Callback, hook_name: str, error: Exception

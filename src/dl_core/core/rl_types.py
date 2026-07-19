@@ -55,6 +55,7 @@ class Transition(Generic[ObservationT, ActionT]):
     terminated: bool
     truncated: bool
     info: dict[str, Any] = field(default_factory=dict)
+    action_info: dict[str, Any] = field(default_factory=dict)
 
     @property
     def done(self) -> bool:
@@ -72,3 +73,11 @@ class EpisodeResult:
     terminated: bool
     truncated: bool
     final_info: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ActionOutput(Generic[ActionT]):
+    """Action selected by a policy with optional algorithm-specific metadata."""
+
+    action: ActionT
+    info: dict[str, Any] = field(default_factory=dict)

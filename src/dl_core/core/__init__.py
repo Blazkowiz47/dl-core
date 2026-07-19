@@ -30,7 +30,8 @@ from .base_trainer import BaseTrainer
 from .epoch_trainer import EpochTrainer
 from .sequence_trainer import SequenceStepOutput, SequenceTrainer
 from .base_transform import BaseTransform
-from .rl_types import Environment, EpisodeResult, Transition
+from .rl_trainer import RLTrainer
+from .rl_types import ActionOutput, Environment, EpisodeResult, Transition
 from .config_metadata import ConfigFieldSpec, config_field
 
 # Registry system
@@ -106,8 +107,10 @@ __all__ = [
     "LandmarkDetection",
     "ConfigFieldSpec",
     "Environment",
+    "ActionOutput",
     "Transition",
     "EpisodeResult",
+    "RLTrainer",
     # Registry system
     "ComponentRegistry",
     "MODEL_REGISTRY",
