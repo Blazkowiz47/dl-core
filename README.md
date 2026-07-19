@@ -23,6 +23,8 @@ Compatible companion package floors:
 - `RLTrainer` provides an episode-based lifecycle, deterministic evaluation,
   RL callback hooks, and resumable algorithm checkpoints alongside
   `EpochTrainer`
+- `QLearningTrainer` adds tabular epsilon-greedy learning for finite discrete
+  Gymnasium environments
 - `dl-core list` makes built-in and local registry discovery easier
 - `dl-core add` defaults to plain base classes unless `--base` is given
 - `dl-analyze` is the primary sweep-analysis CLI

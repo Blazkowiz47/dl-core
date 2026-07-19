@@ -99,3 +99,35 @@ shared with epoch training.
 The initial RL runtime supports CPU and single-GPU algorithms. Distributed
 environment collection is rejected explicitly until its synchronization and
 sampling semantics are defined.
+
+## Tabular Q-Learning
+
+`QLearningTrainer` is registered as `q_learning`. It is intended for finite
+`Discrete` observation and action spaces and does not create a PyTorch model.
+The trainer applies the standard one-step update:
+
+```text
+Q(s, a) <- Q(s, a) + learning_rate *
+    (reward + gamma * max(Q(next_state, :)) - Q(s, a))
+```
+
+The next-state term is omitted only for true environment termination. A
+truncation, including a configured episode time limit, retains bootstrapping.
+This distinction follows the Gymnasium termination contract.
+
+```yaml
+trainer:
+  q_learning:
+    total_timesteps: 20000
+    max_episode_steps: 200
+    learning_rate: 0.1
+    gamma: 0.99
+    epsilon_start: 1.0
+    epsilon_end: 0.05
+    epsilon_decay_steps: 10000
+```
+
+Exploratory actions and greedy tie-breaking use a trainer-owned random generator
+whose state is included in checkpoints. Deterministic evaluation always chooses
+the lowest-index maximizing action. Non-zero starts on Gymnasium `Discrete`
+spaces are supported.
