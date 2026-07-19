@@ -139,6 +139,8 @@ class LocalMetricTrackerCallback(Callback):
         logs: dict[str, Any] | None = None,
     ) -> None:
         super()._on_episode_end(episode, logs)
+        if logs and logs.get("phase") == "evaluation":
+            return
         step = int(logs.get("global_step", episode)) if logs else episode
         self._append_scalars(
             episode,

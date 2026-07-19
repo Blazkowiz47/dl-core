@@ -112,7 +112,8 @@ shared with epoch training.
 
 The built-in local metric tracker and the MLflow and W&B companion callbacks
 record episode, algorithm-update, and evaluation metrics as well as supervised
-epoch metrics.
+epoch metrics. Training-episode series stay separate from the aggregate metrics
+reported by evaluation groups.
 
 Custom algorithms can start from the episode lifecycle scaffold:
 

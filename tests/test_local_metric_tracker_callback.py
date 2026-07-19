@@ -72,6 +72,14 @@ def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
             2,
             {"episode/return": 4.5, "global_step": 21},
         )
+        callback.on_episode_end(
+            200,
+            {
+                "phase": "evaluation",
+                "episode/return": 99.0,
+                "global_step": 21,
+            },
+        )
         callback.on_update_end(
             3,
             {"dqn/loss": 0.2, "global_step": 22},
