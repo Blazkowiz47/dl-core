@@ -29,6 +29,8 @@ Compatible companion package floors:
   Double-DQN targets, and a built-in MLP Q-network
 - `PPOTrainer` adds clipped on-policy optimization, GAE, and discrete or
   bounded-continuous actor-critic policies
+- `SACTrainer` adds replay-based bounded-continuous control with twin critics,
+  Polyak targets, and optional automatic entropy tuning
 - `dl-core list` makes built-in and local registry discovery easier
 - `dl-core add` defaults to plain base classes unless `--base` is given
 - `dl-analyze` is the primary sweep-analysis CLI

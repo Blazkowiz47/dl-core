@@ -245,3 +245,73 @@ The initial PPO implementation collects a single environment stream. This keeps
 episode callbacks and deterministic checkpoint continuation identical to the
 other trainers. A later vector-environment collector can feed the same policy
 and rollout contracts without changing the public trainer configuration.
+
+## Soft Actor-Critic
+
+`SACTrainer` is registered as `sac`. It supports finite, floating-point `Box`
+actions with `Discrete` or `Box` observations. Its built-in
+`sac_gaussian_actor` uses a state-dependent diagonal Gaussian, while
+`sac_twin_q_network` maintains two independent observation-action value
+estimates to reduce overestimation bias.
+
+```yaml
+models:
+  actor:
+    name: sac_gaussian_actor
+    hidden_sizes: [256, 256]
+  critics:
+    name: sac_twin_q_network
+    hidden_sizes: [256, 256]
+
+optimizers:
+  actor:
+    name: adam
+    lr: 0.0003
+  critics:
+    name: adam
+    lr: 0.0003
+  temperature:
+    name: adam
+    lr: 0.0003
+
+trainer:
+  sac:
+    total_timesteps: 1000000
+    gamma: 0.99
+    buffer_size: 1000000
+    batch_size: 256
+    learning_starts: 5000
+    train_frequency: 1
+    gradient_steps: 1
+    tau: 0.005
+    initial_alpha: 0.2
+    automatic_entropy_tuning: true
+    target_entropy: null
+    log_std_min: -20.0
+    log_std_max: 2.0
+    checkpoint_replay_buffer: true
+```
+
+Before `learning_starts`, SAC samples uniformly within the action bounds. It
+then uses reparameterized Gaussian actions followed by a tanh transform and
+affine scaling into the environment bounds. The policy objective includes the
+full transformed-action log density, including the tanh Jacobian and action
+scale. The default entropy target is the negative flattened action dimension;
+set `automatic_entropy_tuning: false` to keep `initial_alpha` fixed.
+
+The replay target uses the lower target-critic estimate. True termination
+removes the bootstrap term, while truncation retains it. Target critics receive
+a Polyak update after every replay gradient step. Training and evaluation spaces
+must match exactly, and unbounded, integer, or boolean action spaces are
+rejected. A flat optimizer mapping can be used to share one optimizer type and
+configuration across the actor, critics, and learned temperature.
+
+Custom actors receive the same observation batches as PPO and must return
+floating-point `mean` and `log_std` tensors shaped
+`[batch, action_dimensions]`. Custom twin critics receive observation and
+bounded action batches and must return floating-point `q1` and `q2` tensors
+shaped `[batch]`. All outputs must be finite. Replay contents and both sampling
+generators are checkpointed by default; disabling replay checkpointing reduces
+checkpoint size but resumes with empty replay memory. Gradient accumulation is
+currently rejected because SAC performs distinct critic, actor, and temperature
+optimizer steps in each replay update.
