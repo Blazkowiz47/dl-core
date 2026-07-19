@@ -45,6 +45,13 @@ class CustomEnvironment:
     ...
 ```
 
+Registered environments participate in the standard discovery commands:
+
+```bash
+dl-core list environment
+dl-core describe environment gymnasium
+```
+
 Robotics-specific worlds, robots, sensors, and physics backends are deliberately
 outside the core environment contract and can be layered on through a future
 companion package.

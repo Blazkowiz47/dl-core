@@ -20,6 +20,27 @@ def test_cli_list_metric_managers_prints_registered_names(capsys) -> None:
     assert "- standard_act" in output
 
 
+def test_cli_list_and_describe_environment(capsys) -> None:
+    """Environment registrations should use the standard discovery commands."""
+    exit_code = cli_main(["list", "environment"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Registered environment" in output
+    assert "- gymnasium" in output
+
+    exit_code = cli_main(["describe", "environment", "gymnasium"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Target type: environment" in output
+    assert (
+        "Resolved class: "
+        "dl_core.environments.gymnasium_environment.GymnasiumEnvironment"
+        in output
+    )
+
+
 def test_cli_list_supports_json_output(capsys) -> None:
     """Registry listings should be serializable for tooling and agents."""
     exit_code = cli_main(["list", "sampler", "--json"])
