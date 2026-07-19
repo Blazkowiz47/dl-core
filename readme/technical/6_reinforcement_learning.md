@@ -190,3 +190,48 @@ checkpointed generators. Saving replay memory makes checkpoints larger but
 allows exact off-policy continuation; set `checkpoint_replay_buffer: false` to
 resume with an empty buffer. Gradient accumulation is currently rejected for
 DQN because each replay update is an independent optimizer step.
+
+## Proximal Policy Optimization
+
+`PPOTrainer` is registered as `ppo`. It supports `Discrete` and finite `Box`
+actions with `Discrete` or `Box` observations. The built-in
+`ppo_actor_critic` model uses a shared MLP encoder, categorical logits for
+discrete actions, and a diagonal Gaussian for continuous actions.
+
+```yaml
+models:
+  policy:
+    name: ppo_actor_critic
+    hidden_sizes: [64, 64]
+
+optimizers:
+  name: adam
+  lr: 0.0003
+
+trainer:
+  ppo:
+    total_timesteps: 1000000
+    gamma: 0.99
+    gae_lambda: 0.95
+    rollout_steps: 2048
+    update_epochs: 10
+    minibatch_size: 64
+    clip_range: 0.2
+    value_clip_range: 0.2
+    value_loss_coefficient: 0.5
+    entropy_coefficient: 0.01
+    normalize_advantages: true
+```
+
+GAE stops recursive propagation at both termination and truncation boundaries,
+but the one-step value target continues to bootstrap across truncation. PPO
+collects across episode boundaries and updates at the configured rollout length
+or when the final training budget is reached, so no final partial rollout is
+discarded. Continuous actions use a tanh transform into the environment bounds;
+PPO stores the corresponding raw Gaussian action because the fixed transform
+Jacobian cancels in the old/new probability ratio.
+
+The initial PPO implementation collects a single environment stream. This keeps
+episode callbacks and deterministic checkpoint continuation identical to the
+other trainers. A later vector-environment collector can feed the same policy
+and rollout contracts without changing the public trainer configuration.

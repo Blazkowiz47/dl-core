@@ -33,6 +33,7 @@ from .base_transform import BaseTransform
 from .rl_trainer import RLTrainer
 from .rl_types import ActionOutput, Environment, EpisodeResult, Transition
 from .replay_buffer import ReplayBatch, ReplayBuffer
+from .rollout_buffer import RolloutBatch, RolloutBuffer
 from .config_metadata import ConfigFieldSpec, config_field
 
 # Registry system
@@ -114,6 +115,8 @@ __all__ = [
     "RLTrainer",
     "ReplayBatch",
     "ReplayBuffer",
+    "RolloutBatch",
+    "RolloutBuffer",
     # Registry system
     "ComponentRegistry",
     "MODEL_REGISTRY",
