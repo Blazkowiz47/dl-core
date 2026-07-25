@@ -7,13 +7,30 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current release: `deep-learning-core==0.0.26`.
+Current public release: `deep-learning-core==0.0.26`.
+Current development version: `0.0.27`.
 
 Compatible companion package floors:
 
 - `deep-learning-azure>=0.0.18,<0.1`
 - `deep-learning-mlflow>=0.0.11,<0.1`
+- `deep-learning-robotics>=0.0.1,<0.1` with
+  `deep-learning-core>=0.0.27,<0.1`
 - `deep-learning-wandb>=0.0.12,<0.1`
+
+## Unreleased: 0.0.27
+
+- episode managers provide generic RL summaries and selective, complete
+  trajectory capture alongside the existing metric-manager system
+- scalar and same-step vector environments share one collector contract with
+  preserved terminal observations and per-lane episode identity
+- Q-learning, DQN, PPO, and SAC now consume vector collection natively; neural
+  policies perform batched inference and replay/rollout storage preserves the
+  correct algorithm-specific scheduling and boundary semantics
+- replay insertion and PPO rollout/GAE computation operate on real batches,
+  while scalar custom trainers remain compatible through the original hooks
+- extension packages can import and register environments without depending on
+  dl-core import order
 
 ## What's New in 0.0.26?
 
@@ -98,6 +115,9 @@ used by the validated Azure packaging stack. The MLflow extra pulls in
 - `deep-learning-core[wandb]`: adds the public
   [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
   package for Weights & Biases integration
+- [`deep-learning-robotics`](https://github.com/Blazkowiz47/dl-robotics):
+  adds fast scalar and vector 2D MAPF environments, metrics, and episode media
+  as a separately installed companion package
 
 The extension packages stay separate so the base package remains reusable and
 vendor-neutral.
@@ -108,6 +128,7 @@ integration without using extras:
 ```bash
 pip install deep-learning-azure
 pip install deep-learning-mlflow
+pip install deep-learning-robotics
 pip install deep-learning-wandb
 ```
 
@@ -298,6 +319,7 @@ scaffold a `wandb` callback block, W&B tracking defaults, and `.env.example`.
 
 - [`dl-azure`](https://github.com/Blazkowiz47/dl-azure)
 - [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow)
+- [`dl-robotics`](https://github.com/Blazkowiz47/dl-robotics)
 - [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
 
 ## Scaffold Commands

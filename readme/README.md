@@ -5,6 +5,7 @@ technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
 Current public release: `deep-learning-core==0.0.26`.
+Current development version: `0.0.27`.
 
 ## Companion Packages
 
@@ -12,6 +13,8 @@ Current public release: `deep-learning-core==0.0.26`.
   Azure dataset foundations
 - [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow): local MLflow
   integration
+- [`dl-robotics`](https://github.com/Blazkowiz47/dl-robotics): fast 2D MAPF
+  environments, episode metrics, and GIF/MP4 artifacts
 - [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb): Weights & Biases
   integration
 
