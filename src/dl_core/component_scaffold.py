@@ -632,13 +632,30 @@ def _render_component(
     if spec.canonical_name == "episode_manager":
         episode_manager_base = _component_base_required(component_base)
         if _is_default_component_base(spec.canonical_name, episode_manager_base):
-            return _episode_manager_component(
-                registry_literal=registry_literal,
-                class_name=class_name,
-                import_path=episode_manager_base.import_path,
-                base_class=episode_manager_base.base_class,
-                class_docstring=episode_manager_base.class_docstring,
-            )
+            return f'''"""Local episode manager scaffold."""
+
+from __future__ import annotations
+
+from dl_core.core import EpisodeRecord, EpisodeResult, register_episode_manager
+from {episode_manager_base.import_path} import {episode_manager_base.base_class}
+
+
+@register_episode_manager({registry_literal})
+class {class_name}({episode_manager_base.base_class}):
+    """{episode_manager_base.class_docstring}"""
+
+    def summarize_episode(
+        self,
+        record: EpisodeRecord,
+        result: EpisodeResult,
+        **statistics: float | int,
+    ) -> dict[str, float]:
+        """Compute scalar metrics for one completed episode."""
+        return {{
+            "episode/return": float(statistics["episode_return"]),
+            "episode/length": float(statistics["length"]),
+        }}
+'''
     if spec.canonical_name == "model":
         model_base = _component_base_required(component_base)
         if _is_default_component_base(spec.canonical_name, model_base):
@@ -1067,33 +1084,7 @@ def _trainer_component(
             class_docstring=class_docstring,
         )
     if base_class == "RLTrainer":
-        return _rl_trainer_component(
-            registry_literal=registry_literal,
-            class_name=class_name,
-            import_path=import_path,
-            base_class=base_class,
-            class_docstring=class_docstring,
-        )
-    return _epoch_trainer_component(
-        registry_literal=registry_literal,
-        class_name=class_name,
-        import_path=import_path,
-        base_class=base_class,
-        class_docstring=class_docstring,
-    )
-
-
-def _rl_trainer_component(
-    *,
-    registry_literal: str,
-    class_name: str,
-    import_path: str,
-    base_class: str,
-    class_docstring: str,
-) -> str:
-    """Render an episode-oriented reinforcement-learning trainer scaffold."""
-
-    return f'''"""Local reinforcement-learning trainer scaffold."""
+        return f'''"""Local reinforcement-learning trainer scaffold."""
 
 from __future__ import annotations
 
@@ -1136,6 +1127,13 @@ class {class_name}({base_class}):
         if state:
             raise ValueError("TODO: validate and restore algorithm state.")
 '''
+    return _epoch_trainer_component(
+        registry_literal=registry_literal,
+        class_name=class_name,
+        import_path=import_path,
+        base_class=base_class,
+        class_docstring=class_docstring,
+    )
 
 
 def _epoch_trainer_component(
@@ -1957,41 +1955,6 @@ class {class_name}({base_class}):
             }},
             "validation": {{}},
             "test": {{}},
-        }}
-'''
-
-
-def _episode_manager_component(
-    *,
-    registry_literal: str,
-    class_name: str,
-    import_path: str,
-    base_class: str,
-    class_docstring: str,
-) -> str:
-    """Render an episode-manager scaffold with summary customization."""
-    return f'''"""Local episode manager scaffold."""
-
-from __future__ import annotations
-
-from dl_core.core import EpisodeRecord, EpisodeResult, register_episode_manager
-from {import_path} import {base_class}
-
-
-@register_episode_manager({registry_literal})
-class {class_name}({base_class}):
-    """{class_docstring}"""
-
-    def summarize_episode(
-        self,
-        record: EpisodeRecord,
-        result: EpisodeResult,
-        **statistics: float | int,
-    ) -> dict[str, float]:
-        """Compute scalar metrics for one completed episode."""
-        return {{
-            "episode/return": float(statistics["episode_return"]),
-            "episode/length": float(statistics["length"]),
         }}
 '''
 

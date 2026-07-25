@@ -383,50 +383,57 @@ class RLTrainer(ABC):
         self._perform_training()
 
     def _perform_training(self) -> None:
-        if self.environment.num_envs > 1:
-            self._perform_vector_training()
-            return
-        last_evaluation_episode = -1
-        while not self.stop_training:
-            if self.total_timesteps > 0 and self.global_step >= self.total_timesteps:
-                break
-            if self.max_episodes is not None and self.current_episode >= self.max_episodes:
-                break
+        if self.environment.num_envs == 1:
+            last_evaluation_episode = -1
+            while not self.stop_training:
+                if (
+                    self.total_timesteps > 0
+                    and self.global_step >= self.total_timesteps
+                ):
+                    break
+                if (
+                    self.max_episodes is not None
+                    and self.current_episode >= self.max_episodes
+                ):
+                    break
 
-            result = self.run_episode(training=True, episode=self.current_episode)
-            episode_logs = {
-                "episode": result.episode,
-                "global_step": self.global_step,
-                **result.metrics,
-                "episode/terminated": result.terminated,
-                "episode/truncated": result.truncated,
-            }
-            self.episode_metrics.append(episode_logs)
+                result = self.run_episode(
+                    training=True,
+                    episode=self.current_episode,
+                )
+                episode_logs = {
+                    "episode": result.episode,
+                    "global_step": self.global_step,
+                    **result.metrics,
+                    "episode/terminated": result.terminated,
+                    "episode/truncated": result.truncated,
+                }
+                self.episode_metrics.append(episode_logs)
+
+                if (
+                    self.evaluation_frequency > 0
+                    and self.evaluation_episodes > 0
+                    and self.current_episode % self.evaluation_frequency == 0
+                ):
+                    self.evaluate()
+                    last_evaluation_episode = self.current_episode
+
+                if (
+                    self.checkpoint_frequency > 0
+                    and self.current_episode % self.checkpoint_frequency == 0
+                ):
+                    self.save_checkpoint(
+                        f"episode_{self.current_episode:08d}.pth"
+                    )
 
             if (
-                self.evaluation_frequency > 0
-                and self.evaluation_episodes > 0
-                and self.current_episode % self.evaluation_frequency == 0
+                self.evaluation_episodes > 0
+                and last_evaluation_episode != self.current_episode
             ):
                 self.evaluate()
-                last_evaluation_episode = self.current_episode
+            self.save_checkpoint("latest.pth")
+            return
 
-            if (
-                self.checkpoint_frequency > 0
-                and self.current_episode % self.checkpoint_frequency == 0
-            ):
-                self.save_checkpoint(
-                    f"episode_{self.current_episode:08d}.pth"
-                )
-
-        if (
-            self.evaluation_episodes > 0
-            and last_evaluation_episode != self.current_episode
-        ):
-            self.evaluate()
-        self.save_checkpoint("latest.pth")
-
-    def _perform_vector_training(self) -> None:
         num_envs = self.environment.num_envs
         episode_numbers = np.arange(
             self.current_episode,

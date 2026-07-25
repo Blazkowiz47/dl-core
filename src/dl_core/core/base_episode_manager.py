@@ -260,7 +260,74 @@ class BaseEpisodeManager(ABC):
             )
             record.artifact_paths["summary_stream"] = str(summary_path)
             if accumulator.capture:
-                record.artifact_paths.update(self._save_record(record, result))
+                episode_dir = (
+                    self.artifact_manager.get_final_dir()
+                    / "episodes"
+                    / record.context.phase
+                )
+                episode_dir.mkdir(parents=True, exist_ok=True)
+                trajectory_path = (
+                    episode_dir / f"{record.context.episode_id}.npz"
+                )
+                arrays: dict[str, np.ndarray] = {
+                    "rewards": np.asarray(
+                        record.rewards,
+                        dtype=np.float32,
+                    ),
+                    "terminated": np.asarray(
+                        record.terminated,
+                        dtype=np.bool_,
+                    ),
+                    "truncated": np.asarray(
+                        record.truncated,
+                        dtype=np.bool_,
+                    ),
+                }
+                self._flatten_sequence(
+                    "observations",
+                    record.observations,
+                    arrays,
+                )
+                self._flatten_sequence("actions", record.actions, arrays)
+                metadata = {
+                    "episode_id": record.context.episode_id,
+                    "episode": record.context.episode,
+                    "environment_index": record.context.environment_index,
+                    "phase": record.context.phase,
+                    "seed": record.context.seed,
+                    "start_global_step": record.context.start_global_step,
+                    "environment_name": record.context.environment_name,
+                    "scenario_fingerprint": (
+                        record.context.scenario_fingerprint
+                    ),
+                    "reset_info": self._json_safe(
+                        record.context.reset_info
+                    ),
+                    "infos": self._json_safe(record.infos),
+                    "action_info": self._json_safe(record.action_info),
+                    "final_info": self._json_safe(result.final_info),
+                    "metrics": record.metrics,
+                }
+                arrays["metadata_json"] = np.asarray(
+                    json.dumps(metadata, sort_keys=True)
+                )
+                np.savez_compressed(trajectory_path, **arrays)
+                index_path = self.artifact_manager.append_final_jsonl(
+                    "episodes/index.jsonl",
+                    {
+                        "episode_id": record.context.episode_id,
+                        "phase": record.context.phase,
+                        "trajectory": str(trajectory_path),
+                        "length": record.length,
+                        **record.metrics,
+                    },
+                )
+                record.artifact_paths.update(
+                    {
+                        "trajectory": str(trajectory_path),
+                        "trajectory_index": str(index_path),
+                    }
+                )
         if accumulator.capture:
             self._capture_reservations -= 1
             self._captured_episodes += 1
@@ -338,59 +405,6 @@ class BaseEpisodeManager(ABC):
         if captured_episodes < 0:
             raise ValueError("captured_episodes cannot be negative")
         self._captured_episodes = captured_episodes
-
-    def _save_record(
-        self,
-        record: EpisodeRecord,
-        result: EpisodeResult,
-    ) -> dict[str, str]:
-        if self.artifact_manager is None:
-            return {}
-        episode_dir = (
-            self.artifact_manager.get_final_dir()
-            / "episodes"
-            / record.context.phase
-        )
-        episode_dir.mkdir(parents=True, exist_ok=True)
-        trajectory_path = episode_dir / f"{record.context.episode_id}.npz"
-        arrays: dict[str, np.ndarray] = {
-            "rewards": np.asarray(record.rewards, dtype=np.float32),
-            "terminated": np.asarray(record.terminated, dtype=np.bool_),
-            "truncated": np.asarray(record.truncated, dtype=np.bool_),
-        }
-        self._flatten_sequence("observations", record.observations, arrays)
-        self._flatten_sequence("actions", record.actions, arrays)
-        metadata = {
-            "episode_id": record.context.episode_id,
-            "episode": record.context.episode,
-            "environment_index": record.context.environment_index,
-            "phase": record.context.phase,
-            "seed": record.context.seed,
-            "start_global_step": record.context.start_global_step,
-            "environment_name": record.context.environment_name,
-            "scenario_fingerprint": record.context.scenario_fingerprint,
-            "reset_info": self._json_safe(record.context.reset_info),
-            "infos": self._json_safe(record.infos),
-            "action_info": self._json_safe(record.action_info),
-            "final_info": self._json_safe(result.final_info),
-            "metrics": record.metrics,
-        }
-        arrays["metadata_json"] = np.asarray(json.dumps(metadata, sort_keys=True))
-        np.savez_compressed(trajectory_path, **arrays)
-        index_path = self.artifact_manager.append_final_jsonl(
-            "episodes/index.jsonl",
-            {
-                "episode_id": record.context.episode_id,
-                "phase": record.context.phase,
-                "trajectory": str(trajectory_path),
-                "length": record.length,
-                **record.metrics,
-            },
-        )
-        return {
-            "trajectory": str(trajectory_path),
-            "trajectory_index": str(index_path),
-        }
 
     def _flatten_sequence(
         self,

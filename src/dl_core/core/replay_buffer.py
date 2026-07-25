@@ -67,16 +67,27 @@ class ReplayBuffer:
         self._add(transition)
 
     def _add(self, transition: Transition[Any, Any]) -> None:
-        self._add_arrays(
-            observations=np.expand_dims(np.asarray(transition.observation), 0),
-            actions=np.expand_dims(np.asarray(transition.action), 0),
-            rewards=np.asarray([transition.reward], dtype=np.float32),
-            next_observations=np.expand_dims(
-                np.asarray(transition.next_observation),
-                0,
-            ),
-            terminated=np.asarray([transition.terminated], dtype=np.bool_),
-            truncated=np.asarray([transition.truncated], dtype=np.bool_),
+        self._add_batch(
+            TransitionBatch(
+                observations=np.expand_dims(
+                    np.asarray(transition.observation),
+                    0,
+                ),
+                actions=np.expand_dims(np.asarray(transition.action), 0),
+                rewards=np.asarray([transition.reward], dtype=np.float32),
+                next_observations=np.expand_dims(
+                    np.asarray(transition.next_observation),
+                    0,
+                ),
+                terminated=np.asarray(
+                    [transition.terminated],
+                    dtype=np.bool_,
+                ),
+                truncated=np.asarray(
+                    [transition.truncated],
+                    dtype=np.bool_,
+                ),
+            )
         )
 
     def add_batch(self, transitions: TransitionBatch[Any, Any]) -> None:
@@ -84,25 +95,12 @@ class ReplayBuffer:
         self._add_batch(transitions)
 
     def _add_batch(self, transitions: TransitionBatch[Any, Any]) -> None:
-        self._add_arrays(
-            observations=np.asarray(transitions.observations),
-            actions=np.asarray(transitions.actions),
-            rewards=np.asarray(transitions.rewards),
-            next_observations=np.asarray(transitions.next_observations),
-            terminated=np.asarray(transitions.terminated),
-            truncated=np.asarray(transitions.truncated),
-        )
-
-    def _add_arrays(
-        self,
-        *,
-        observations: np.ndarray,
-        actions: np.ndarray,
-        rewards: np.ndarray,
-        next_observations: np.ndarray,
-        terminated: np.ndarray,
-        truncated: np.ndarray,
-    ) -> None:
+        observations = np.asarray(transitions.observations)
+        actions = np.asarray(transitions.actions)
+        rewards = np.asarray(transitions.rewards)
+        next_observations = np.asarray(transitions.next_observations)
+        terminated = np.asarray(transitions.terminated)
+        truncated = np.asarray(transitions.truncated)
         batch_size = int(rewards.shape[0])
         original_batch_size = batch_size
         expected_shapes = {

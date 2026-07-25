@@ -15,12 +15,6 @@ def make_environment(
     config: dict[str, Any],
 ) -> Environment[Any, Any] | VectorEnvironment[Any, Any]:
     """Create a registered environment from a configuration mapping."""
-    return _make_environment(config)
-
-
-def _make_environment(
-    config: dict[str, Any],
-) -> Environment[Any, Any] | VectorEnvironment[Any, Any]:
     if not isinstance(config, dict):
         raise TypeError("Environment config must be a mapping")
 
