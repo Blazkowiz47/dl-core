@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
-from gymnasium.spaces import Box
+from gymnasium.spaces import Box, Discrete
 
 from dl_core import load_builtin_components
 from dl_core.core import (
@@ -170,6 +171,53 @@ def test_dqn_requires_identical_box_observation_spaces(tmp_path: Path) -> None:
     trainer.close()
 
 
+def test_dqn_preserves_box_observation_dtype_in_replay(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(_config(tmp_path))
+    trainer.setup_accelerator()
+    trainer.environment = trainer.evaluation_environment = SimpleNamespace(
+        observation_space=Box(0, 255, shape=(2, 2), dtype=np.uint8),
+        action_space=Discrete(2),
+    )
+
+    trainer.setup_algorithm()
+
+    assert trainer.replay_buffer.observation_dtype == np.dtype(np.uint8)
+
+
+def test_dqn_supports_nonzero_discrete_starts(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(_config(tmp_path))
+    trainer.setup()
+    trainer.environment.observation_space = Discrete(16, start=3)
+    trainer.evaluation_environment.observation_space = Discrete(16, start=3)
+    trainer.environment.action_space = Discrete(4, start=7)
+    trainer.evaluation_environment.action_space = Discrete(4, start=7)
+
+    output = trainer.select_actions(
+        np.asarray([3, 4], dtype=np.int64),
+        deterministic=True,
+    )
+    trainer.global_step = 2
+    logs = trainer.process_transition_batch(
+        TransitionBatch(
+            observations=np.asarray([3, 4], dtype=np.int64),
+            actions=np.asarray(output.actions, dtype=np.int64),
+            rewards=np.ones(2, dtype=np.float32),
+            next_observations=np.asarray([4, 5], dtype=np.int64),
+            terminated=np.zeros(2, dtype=np.bool_),
+            truncated=np.zeros(2, dtype=np.bool_),
+        )
+    )
+
+    assert all(
+        trainer.environment.action_space.contains(action)
+        for action in output.actions
+    )
+    assert len(logs) == 2
+    trainer.close()
+
+
 @pytest.mark.parametrize(
     ("terminated", "truncated", "expected_target"),
     [(True, False, 1.0), (False, True, 2.8)],
@@ -303,6 +351,96 @@ def test_dqn_honors_autocast_and_target_schedule_between_updates(
         strict=True,
     ):
         assert torch.equal(target_parameter, online_parameter)
+    trainer.close()
+
+
+def test_dqn_batches_vector_inference_replay_and_update_schedules(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=8,
+        max_episode_steps=2,
+        train_frequency=2,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = DQNTrainer(config)
+    trainer.setup()
+    inference_batches: list[int] = []
+    original_q_values = trainer._q_values
+
+    def recording_q_values(
+        model: torch.nn.Module,
+        observations: torch.Tensor,
+    ) -> torch.Tensor:
+        if not model.training:
+            inference_batches.append(int(observations.shape[0]))
+        return original_q_values(model, observations)
+
+    trainer._q_values = recording_q_values
+    trainer.perform_training()
+
+    assert trainer.global_step == 8
+    assert trainer.collector_step == 4
+    assert trainer.update_step == 4
+    assert len(trainer.replay_buffer) == 8
+    assert inference_batches.count(2) == 4
+    trainer.close()
+
+
+def test_dqn_orders_target_syncs_between_crossed_vector_updates(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(
+        _config(
+            tmp_path,
+            train_frequency=2,
+            target_update_frequency=3,
+        )
+    )
+    trainer.setup()
+    events: list[str] = []
+    optimizer_step = trainer.accelerator.optimizer_step
+    synchronize_target = trainer._synchronize_target_network
+
+    def recording_optimizer_step(
+        optimizer: torch.optim.Optimizer,
+        model: torch.nn.Module,
+    ) -> bool:
+        events.append("update")
+        return optimizer_step(optimizer, model)
+
+    def recording_target_sync() -> None:
+        events.append("target")
+        synchronize_target()
+
+    trainer.accelerator.optimizer_step = recording_optimizer_step
+    trainer._synchronize_target_network = recording_target_sync
+    trainer.global_step = 6
+    trainer.process_transition_batch(
+        TransitionBatch(
+            observations=np.arange(6, dtype=np.int64) % 4,
+            actions=np.ones(6, dtype=np.int64),
+            rewards=np.ones(6, dtype=np.float32),
+            next_observations=(np.arange(6, dtype=np.int64) + 1) % 4,
+            terminated=np.zeros(6, dtype=np.bool_),
+            truncated=np.zeros(6, dtype=np.bool_),
+        )
+    )
+
+    assert events == ["update", "target", "update", "update", "target"]
     trainer.close()
 
 

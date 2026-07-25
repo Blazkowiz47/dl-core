@@ -12,11 +12,13 @@ from torch import nn
 from torch.nn import functional as functional
 
 from dl_core.core import (
+    BatchActionOutput,
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
     RLTrainer,
     ReplayBuffer,
     Transition,
+    TransitionBatch,
     config_field,
     register_trainer,
 )
@@ -110,7 +112,7 @@ class DQNTrainer(RLTrainer):
             input_dim = int(self.environment.observation_space.n)
         else:
             observation_shape = self.environment.observation_space.shape
-            observation_dtype = np.float32
+            observation_dtype = self.environment.observation_space.dtype
             input_dim = int(np.prod(observation_shape))
 
         self.gamma = float(self.trainer_config.get("gamma", 0.99))
@@ -201,117 +203,233 @@ class DQNTrainer(RLTrainer):
 
     def select_action(self, observation: Any, *, deterministic: bool) -> int:
         """Select an epsilon-greedy discrete action."""
+        return self._select_action(observation, deterministic=deterministic)
+
+    def _select_action(self, observation: Any, *, deterministic: bool) -> int:
+        output = self._select_actions(
+            np.expand_dims(np.asarray(observation), axis=0),
+            deterministic=deterministic,
+        )
+        return output.actions[0]
+
+    def select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[int]:
+        """Select epsilon-greedy actions with one batched Q-network call."""
+        return self._select_actions(observations, deterministic=deterministic)
+
+    def _select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[int]:
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
-        if not observation_space.contains(observation):
+        observation_batch = np.asarray(observations)
+        if observation_batch.shape[0] == 0:
+            raise ValueError("DQN action selection requires at least one observation")
+        if any(
+            not observation_space.contains(observation)
+            for observation in observation_batch
+        ):
             raise ValueError("Observation is outside the configured space")
-        if not deterministic and self.random_generator.random() < self.epsilon:
-            action_index = int(self.random_generator.integers(action_space.n))
-        else:
-            observation_batch = np.expand_dims(np.asarray(observation), axis=0)
+
+        batch_size = int(observation_batch.shape[0])
+        explore = np.zeros(batch_size, dtype=np.bool_)
+        if not deterministic:
+            explore = self.random_generator.random(batch_size) < self.epsilon
+        action_indices = np.empty(batch_size, dtype=np.int64)
+        action_indices[explore] = self.random_generator.integers(
+            action_space.n,
+            size=int(explore.sum()),
+        )
+        greedy = ~explore
+        if greedy.any():
             was_training = self.models["online"].training
             try:
                 self.models["online"].eval()
                 with torch.no_grad(), self.accelerator.autocast_context():
                     q_values = self._q_values(
                         self.models["online"],
-                        self._observations_to_tensor(observation_batch),
+                        self._observations_to_tensor(observation_batch[greedy]),
                     )
             finally:
                 self.models["online"].train(was_training)
-            action_index = int(torch.argmax(q_values, dim=1).item())
-        return action_index + int(action_space.start)
+            action_indices[greedy] = (
+                torch.argmax(q_values, dim=1).detach().cpu().numpy()
+            )
+        return BatchActionOutput(
+            actions=[
+                int(action_index) + int(action_space.start)
+                for action_index in action_indices
+            ]
+        )
 
     def process_transition(
         self,
         transition: Transition[Any, Any],
     ) -> dict[str, float] | None:
         """Store one transition and run scheduled replay updates."""
-        if not self.environment.observation_space.contains(transition.observation):
+        logs = self._process_transition_batch(
+            TransitionBatch(
+                observations=np.expand_dims(
+                    np.asarray(transition.observation),
+                    axis=0,
+                ),
+                actions=np.asarray([transition.action]),
+                rewards=np.asarray([transition.reward], dtype=np.float32),
+                next_observations=np.expand_dims(
+                    np.asarray(transition.next_observation),
+                    axis=0,
+                ),
+                terminated=np.asarray([transition.terminated], dtype=np.bool_),
+                truncated=np.asarray([transition.truncated], dtype=np.bool_),
+                infos=[transition.info],
+                action_info=[transition.action_info],
+            )
+        )
+        return logs[-1] if logs else None
+
+    def process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        """Insert a vector step and run every crossed DQN update cycle."""
+        return self._process_transition_batch(transitions)
+
+    def _process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        observation_space = self.environment.observation_space
+        action_space = self.environment.action_space
+        if any(
+            not observation_space.contains(observation)
+            for observation in np.asarray(transitions.observations)
+        ):
             raise ValueError("Transition observation is outside the configured space")
-        if not self.environment.observation_space.contains(
-            transition.next_observation
+        if any(
+            not observation_space.contains(observation)
+            for observation in np.asarray(transitions.next_observations)
         ):
             raise ValueError("Transition next observation is outside the configured space")
-        if not self.environment.action_space.contains(transition.action):
+        if any(
+            not action_space.contains(action)
+            for action in np.asarray(transitions.actions)
+        ):
             raise ValueError("Transition action is outside the configured space")
-        self.replay_buffer.add(transition)
+
+        previous_global_step = self.global_step - transitions.size
+        previous_replay_size = len(self.replay_buffer)
+        self.replay_buffer.add_batch(transitions)
         decay_fraction = min(self.global_step / self.epsilon_decay_steps, 1.0)
         self.epsilon = self.epsilon_start + (
             (self.epsilon_end - self.epsilon_start) * decay_fraction
         )
-        if (
-            self.global_step < self.learning_starts
-            or len(self.replay_buffer) < self.batch_size
-            or self.global_step % self.train_frequency != 0
+        first_ready_step = max(
+            previous_global_step + 1,
+            self.learning_starts,
+            previous_global_step + max(self.batch_size - previous_replay_size, 1),
+        )
+        first_update_step = (
+            (first_ready_step + self.train_frequency - 1)
+            // self.train_frequency
+            * self.train_frequency
+        )
+        update_logs: list[dict[str, float]] = []
+        last_scheduled_step = previous_global_step
+        for scheduled_step in range(
+            first_update_step,
+            self.global_step + 1,
+            self.train_frequency,
         ):
-            if self.global_step % self.target_update_frequency == 0:
-                self.models["target"].load_state_dict(
-                    self.accelerator.unwrap_model(self.models["online"]).state_dict()
+            if (
+                (scheduled_step - 1) // self.target_update_frequency
+                > last_scheduled_step // self.target_update_frequency
+            ):
+                self._synchronize_target_network()
+            losses: list[float] = []
+            q_means: list[float] = []
+            target_means: list[float] = []
+            for _ in range(self.gradient_steps):
+                batch = self.replay_buffer.sample(
+                    self.batch_size,
+                    self.accelerator.get_device(),
                 )
-            return None
-
-        losses: list[float] = []
-        q_means: list[float] = []
-        target_means: list[float] = []
-        for _ in range(self.gradient_steps):
-            batch = self.replay_buffer.sample(
-                self.batch_size,
-                self.accelerator.get_device(),
-            )
-            observations = self._observations_to_tensor(batch.observations)
-            next_observations = self._observations_to_tensor(batch.next_observations)
-            action_indices = batch.actions.long() - int(
-                self.environment.action_space.start
-            )
-            with self.accelerator.autocast_context():
-                current_q_values = self._q_values(
-                    self.models["online"],
-                    observations,
-                ).gather(1, action_indices.reshape(-1, 1)).squeeze(1)
-                with torch.no_grad():
-                    target_next_q_values = self._q_values(
-                        self.models["target"],
-                        next_observations,
-                    )
-                    if self.double_dqn:
-                        online_next_actions = torch.argmax(
-                            self._q_values(self.models["online"], next_observations),
-                            dim=1,
-                            keepdim=True,
+                observations = self._observations_to_tensor(batch.observations)
+                next_observations = self._observations_to_tensor(
+                    batch.next_observations
+                )
+                action_indices = batch.actions.long() - int(action_space.start)
+                with self.accelerator.autocast_context():
+                    current_q_values = self._q_values(
+                        self.models["online"],
+                        observations,
+                    ).gather(1, action_indices.reshape(-1, 1)).squeeze(1)
+                    with torch.no_grad():
+                        target_next_q_values = self._q_values(
+                            self.models["target"],
+                            next_observations,
                         )
-                        next_q_values = target_next_q_values.gather(
-                            1,
-                            online_next_actions,
-                        ).squeeze(1)
-                    else:
-                        next_q_values = target_next_q_values.max(dim=1).values
-                    targets = batch.rewards + (
-                        self.gamma * (~batch.terminated).float() * next_q_values
-                    )
+                        if self.double_dqn:
+                            online_next_actions = torch.argmax(
+                                self._q_values(
+                                    self.models["online"],
+                                    next_observations,
+                                ),
+                                dim=1,
+                                keepdim=True,
+                            )
+                            next_q_values = target_next_q_values.gather(
+                                1,
+                                online_next_actions,
+                            ).squeeze(1)
+                        else:
+                            next_q_values = target_next_q_values.max(dim=1).values
+                        targets = batch.rewards + (
+                            self.gamma
+                            * (~batch.terminated).float()
+                            * next_q_values
+                        )
 
-                loss = functional.smooth_l1_loss(current_q_values, targets)
-            self.optimizers["q_network"].zero_grad(set_to_none=True)
-            self.accelerator.backward(loss, self.models["online"])
-            self.accelerator.optimizer_step(
-                self.optimizers["q_network"],
-                self.models["online"],
+                    loss = functional.smooth_l1_loss(current_q_values, targets)
+                self.optimizers["q_network"].zero_grad(set_to_none=True)
+                self.accelerator.backward(loss, self.models["online"])
+                self.accelerator.optimizer_step(
+                    self.optimizers["q_network"],
+                    self.models["online"],
+                )
+                losses.append(float(loss.detach().item()))
+                q_means.append(float(current_q_values.detach().mean().item()))
+                target_means.append(float(targets.detach().mean().item()))
+            update_logs.append(
+                {
+                    "dqn/loss": float(np.mean(losses)),
+                    "dqn/q_mean": float(np.mean(q_means)),
+                    "dqn/target_q_mean": float(np.mean(target_means)),
+                    "dqn/epsilon": self.epsilon,
+                    "dqn/replay_size": float(len(self.replay_buffer)),
+                }
             )
-            losses.append(float(loss.detach().item()))
-            q_means.append(float(current_q_values.detach().mean().item()))
-            target_means.append(float(targets.detach().mean().item()))
+            if scheduled_step % self.target_update_frequency == 0:
+                self._synchronize_target_network()
+            last_scheduled_step = scheduled_step
 
-        if self.global_step % self.target_update_frequency == 0:
-            self.models["target"].load_state_dict(
-                self.accelerator.unwrap_model(self.models["online"]).state_dict()
-            )
-        return {
-            "dqn/loss": float(np.mean(losses)),
-            "dqn/q_mean": float(np.mean(q_means)),
-            "dqn/target_q_mean": float(np.mean(target_means)),
-            "dqn/epsilon": self.epsilon,
-            "dqn/replay_size": float(len(self.replay_buffer)),
-        }
+        if (
+            self.global_step // self.target_update_frequency
+            > last_scheduled_step // self.target_update_frequency
+        ):
+            self._synchronize_target_network()
+        return update_logs
+
+    def _synchronize_target_network(self) -> None:
+        self.accelerator.unwrap_model(self.models["target"]).load_state_dict(
+            self.accelerator.unwrap_model(self.models["online"]).state_dict()
+        )
 
     def _observations_to_tensor(self, observations: Any) -> torch.Tensor:
         tensor = torch.as_tensor(observations, device=self.accelerator.get_device())

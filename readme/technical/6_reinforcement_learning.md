@@ -132,10 +132,13 @@ unambiguous identity. A transition budget can overshoot by at most
 `num_envs - 1` because a vector step is atomic. An episode budget has the same
 maximum overshoot when several lanes complete in one vector step.
 
-Tabular Q-learning consumes vector steps in stable lane order. DQN and SAC can
-use the scalar compatibility path while their replay updates remain unchanged.
-PPO temporarily rejects vector training until its rollout update consumes the
-independent `[time, environment]` streams already represented by its buffer.
+Tabular Q-learning consumes vector steps in stable lane order. DQN performs at
+most one batched action-selection inference per vector step, inserts the complete
+transition batch into replay, and applies every update or target-sync boundary
+crossed by that atomic step in schedule order. SAC can use the scalar
+compatibility path while its replay updates remain unchanged. PPO temporarily
+rejects vector training until its rollout update consumes the independent
+`[time, environment]` streams already represented by its buffer.
 
 Replay storage accepts transition batches directly and preserves configured
 observation/action dtypes. PPO rollout storage is preallocated as
