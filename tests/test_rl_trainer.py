@@ -115,6 +115,7 @@ def test_rl_trainer_runs_episode_lifecycle_and_persists_artifacts(
     trainer.perform_training()
 
     assert trainer.global_step == 4
+    assert trainer.collector_step == 4
     assert trainer.current_episode == 2
     assert trainer.update_step == 4
     assert callback.episodes == [0, 1, 1, 2]
@@ -166,6 +167,49 @@ def test_rl_trainer_counts_updates_without_metrics(tmp_path: Path) -> None:
 
     assert trainer.update_step == 2
     assert callback.updates == [1, 2]
+    trainer.close()
+
+
+def test_rl_trainer_collects_vector_environments_and_tracks_each_lane(
+    tmp_path: Path,
+) -> None:
+    """Vector collection should count transitions and episodes per lane."""
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=8,
+        max_episode_steps=2,
+        evaluation_episodes=0,
+        checkpoint_frequency=0,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = _TestRLTrainer(config)
+    callback = _RecordingCallback()
+    trainer.setup()
+    trainer.callbacks.append(callback)
+
+    trainer.perform_training()
+
+    assert trainer.global_step == 8
+    assert trainer.collector_step == 4
+    assert trainer.current_episode == 4
+    assert trainer.update_step == 8
+    assert callback.episodes == [0, 1, 2, 3]
+    assert len(trainer.episode_metrics) == 4
+    assert {metric["environment_index"] for metric in trainer.episode_metrics} == {
+        0,
+        1,
+    }
     trainer.close()
 
 

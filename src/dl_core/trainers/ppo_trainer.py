@@ -85,6 +85,10 @@ class PPOTrainer(RLTrainer):
 
     def setup_algorithm(self) -> None:
         """Create actor-critic, optimizer, rollout storage, and update RNG."""
+        if getattr(self.environment, "num_envs", 1) > 1:
+            raise NotImplementedError(
+                "PPO vector collection requires the batched rollout buffer"
+            )
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
         if not isinstance(observation_space, (Box, Discrete)):

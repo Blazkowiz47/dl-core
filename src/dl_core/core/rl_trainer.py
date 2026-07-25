@@ -24,9 +24,15 @@ from dl_core.utils.config_names import (
 
 from .base_accelerator import BaseAccelerator
 from .base_callback import CallbackList
+from .base_episode_manager import BaseEpisodeManager
+from .batched_environment import BatchedEnvironment
 from .config_metadata import config_field
-from .registry import ACCELERATOR_REGISTRY, CALLBACK_REGISTRY
-from .rl_types import ActionOutput, Environment, EpisodeResult, Transition
+from .registry import (
+    ACCELERATOR_REGISTRY,
+    CALLBACK_REGISTRY,
+    EPISODE_MANAGER_REGISTRY,
+)
+from .rl_types import ActionOutput, EpisodeContext, EpisodeResult, Transition
 
 
 class RLTrainer(ABC):
@@ -119,10 +125,11 @@ class RLTrainer(ABC):
             raise ValueError("checkpoint_frequency cannot be negative")
 
         self.accelerator: BaseAccelerator
-        self.environment: Environment[Any, Any]
-        self.evaluation_environment: Environment[Any, Any]
+        self.environment: BatchedEnvironment
+        self.evaluation_environment: BatchedEnvironment
         self.artifact_manager: ArtifactManager
         self.callbacks: CallbackList
+        self.episode_managers: dict[str, BaseEpisodeManager] = {}
         self.models: dict[str, nn.Module] = {}
         self.optimizers: dict[str, Optimizer] = {}
         self.schedulers: dict[str, LRScheduler] = {}
@@ -130,6 +137,7 @@ class RLTrainer(ABC):
         self.current_episode = 0
         self.current_epoch = 0
         self.global_step = 0
+        self.collector_step = 0
         self.update_step = 0
         self.stop_training = False
         self.episode_metrics: list[dict[str, Any]] = []
@@ -167,6 +175,7 @@ class RLTrainer(ABC):
                 "status": status,
                 "final_episode": self.current_episode,
                 "global_step": self.global_step,
+                "collector_step": self.collector_step,
                 "updates": self.update_step,
             }
             if error_message is not None:
@@ -236,6 +245,7 @@ class RLTrainer(ABC):
             schedulers=self.schedulers,
             dataloaders={},
         )
+        self.setup_episode_managers()
         self.setup_callbacks()
         if self.continue_model:
             self.load_checkpoint(str(self.continue_model))
@@ -271,8 +281,45 @@ class RLTrainer(ABC):
         evaluation_config = self.config.get("evaluation_environment", environment_config)
         if not isinstance(evaluation_config, dict):
             raise TypeError("evaluation_environment must be a mapping")
-        self.environment = make_environment(dict(environment_config))
-        self.evaluation_environment = make_environment(dict(evaluation_config))
+        self.environment = BatchedEnvironment(
+            make_environment(dict(environment_config))
+        )
+        self.evaluation_environment = BatchedEnvironment(
+            make_environment(dict(evaluation_config))
+        )
+        if self.evaluation_environment.num_envs != 1:
+            raise ValueError(
+                "evaluation_environment must contain exactly one environment; "
+                "use a scalar evaluation configuration for deterministic episodes"
+            )
+
+    def setup_episode_managers(self) -> None:
+        """Create configured episode managers and attach this trainer."""
+        self._setup_episode_managers()
+
+    def _setup_episode_managers(self) -> None:
+        manager_configs = self.config.get(
+            "episode_managers",
+            {"standard": {}},
+        )
+        if not isinstance(manager_configs, dict):
+            raise TypeError("episode_managers must be a mapping")
+        self.episode_managers = {}
+        for manager_name, manager_config in manager_configs.items():
+            if manager_config is None:
+                manager_config = {}
+            if not isinstance(manager_config, dict):
+                raise TypeError(
+                    f"episode_managers.{manager_name} must be a mapping"
+                )
+            manager = EPISODE_MANAGER_REGISTRY.get(
+                manager_name,
+                dict(manager_config),
+                artifact_manager=self.artifact_manager,
+                trainer=self,
+            )
+            manager.set_name(manager_name)
+            self.episode_managers[manager_name] = manager
 
     def setup_callbacks(self) -> None:
         """Create configured callbacks and attach this trainer."""
@@ -328,6 +375,9 @@ class RLTrainer(ABC):
         self._perform_training()
 
     def _perform_training(self) -> None:
+        if self.environment.num_envs > 1:
+            self._perform_vector_training()
+            return
         last_evaluation_episode = -1
         while not self.stop_training:
             if self.total_timesteps > 0 and self.global_step >= self.total_timesteps:
@@ -338,21 +388,12 @@ class RLTrainer(ABC):
             result = self.run_episode(training=True, episode=self.current_episode)
             episode_logs = {
                 "episode": result.episode,
-                "episode/return": result.episode_return,
-                "episode/length": result.length,
+                "global_step": self.global_step,
+                **result.metrics,
                 "episode/terminated": result.terminated,
                 "episode/truncated": result.truncated,
-                "global_step": self.global_step,
             }
-            if isinstance(result.final_info.get("is_success"), (bool, int, float)):
-                episode_logs["episode/success"] = float(
-                    result.final_info["is_success"]
-                )
             self.episode_metrics.append(episode_logs)
-            self.artifact_manager.append_final_jsonl(
-                "metrics/episodes.jsonl",
-                episode_logs,
-            )
 
             if (
                 self.evaluation_frequency > 0
@@ -377,18 +418,315 @@ class RLTrainer(ABC):
             self.evaluate()
         self.save_checkpoint("latest.pth")
 
+    def _perform_vector_training(self) -> None:
+        num_envs = self.environment.num_envs
+        episode_numbers = np.arange(
+            self.current_episode,
+            self.current_episode + num_envs,
+            dtype=np.int64,
+        )
+        next_episode_number = int(episode_numbers[-1]) + 1
+        seeds = [self.seed + int(episode) for episode in episode_numbers]
+        observations, reset_infos = self.environment.reset_batch(seeds)
+        episode_returns = np.zeros(num_envs, dtype=np.float64)
+        episode_lengths = np.zeros(num_envs, dtype=np.int64)
+        for environment_index in range(num_envs):
+            observation = self.environment.batch_item(
+                observations,
+                environment_index,
+            )
+            episode = int(episode_numbers[environment_index])
+            episode_id = f"train-{episode:08d}-env-{environment_index:04d}"
+            context = EpisodeContext(
+                episode_id=episode_id,
+                episode=episode,
+                environment_index=environment_index,
+                phase="train",
+                seed=seeds[environment_index],
+                initial_observation=observation,
+                reset_info=reset_infos[environment_index],
+                start_global_step=self.global_step,
+            )
+            for manager in self.episode_managers.values():
+                manager.begin_episode(context)
+            self.callbacks.on_episode_start(
+                episode,
+                {
+                    **reset_infos[environment_index],
+                    "episode_id": episode_id,
+                    "environment_index": environment_index,
+                    "phase": "train",
+                    "global_step": self.global_step,
+                },
+            )
+
+        next_evaluation_episode = (
+            self.current_episode + self.evaluation_frequency
+            if self.evaluation_frequency > 0
+            else None
+        )
+        next_checkpoint_episode = (
+            self.current_episode + self.checkpoint_frequency
+            if self.checkpoint_frequency > 0
+            else None
+        )
+        last_evaluation_episode = -1
+        while not self.stop_training:
+            if self.total_timesteps > 0 and self.global_step >= self.total_timesteps:
+                break
+            if self.max_episodes is not None and self.current_episode >= self.max_episodes:
+                break
+
+            actions: list[Any] = []
+            action_infos: list[dict[str, Any]] = []
+            for environment_index in range(num_envs):
+                action_output = self.select_action(
+                    self.environment.batch_item(observations, environment_index),
+                    deterministic=False,
+                )
+                if isinstance(action_output, ActionOutput):
+                    actions.append(action_output.action)
+                    action_infos.append(action_output.info)
+                else:
+                    actions.append(action_output)
+                    action_infos.append({})
+
+            (
+                next_observations,
+                rewards,
+                environment_terminated,
+                environment_truncated,
+                lane_infos,
+                final_observations,
+            ) = self.environment.step_batch(actions)
+            self.collector_step += 1
+            episode_lengths += 1
+            episode_returns += rewards
+            trainer_truncated = episode_lengths >= self.max_episode_steps
+            if (
+                self.total_timesteps > 0
+                and self.global_step + num_envs >= self.total_timesteps
+            ):
+                trainer_truncated = np.ones(num_envs, dtype=np.bool_)
+            terminated = environment_terminated.copy()
+            truncated = np.logical_or(
+                environment_truncated,
+                np.logical_and(trainer_truncated, ~terminated),
+            )
+            done = np.logical_or(terminated, truncated)
+
+            for environment_index in range(num_envs):
+                final_info = lane_infos[environment_index]
+                if environment_terminated[environment_index] or (
+                    environment_truncated[environment_index]
+                ):
+                    final_info = dict(
+                        final_info.get("final_info", final_info)
+                    )
+                transition = Transition(
+                    observation=self.environment.batch_item(
+                        observations,
+                        environment_index,
+                    ),
+                    action=actions[environment_index],
+                    reward=float(rewards[environment_index]),
+                    next_observation=final_observations[environment_index],
+                    terminated=bool(terminated[environment_index]),
+                    truncated=bool(truncated[environment_index]),
+                    info=final_info,
+                    action_info=action_infos[environment_index],
+                )
+                self.global_step += 1
+                for manager in self.episode_managers.values():
+                    manager.record_transition(
+                        environment_index,
+                        transition,
+                        phase="train",
+                    )
+                update_logs = self.process_transition(transition)
+                if update_logs is not None:
+                    self.update_step += 1
+                    self.callbacks.on_update_end(
+                        self.update_step,
+                        {
+                            **update_logs,
+                            "update": float(self.update_step),
+                            "global_step": float(self.global_step),
+                        },
+                    )
+                if not done[environment_index]:
+                    continue
+
+                episode = int(episode_numbers[environment_index])
+                result = EpisodeResult(
+                    episode=episode,
+                    episode_return=float(episode_returns[environment_index]),
+                    length=int(episode_lengths[environment_index]),
+                    terminated=bool(terminated[environment_index]),
+                    truncated=bool(truncated[environment_index]),
+                    final_info=final_info,
+                    environment_index=environment_index,
+                    completion_reason=(
+                        "terminated"
+                        if terminated[environment_index]
+                        else "truncated"
+                    ),
+                )
+                for manager in self.episode_managers.values():
+                    manager.end_episode(
+                        environment_index,
+                        result,
+                        phase="train",
+                    )
+                episode_logs = {
+                    "episode": episode,
+                    "environment_index": environment_index,
+                    "global_step": self.global_step,
+                    **result.metrics,
+                    "episode/terminated": result.terminated,
+                    "episode/truncated": result.truncated,
+                }
+                self.episode_metrics.append(episode_logs)
+                self.callbacks.on_episode_end(episode, episode_logs)
+                self.current_episode += 1
+                self.current_epoch = self.current_episode
+
+            budget_reached = (
+                self.total_timesteps > 0
+                and self.global_step >= self.total_timesteps
+            )
+            episode_budget_reached = (
+                self.max_episodes is not None
+                and self.current_episode >= self.max_episodes
+            )
+            if budget_reached or episode_budget_reached or self.stop_training:
+                break
+
+            forced_reset = np.logical_and(
+                done,
+                ~np.logical_or(
+                    environment_terminated,
+                    environment_truncated,
+                ),
+            )
+            if forced_reset.any():
+                reset_observations, forced_reset_infos = (
+                    self.environment.reset_lanes(forced_reset)
+                )
+                next_observations = self.environment.replace_batch_items(
+                    next_observations,
+                    reset_observations,
+                    forced_reset,
+                )
+            else:
+                forced_reset_infos = [{} for _ in range(num_envs)]
+
+            for environment_index in np.flatnonzero(done):
+                index = int(environment_index)
+                episode_returns[index] = 0.0
+                episode_lengths[index] = 0
+                episode_numbers[index] = next_episode_number
+                next_episode_number += 1
+                observation = self.environment.batch_item(
+                    next_observations,
+                    index,
+                )
+                episode = int(episode_numbers[index])
+                episode_id = f"train-{episode:08d}-env-{index:04d}"
+                reset_info = {
+                    key: value
+                    for key, value in lane_infos[index].items()
+                    if key not in {"final_obs", "final_info"}
+                }
+                if forced_reset[index]:
+                    reset_info = forced_reset_infos[index]
+                context = EpisodeContext(
+                    episode_id=episode_id,
+                    episode=episode,
+                    environment_index=index,
+                    phase="train",
+                    seed=None,
+                    initial_observation=observation,
+                    reset_info=reset_info,
+                    start_global_step=self.global_step,
+                )
+                for manager in self.episode_managers.values():
+                    manager.begin_episode(context)
+                self.callbacks.on_episode_start(
+                    episode,
+                    {
+                        **reset_info,
+                        "episode_id": episode_id,
+                        "environment_index": index,
+                        "phase": "train",
+                        "global_step": self.global_step,
+                    },
+                )
+            observations = next_observations
+
+            if (
+                next_evaluation_episode is not None
+                and self.evaluation_episodes > 0
+                and self.current_episode >= next_evaluation_episode
+            ):
+                self.evaluate()
+                last_evaluation_episode = self.current_episode
+                while next_evaluation_episode <= self.current_episode:
+                    next_evaluation_episode += self.evaluation_frequency
+            if (
+                next_checkpoint_episode is not None
+                and self.current_episode >= next_checkpoint_episode
+            ):
+                self.save_checkpoint(
+                    f"episode_{self.current_episode:08d}.pth"
+                )
+                while next_checkpoint_episode <= self.current_episode:
+                    next_checkpoint_episode += self.checkpoint_frequency
+
+        for environment_index in range(num_envs):
+            for manager in self.episode_managers.values():
+                manager.abort_episode(environment_index, phase="train")
+        if (
+            self.evaluation_episodes > 0
+            and last_evaluation_episode != self.current_episode
+        ):
+            self.evaluate()
+        self.save_checkpoint("latest.pth")
+
     def run_episode(self, *, training: bool, episode: int) -> EpisodeResult:
         """Run one training or evaluation episode."""
         return self._run_episode(training=training, episode=episode)
 
     def _run_episode(self, *, training: bool, episode: int) -> EpisodeResult:
         environment = self.environment if training else self.evaluation_environment
+        if environment.num_envs != 1:
+            raise RuntimeError("run_episode requires a scalar environment")
         phase = "train" if training else "evaluation"
         episode_seed = self.seed + episode + (0 if training else 1_000_000)
-        observation, reset_info = environment.reset(seed=episode_seed)
+        observations, reset_infos = environment.reset_batch([episode_seed])
+        observation = environment.batch_item(observations, 0)
+        reset_info = reset_infos[0]
+        episode_id = f"{phase}-{episode:08d}-env-0000"
+        context = EpisodeContext(
+            episode_id=episode_id,
+            episode=episode,
+            environment_index=0,
+            phase=phase,
+            seed=episode_seed,
+            initial_observation=observation,
+            reset_info=reset_info,
+            start_global_step=self.global_step,
+        )
+        for manager in self.episode_managers.values():
+            manager.begin_episode(context)
         self.callbacks.on_episode_start(
             episode,
-            {**reset_info, "phase": phase, "global_step": self.global_step},
+            {
+                **reset_info,
+                "episode_id": episode_id,
+                "phase": phase,
+                "global_step": self.global_step,
+            },
         )
 
         episode_return = 0.0
@@ -404,11 +742,29 @@ class RLTrainer(ABC):
             else:
                 action = action_output
                 action_info = {}
-            next_observation, reward, terminated, truncated, final_info = (
-                environment.step(action)
+            (
+                next_observations,
+                rewards,
+                terminated_batch,
+                truncated_batch,
+                lane_infos,
+                final_observations,
+            ) = environment.step_batch([action])
+            if training:
+                self.collector_step += 1
+            next_observation = final_observations[0]
+            reward = float(rewards[0])
+            terminated = bool(terminated_batch[0])
+            truncated = bool(truncated_batch[0])
+            final_info = lane_infos[0]
+            if terminated or truncated:
+                final_info = dict(final_info.get("final_info", final_info))
+            returned_observation = environment.batch_item(
+                next_observations,
+                0,
             )
             length += 1
-            episode_return += float(reward)
+            episode_return += reward
 
             if training:
                 self.global_step += 1
@@ -432,6 +788,8 @@ class RLTrainer(ABC):
                 info=final_info,
                 action_info=action_info,
             )
+            for manager in self.episode_managers.values():
+                manager.record_transition(0, transition, phase=phase)
             if training:
                 update_logs = self.process_transition(transition)
                 if update_logs is not None:
@@ -442,7 +800,7 @@ class RLTrainer(ABC):
                         "global_step": float(self.global_step),
                     }
                     self.callbacks.on_update_end(self.update_step, update_logs)
-            observation = next_observation
+            observation = returned_observation
 
         result = EpisodeResult(
             episode=episode,
@@ -451,17 +809,22 @@ class RLTrainer(ABC):
             terminated=terminated,
             truncated=truncated,
             final_info=final_info,
+            episode_id=episode_id,
+            environment_index=0,
+            seed=episode_seed,
+            completion_reason=(
+                "terminated" if terminated else "truncated"
+            ),
         )
+        for manager in self.episode_managers.values():
+            manager.end_episode(0, result, phase=phase)
         episode_logs: dict[str, Any] = {
             "phase": phase,
-            "episode/return": episode_return,
-            "episode/length": length,
-            "episode/terminated": terminated,
-            "episode/truncated": truncated,
             "global_step": self.global_step,
+            **result.metrics,
+            "episode/terminated": result.terminated,
+            "episode/truncated": result.truncated,
         }
-        if isinstance(final_info.get("is_success"), (bool, int, float)):
-            episode_logs["episode/success"] = float(final_info["is_success"])
         self.callbacks.on_episode_end(episode, episode_logs)
         if training:
             self.current_episode += 1
@@ -535,6 +898,7 @@ class RLTrainer(ABC):
             "config": self.config,
             "current_episode": self.current_episode,
             "global_step": self.global_step,
+            "collector_step": self.collector_step,
             "update_step": self.update_step,
             "episode_metrics": self.episode_metrics,
             "evaluation_metrics": self.evaluation_metrics,
@@ -551,6 +915,10 @@ class RLTrainer(ABC):
                 for name, scheduler in self.schedulers.items()
             },
             "callback_states": callback_states,
+            "episode_manager_states": {
+                name: manager.state_dict()
+                for name, manager in self.episode_managers.items()
+            },
             "algorithm_state": self.algorithm_state_dict(),
             "random_state": random.getstate(),
             "numpy_random_state": np.random.get_state(),
@@ -613,6 +981,7 @@ class RLTrainer(ABC):
         self.current_episode = int(checkpoint.get("current_episode", 0))
         self.current_epoch = self.current_episode
         self.global_step = int(checkpoint.get("global_step", 0))
+        self.collector_step = int(checkpoint.get("collector_step", 0))
         self.update_step = int(checkpoint.get("update_step", 0))
         self.episode_metrics = list(checkpoint.get("episode_metrics", []))
         self.evaluation_metrics = list(checkpoint.get("evaluation_metrics", []))
@@ -623,6 +992,14 @@ class RLTrainer(ABC):
             key = f"callback_{index}_{callback.__class__.__name__}"
             if key in callback_states:
                 callback.set_state(callback_states[key])
+        manager_states = checkpoint.get("episode_manager_states")
+        if manager_states is not None:
+            if set(manager_states) != set(self.episode_managers):
+                raise ValueError(
+                    "Checkpoint episode manager names do not match configuration"
+                )
+            for name, state in manager_states.items():
+                self.episode_managers[name].load_state_dict(state)
         if "random_state" in checkpoint:
             random.setstate(checkpoint["random_state"])
         if "numpy_random_state" in checkpoint:

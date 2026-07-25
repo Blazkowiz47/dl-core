@@ -81,6 +81,7 @@ class BaseEpisodeManager(ABC):
         self.config = dict(config or {})
         self.artifact_manager = artifact_manager
         self.trainer = trainer
+        self.name = self.__class__.__name__
         phases = self.config.get("capture_phases", ["evaluation"])
         if not isinstance(phases, list) or not all(
             isinstance(phase, str) for phase in phases
@@ -106,9 +107,21 @@ class BaseEpisodeManager(ABC):
             raise ValueError("capture_every_n_episodes must be positive")
         if self.max_captured_episodes < 0:
             raise ValueError("max_captured_episodes cannot be negative")
-        self._active: dict[int, _EpisodeAccumulator] = {}
+        self._active: dict[tuple[str, int], _EpisodeAccumulator] = {}
         self._captured_episodes = 0
         self._capture_reservations = 0
+
+    def set_name(self, name: str) -> None:
+        """Set the configured component name used for artifact streams."""
+        self._set_name(name)
+
+    def _set_name(self, name: str) -> None:
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name) is None:
+            raise ValueError(
+                "Episode manager name must contain only letters, numbers, "
+                "'.', '_', or '-'"
+            )
+        self.name = name
 
     def begin_episode(self, context: EpisodeContext) -> None:
         """Begin tracking one environment lane."""
@@ -123,9 +136,11 @@ class BaseEpisodeManager(ABC):
             raise ValueError(
                 "phase must contain only letters, numbers, '.', '_', or '-'"
             )
-        if context.environment_index in self._active:
+        key = (context.phase, context.environment_index)
+        if key in self._active:
             raise RuntimeError(
-                f"Environment {context.environment_index} already has an active episode"
+                f"Environment {context.environment_index} already has an active "
+                f"episode for phase {context.phase}"
             )
         capture = (
             context.phase in self.capture_phases
@@ -140,26 +155,27 @@ class BaseEpisodeManager(ABC):
         if capture:
             accumulator.observations.append(deepcopy(context.initial_observation))
             self._capture_reservations += 1
-        self._active[context.environment_index] = accumulator
+        self._active[key] = accumulator
 
     def record_transition(
         self,
         environment_index: int,
         transition: Transition[Any, Any],
+        *,
+        phase: str | None = None,
     ) -> None:
         """Record one transition for an active environment lane."""
-        self._record_transition(environment_index, transition)
+        self._record_transition(environment_index, transition, phase=phase)
 
     def _record_transition(
         self,
         environment_index: int,
         transition: Transition[Any, Any],
+        *,
+        phase: str | None = None,
     ) -> None:
-        if environment_index not in self._active:
-            raise RuntimeError(
-                f"Environment {environment_index} has no active episode"
-            )
-        accumulator = self._active[environment_index]
+        key = self._resolve_active_key(environment_index, phase)
+        accumulator = self._active[key]
         reward = float(transition.reward)
         accumulator.episode_return += reward
         accumulator.reward_square_sum += reward * reward
@@ -187,20 +203,21 @@ class BaseEpisodeManager(ABC):
         self,
         environment_index: int,
         result: EpisodeResult,
+        *,
+        phase: str | None = None,
     ) -> EpisodeRecord:
         """Finalize an active episode and persist configured artifacts."""
-        return self._end_episode(environment_index, result)
+        return self._end_episode(environment_index, result, phase=phase)
 
     def _end_episode(
         self,
         environment_index: int,
         result: EpisodeResult,
+        *,
+        phase: str | None = None,
     ) -> EpisodeRecord:
-        if environment_index not in self._active:
-            raise RuntimeError(
-                f"Environment {environment_index} has no active episode"
-            )
-        accumulator = self._active.pop(environment_index)
+        key = self._resolve_active_key(environment_index, phase)
+        accumulator = self._active.pop(key)
         result.episode_id = accumulator.context.episode_id
         result.environment_index = accumulator.context.environment_index
         if result.seed is None:
@@ -225,8 +242,13 @@ class BaseEpisodeManager(ABC):
             length=accumulator.length,
         )
         if self.artifact_manager is not None:
+            summary_filename = (
+                "episodes.jsonl"
+                if self.name == "standard"
+                else f"episodes_{self.name}.jsonl"
+            )
             summary_path = self.artifact_manager.append_final_jsonl(
-                "metrics/episodes.jsonl",
+                f"metrics/{summary_filename}",
                 {
                     "episode_id": accumulator.context.episode_id,
                     "episode": accumulator.context.episode,
@@ -255,14 +277,50 @@ class BaseEpisodeManager(ABC):
     ) -> dict[str, float]:
         """Compute the manager's scalar summary for one completed episode."""
 
-    def abort_episode(self, environment_index: int) -> None:
+    def abort_episode(
+        self,
+        environment_index: int,
+        *,
+        phase: str | None = None,
+    ) -> None:
         """Discard one incomplete active episode."""
-        self._abort_episode(environment_index)
+        self._abort_episode(environment_index, phase=phase)
 
-    def _abort_episode(self, environment_index: int) -> None:
-        accumulator = self._active.pop(environment_index, None)
+    def _abort_episode(
+        self,
+        environment_index: int,
+        *,
+        phase: str | None = None,
+    ) -> None:
+        try:
+            key = self._resolve_active_key(environment_index, phase)
+        except RuntimeError:
+            return
+        accumulator = self._active.pop(key)
         if accumulator is not None and accumulator.capture:
             self._capture_reservations -= 1
+
+    def _resolve_active_key(
+        self,
+        environment_index: int,
+        phase: str | None,
+    ) -> tuple[str, int]:
+        if phase is not None:
+            key = (phase, environment_index)
+            if key not in self._active:
+                raise RuntimeError(
+                    f"Environment {environment_index} has no active {phase} episode"
+                )
+            return key
+        matches = [
+            key for key in self._active if key[1] == environment_index
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"Environment {environment_index} does not identify exactly one "
+                "active episode; provide phase"
+            )
+        return matches[0]
 
     def state_dict(self) -> dict[str, Any]:
         """Return persistent manager state."""

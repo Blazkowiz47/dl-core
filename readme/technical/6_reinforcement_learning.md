@@ -105,6 +105,35 @@ simulator state is not serialized; a resumed run begins at a new episode
 boundary. A checkpoint is rejected when its trainer implementation or component
 names do not match the configured trainer.
 
+Training collection can use a Gymnasium vector environment. The built-in
+adapter creates one with same-step autoreset so completed transitions retain
+their real `final_obs` while collection immediately receives the next episode's
+initial observation:
+
+```yaml
+environment:
+  name: gymnasium_vector
+  id: CartPole-v1
+  num_envs: 8
+  vectorization_mode: sync
+
+evaluation_environment:
+  name: gymnasium
+  id: CartPole-v1
+```
+
+`global_step` counts transitions, while `collector_step` counts vector
+environment calls. The compatibility collector invokes existing scalar
+algorithm hooks in stable environment-index order. Evaluation deliberately uses
+one scalar environment so videos and deterministic episode artifacts have
+unambiguous identity. A transition budget can overshoot by at most
+`num_envs - 1` because a vector step is atomic. An episode budget has the same
+maximum overshoot when several lanes complete in one vector step.
+
+Q-learning, DQN, and SAC can use the compatibility vector collector. PPO
+temporarily rejects vector training until its rollout storage represents
+independent `[time, environment]` streams.
+
 RL callbacks can implement `on_episode_start`, `on_episode_end`,
 `on_update_end`, and `on_evaluation_end`. The existing run-level
 `on_training_start`, `on_training_end`, and `on_training_finalized` hooks remain

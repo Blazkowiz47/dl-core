@@ -27,6 +27,7 @@ from .adaptive_computation_trainer import (
     CarryState,
 )
 from .base_callback import Callback
+from .batched_environment import BatchedEnvironment
 from .base_trainer import BaseTrainer
 from .epoch_trainer import EpochTrainer
 from .sequence_trainer import SequenceStepOutput, SequenceTrainer
@@ -40,6 +41,7 @@ from .rl_types import (
     EpisodeResult,
     Transition,
     TransitionBatch,
+    VectorEnvironment,
 )
 from .replay_buffer import ReplayBatch, ReplayBuffer
 from .rollout_buffer import RolloutBatch, RolloutBuffer
@@ -108,6 +110,7 @@ __all__ = [
     "BaseEpisodeManager",
     "BaseSampler",
     "Callback",
+    "BatchedEnvironment",
     "BaseTrainer",
     "EpochTrainer",
     "SequenceTrainer",
@@ -121,6 +124,7 @@ __all__ = [
     "LandmarkDetection",
     "ConfigFieldSpec",
     "Environment",
+    "VectorEnvironment",
     "ActionOutput",
     "Transition",
     "TransitionBatch",

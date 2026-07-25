@@ -5,17 +5,22 @@ from __future__ import annotations
 from typing import Any
 
 from dl_core.core.registry import ENVIRONMENT_REGISTRY
-from dl_core.core.rl_types import Environment
+from dl_core.core.rl_types import Environment, VectorEnvironment
 
 from .gymnasium_environment import GymnasiumEnvironment
+from .gymnasium_vector_environment import GymnasiumVectorEnvironment
 
 
-def make_environment(config: dict[str, Any]) -> Environment[Any, Any]:
+def make_environment(
+    config: dict[str, Any],
+) -> Environment[Any, Any] | VectorEnvironment[Any, Any]:
     """Create a registered environment from a configuration mapping."""
     return _make_environment(config)
 
 
-def _make_environment(config: dict[str, Any]) -> Environment[Any, Any]:
+def _make_environment(
+    config: dict[str, Any],
+) -> Environment[Any, Any] | VectorEnvironment[Any, Any]:
     if not isinstance(config, dict):
         raise TypeError("Environment config must be a mapping")
 
@@ -29,4 +34,8 @@ def _make_environment(config: dict[str, Any]) -> Environment[Any, Any]:
     return ENVIRONMENT_REGISTRY.get(environment_name, environment_config)
 
 
-__all__ = ["GymnasiumEnvironment", "make_environment"]
+__all__ = [
+    "GymnasiumEnvironment",
+    "GymnasiumVectorEnvironment",
+    "make_environment",
+]

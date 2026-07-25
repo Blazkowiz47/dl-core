@@ -45,6 +45,40 @@ class Environment(Protocol[ObservationT, ActionT]):
         ...
 
 
+@runtime_checkable
+class VectorEnvironment(Protocol[ObservationT, ActionT]):
+    """Structural contract accepted for batched environment collection."""
+
+    num_envs: int
+    single_observation_space: Space[ObservationT]
+    single_action_space: Space[ActionT]
+    metadata: dict[str, Any]
+
+    def reset(
+        self,
+        *,
+        seed: int | list[int | None] | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[Any, dict[str, Any]]:
+        """Reset all or selected environment lanes."""
+        ...
+
+    def step(
+        self,
+        actions: Any,
+    ) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+        """Advance every environment lane."""
+        ...
+
+    def render(self) -> Any:
+        """Render configured environment lanes."""
+        ...
+
+    def close(self) -> None:
+        """Release resources held by the vector environment."""
+        ...
+
+
 @dataclass(slots=True)
 class Transition(Generic[ObservationT, ActionT]):
     """One environment transition shared by off-policy algorithms."""
