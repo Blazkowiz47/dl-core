@@ -1273,7 +1273,7 @@ wheels = [
 
 [[package]]
 name = "deep-learning-core"
-version = "0.0.27"
+version = "0.0.28"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },

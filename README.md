@@ -7,18 +7,26 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current public release: `deep-learning-core==0.0.26`.
-Current development version: `0.0.27`.
+Current public release: `deep-learning-core==0.0.28`.
+Current development version: `0.0.28`.
 
 Compatible companion package floors:
 
 - `deep-learning-azure>=0.0.18,<0.1`
 - `deep-learning-mlflow>=0.0.11,<0.1`
-- `deep-learning-robotics>=0.0.1,<0.1` with
-  `deep-learning-core>=0.0.27,<0.1`
+- `deep-learning-robotics>=0.0.2,<0.1` with
+  `deep-learning-core>=0.0.28,<0.1`
 - `deep-learning-wandb>=0.0.12,<0.1`
 
-## Unreleased: 0.0.27
+## What's New in 0.0.28?
+
+- RL collection, replay insertion, episode persistence, environment creation,
+  and RL component scaffolding now keep one-off logic inline for a more direct
+  implementation
+- public trainer, environment, episode-manager, and scaffold behavior remains
+  unchanged
+
+## What's New in 0.0.27?
 
 - episode managers provide generic RL summaries and selective, complete
   trajectory capture alongside the existing metric-manager system

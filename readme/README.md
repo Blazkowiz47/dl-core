@@ -4,8 +4,14 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.0.26`.
-Current development version: `0.0.27`.
+Current public release: `deep-learning-core==0.0.28`.
+Current development version: `0.0.28`.
+
+## What's New in 0.0.28?
+
+- RL collection, replay insertion, episode persistence, environment creation,
+  and component scaffolding use fewer one-off implementation helpers
+- public APIs and runtime behavior remain unchanged
 
 ## Companion Packages
 
