@@ -13,9 +13,11 @@ from dl_core.core import (
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
     ActionOutput,
+    BatchActionOutput,
     RLTrainer,
     RolloutBuffer,
     Transition,
+    TransitionBatch,
     config_field,
     register_trainer,
 )
@@ -36,7 +38,7 @@ class PPOTrainer(RLTrainer):
         config_field(
             "rollout_steps",
             "int",
-            "Maximum transitions collected before a policy update.",
+            "Synchronized environment steps collected before a policy update.",
             default=2048,
         ),
         config_field(
@@ -85,10 +87,6 @@ class PPOTrainer(RLTrainer):
 
     def setup_algorithm(self) -> None:
         """Create actor-critic, optimizer, rollout storage, and update RNG."""
-        if getattr(self.environment, "num_envs", 1) > 1:
-            raise NotImplementedError(
-                "PPO vector collection requires the batched rollout buffer"
-            )
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
         if not isinstance(observation_space, (Box, Discrete)):
@@ -210,9 +208,46 @@ class PPOTrainer(RLTrainer):
         deterministic: bool,
     ) -> ActionOutput[Any]:
         """Sample or deterministically select an actor-critic action."""
-        if not self.environment.observation_space.contains(observation):
+        return self._select_action(observation, deterministic=deterministic)
+
+    def _select_action(
+        self,
+        observation: Any,
+        *,
+        deterministic: bool,
+    ) -> ActionOutput[Any]:
+        output = self._select_actions(
+            np.expand_dims(np.asarray(observation), axis=0),
+            deterministic=deterministic,
+        )
+        return ActionOutput(
+            action=output.actions[0],
+            info=output.action_info[0],
+        )
+
+    def select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[Any]:
+        """Select actions and rollout metadata in one policy call."""
+        return self._select_actions(observations, deterministic=deterministic)
+
+    def _select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[Any]:
+        observation_batch = np.asarray(observations)
+        if observation_batch.shape[0] == 0:
+            raise ValueError("PPO action selection requires at least one observation")
+        if any(
+            not self.environment.observation_space.contains(observation)
+            for observation in observation_batch
+        ):
             raise ValueError("Observation is outside the configured space")
-        observation_batch = np.expand_dims(np.asarray(observation), axis=0)
         policy = self.models["policy"]
         was_training = policy.training
         try:
@@ -229,10 +264,14 @@ class PPOTrainer(RLTrainer):
                         else distribution.sample()
                     )
                     log_probability = distribution.log_prob(policy_action)
-                    environment_action: Any = int(policy_action.item()) + int(
-                        self.environment.action_space.start
-                    )
-                    stored_action: Any = int(policy_action.item())
+                    policy_actions = policy_action.detach().cpu().numpy()
+                    environment_actions: list[Any] = [
+                        int(action) + int(self.environment.action_space.start)
+                        for action in policy_actions
+                    ]
+                    stored_actions: list[Any] = [
+                        int(action) for action in policy_actions
+                    ]
                 else:
                     raw_action = (
                         distribution.mean if deterministic else distribution.sample()
@@ -250,23 +289,44 @@ class PPOTrainer(RLTrainer):
                         dtype=bounded_action.dtype,
                         device=bounded_action.device,
                     ).reshape(1, -1)
-                    environment_action = (
+                    environment_action_batch = (
                         (bounded_action * action_scale) + action_bias
-                    ).reshape(action_space.shape)
-                    environment_action = environment_action.cpu().numpy().astype(
-                        action_space.dtype,
-                        copy=False,
+                    ).reshape(-1, *action_space.shape)
+                    environment_action_batch = (
+                        environment_action_batch.cpu().numpy().astype(
+                            action_space.dtype,
+                            copy=False,
+                        )
                     )
-                    stored_action = raw_action.reshape(action_space.shape).cpu().numpy()
+                    stored_action_batch = (
+                        raw_action.reshape(-1, *action_space.shape)
+                        .detach()
+                        .cpu()
+                        .numpy()
+                    )
+                    environment_actions = [
+                        action for action in environment_action_batch
+                    ]
+                    stored_actions = [action for action in stored_action_batch]
         finally:
             policy.train(was_training)
-        return ActionOutput(
-            action=environment_action,
-            info={
-                "policy_action": stored_action,
-                "log_probability": float(log_probability.item()),
-                "value": float(value.item()),
-            },
+        log_probabilities = log_probability.detach().cpu().numpy()
+        values = value.detach().cpu().numpy()
+        return BatchActionOutput(
+            actions=environment_actions,
+            action_info=[
+                {
+                    "policy_action": stored_action,
+                    "log_probability": float(lane_log_probability),
+                    "value": float(lane_value),
+                }
+                for stored_action, lane_log_probability, lane_value in zip(
+                    stored_actions,
+                    log_probabilities,
+                    values,
+                    strict=True,
+                )
+            ],
         )
 
     def process_transition(
@@ -274,39 +334,87 @@ class PPOTrainer(RLTrainer):
         transition: Transition[Any, Any],
     ) -> dict[str, float] | None:
         """Collect one on-policy transition and update at rollout boundaries."""
-        for field_name in ("policy_action", "log_probability", "value"):
-            if field_name not in transition.action_info:
-                raise ValueError(f"PPO transition is missing action_info.{field_name}")
-        next_value = 0.0
-        if not transition.terminated:
-            next_observation_batch = np.expand_dims(
-                np.asarray(transition.next_observation),
-                axis=0,
+        logs = self._process_transition_batch(
+            TransitionBatch(
+                observations=np.expand_dims(
+                    np.asarray(transition.observation),
+                    axis=0,
+                ),
+                actions=np.expand_dims(np.asarray(transition.action), axis=0),
+                rewards=np.asarray([transition.reward], dtype=np.float32),
+                next_observations=np.expand_dims(
+                    np.asarray(transition.next_observation),
+                    axis=0,
+                ),
+                terminated=np.asarray([transition.terminated], dtype=np.bool_),
+                truncated=np.asarray([transition.truncated], dtype=np.bool_),
+                infos=[transition.info],
+                action_info=[transition.action_info],
             )
-            with torch.no_grad(), self.accelerator.autocast_context():
-                _, next_value_tensor = self._distribution_and_value(
-                    self._observations_to_tensor(next_observation_batch)
-                )
-            next_value = float(next_value_tensor.item())
-        self.rollout_buffer.add(
-            observation=transition.observation,
-            action=transition.action_info["policy_action"],
-            reward=transition.reward,
-            value=float(transition.action_info["value"]),
-            log_probability=float(transition.action_info["log_probability"]),
-            next_value=next_value,
-            terminated=transition.terminated,
-            truncated=transition.truncated,
+        )
+        return logs[-1] if logs else None
+
+    def process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        """Append one synchronized rollout step and update at its boundary."""
+        return self._process_transition_batch(transitions)
+
+    def _process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        if len(transitions.action_info) != transitions.size:
+            raise ValueError("PPO action metadata must align with transitions")
+        for action_info in transitions.action_info:
+            for field_name in ("policy_action", "log_probability", "value"):
+                if field_name not in action_info:
+                    raise ValueError(
+                        f"PPO transition is missing action_info.{field_name}"
+                    )
+        with torch.no_grad(), self.accelerator.autocast_context():
+            _, next_value_tensor = self._distribution_and_value(
+                self._observations_to_tensor(transitions.next_observations)
+            )
+        next_values = next_value_tensor.detach().float().cpu().numpy()
+        next_values[np.asarray(transitions.terminated, dtype=np.bool_)] = 0.0
+        self.rollout_buffer.add_batch(
+            observations=transitions.observations,
+            actions=np.asarray(
+                [
+                    action_info["policy_action"]
+                    for action_info in transitions.action_info
+                ]
+            ),
+            rewards=transitions.rewards,
+            values=np.asarray(
+                [
+                    action_info["value"]
+                    for action_info in transitions.action_info
+                ],
+                dtype=np.float32,
+            ),
+            log_probabilities=np.asarray(
+                [
+                    action_info["log_probability"]
+                    for action_info in transitions.action_info
+                ],
+                dtype=np.float32,
+            ),
+            next_values=next_values,
+            terminated=transitions.terminated,
+            truncated=transitions.truncated,
         )
         budget_exhausted = (
             self.total_timesteps > 0 and self.global_step >= self.total_timesteps
         ) or (
             self.max_episodes is not None
-            and transition.done
-            and self.current_episode + 1 >= self.max_episodes
+            and self.current_episode + int(transitions.done.sum())
+            >= self.max_episodes
         )
         if len(self.rollout_buffer) < self.rollout_steps and not budget_exhausted:
-            return None
+            return []
 
         batch = self.rollout_buffer.compute_batch(
             gamma=self.gamma,
@@ -399,14 +507,16 @@ class PPOTrainer(RLTrainer):
                 clip_fractions.append(float(clip_fraction.item()))
 
         self.rollout_buffer.clear()
-        return {
-            "ppo/policy_loss": float(np.mean(policy_losses)),
-            "ppo/value_loss": float(np.mean(value_losses)),
-            "ppo/entropy": float(np.mean(entropies)),
-            "ppo/approximate_kl": float(np.mean(approximate_kls)),
-            "ppo/clip_fraction": float(np.mean(clip_fractions)),
-            "ppo/rollout_size": float(sample_count),
-        }
+        return [
+            {
+                "ppo/policy_loss": float(np.mean(policy_losses)),
+                "ppo/value_loss": float(np.mean(value_losses)),
+                "ppo/entropy": float(np.mean(entropies)),
+                "ppo/approximate_kl": float(np.mean(approximate_kls)),
+                "ppo/clip_fraction": float(np.mean(clip_fractions)),
+                "ppo/rollout_size": float(sample_count),
+            }
+        ]
 
     def _observations_to_tensor(self, observations: Any) -> torch.Tensor:
         tensor = torch.as_tensor(observations, device=self.accelerator.get_device())
@@ -523,6 +633,12 @@ class PPOTrainer(RLTrainer):
             for action in restored_actions
         ):
             raise ValueError("Checkpoint rollout contains an invalid policy action")
+        if len(restored_buffer) > 0:
+            last_index = len(restored_buffer) - 1
+            restored_buffer.truncated[last_index] = np.logical_or(
+                restored_buffer.truncated[last_index],
+                ~restored_buffer.terminated[last_index],
+            )
         restored_generator = np.random.default_rng()
         try:
             restored_generator.bit_generator.state = generator_state

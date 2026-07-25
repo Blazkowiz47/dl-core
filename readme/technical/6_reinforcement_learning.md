@@ -135,10 +135,12 @@ maximum overshoot when several lanes complete in one vector step.
 Tabular Q-learning consumes vector steps in stable lane order. DQN performs at
 most one batched action-selection inference per vector step, inserts the complete
 transition batch into replay, and applies every update or target-sync boundary
-crossed by that atomic step in schedule order. SAC can use the scalar
-compatibility path while its replay updates remain unchanged. PPO temporarily
-rejects vector training until its rollout update consumes the independent
-`[time, environment]` streams already represented by its buffer.
+crossed by that atomic step in schedule order. PPO performs batched policy and
+next-value inference, stores independent `[time, environment]` streams, and
+flattens them only after per-lane GAE is complete. `rollout_steps` counts
+synchronized collector calls, so an update uses
+`rollout_steps * num_envs` samples. SAC can use the scalar compatibility path
+while its replay updates remain unchanged.
 
 Replay storage accepts transition batches directly and preserves configured
 observation/action dtypes. PPO rollout storage is preallocated as
@@ -342,10 +344,18 @@ or continuous `mean` and `log_std` tensors shaped `[batch, action_dimensions]`.
 Policy modules should avoid dropout and other stochastic training-mode layers,
 because PPO must reproduce the behavior-policy probability for stored actions.
 
-The initial PPO implementation collects a single environment stream. This keeps
-episode callbacks and deterministic checkpoint continuation identical to the
-other trainers. A later vector-environment collector can feed the same policy
-and rollout contracts without changing the public trainer configuration.
+PPO accepts scalar or vector training environments. Vector collection evaluates
+all lanes in one policy call, computes GAE independently along each environment
+stream, and flattens the time/environment axes only for minibatch optimization.
+`rollout_steps` counts synchronized collector steps, so a full vector rollout
+contains `rollout_steps * num_envs` training samples. Evaluation remains scalar
+to preserve deterministic episode-level reporting.
+
+Partial rollouts are stored in checkpoints. Because environment state is not
+part of an RL checkpoint, resuming marks the final stored transition in every
+unfinished lane as truncated. Its one-step value target is retained, while GAE
+cannot propagate from the newly reset environment into the earlier rollout
+fragment.
 
 ## Soft Actor-Critic
 

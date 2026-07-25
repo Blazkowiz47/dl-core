@@ -217,6 +217,83 @@ def test_ppo_is_registered_and_builtin_model_supports_both_policy_types(
     trainer.close()
 
 
+def test_ppo_collects_and_updates_independent_vector_rollouts(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(tmp_path)
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = PPOTrainer(config)
+    trainer.setup()
+    no_grad_batches: list[int] = []
+    distribution_and_value = trainer._distribution_and_value
+
+    def recording_distribution_and_value(
+        observations: torch.Tensor,
+    ) -> tuple[torch.distributions.Distribution, torch.Tensor]:
+        if not torch.is_grad_enabled():
+            no_grad_batches.append(int(observations.shape[0]))
+        return distribution_and_value(observations)
+
+    trainer._distribution_and_value = recording_distribution_and_value
+    trainer.perform_training()
+
+    assert trainer.global_step == 8
+    assert trainer.collector_step == 4
+    assert trainer.update_step == 2
+    assert len(trainer.rollout_buffer) == 0
+    assert no_grad_batches.count(2) == 8
+    trainer.close()
+
+
+def test_ppo_updates_continuous_vector_rollouts(tmp_path: Path) -> None:
+    load_builtin_components()
+    config = _config(tmp_path, total_timesteps=4)
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "Pendulum-v1",
+        "num_envs": 2,
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "Pendulum-v1",
+    }
+    trainer = PPOTrainer(config)
+    trainer.setup()
+    observations, _ = trainer.environment.reset_batch([23, 24])
+
+    action_output = trainer.select_actions(observations, deterministic=False)
+
+    assert len(action_output.actions) == 2
+    assert all(
+        trainer.environment.action_space.contains(action)
+        for action in action_output.actions
+    )
+    assert all(
+        np.asarray(info["policy_action"]).shape == (1,)
+        and np.isfinite(info["log_probability"])
+        for info in action_output.action_info
+    )
+
+    trainer.perform_training()
+
+    assert trainer.global_step == 4
+    assert trainer.collector_step == 2
+    assert trainer.update_step == 1
+    assert len(trainer.rollout_buffer) == 0
+    trainer.close()
+
+
 def test_ppo_updates_from_a_terminal_rollout(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = PPOTrainer(_config(tmp_path, total_timesteps=1, rollout_steps=10))
@@ -339,6 +416,49 @@ def test_ppo_checkpoint_restores_partial_rollout(tmp_path: Path) -> None:
     assert np.array_equal(
         restored.rollout_buffer.rewards[:1],
         trainer.rollout_buffer.rewards[:1],
+    )
+    trainer.close()
+    restored.close()
+
+
+def test_ppo_checkpoint_separates_resumed_vector_rollout_fragments(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(tmp_path, total_timesteps=100, rollout_steps=10)
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = PPOTrainer(config)
+    trainer.setup()
+    trainer.rollout_buffer.add_batch(
+        observations=np.asarray([0, 1]),
+        actions=np.asarray([0, 1]),
+        rewards=np.asarray([1.0, 2.0]),
+        values=np.asarray([0.2, 0.3]),
+        log_probabilities=np.asarray([-0.1, -0.2]),
+        next_values=np.asarray([0.4, 0.5]),
+        terminated=np.asarray([False, True]),
+        truncated=np.asarray([False, False]),
+    )
+    checkpoint_path = trainer.save_checkpoint("ppo-vector.pth")
+    assert checkpoint_path is not None
+
+    restored = PPOTrainer(config)
+    restored.setup()
+    restored.load_checkpoint(str(checkpoint_path))
+
+    assert restored.rollout_buffer.truncated[0].tolist() == [True, False]
+    assert restored.rollout_buffer.next_values[0].tolist() == pytest.approx(
+        [0.4, 0.5]
     )
     trainer.close()
     restored.close()
