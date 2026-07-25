@@ -197,7 +197,10 @@ class PPOTrainer(RLTrainer):
             trainable_parameters,
             **optimizer_config,
         )
-        self.rollout_buffer = RolloutBuffer()
+        self.rollout_buffer = RolloutBuffer(
+            capacity=self.rollout_steps,
+            num_envs=self.environment.num_envs,
+        )
         self.random_generator = np.random.default_rng(self.seed)
 
     def select_action(
@@ -477,13 +480,32 @@ class PPOTrainer(RLTrainer):
         generator_state = state.get("random_generator_state")
         if not isinstance(generator_state, dict):
             raise ValueError("Checkpoint minibatch generator state is invalid")
-        restored_buffer = RolloutBuffer()
+        restored_buffer = RolloutBuffer(
+            capacity=self.rollout_steps,
+            num_envs=self.environment.num_envs,
+        )
         restored_buffer.load_state_dict(rollout_state)
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
+        if restored_buffer.observations is None or restored_buffer.actions is None:
+            restored_observations = np.asarray([])
+            restored_actions = np.asarray([])
+        else:
+            restored_observations = restored_buffer.observations[
+                : len(restored_buffer)
+            ].reshape(
+                -1,
+                *restored_buffer.observations.shape[2:],
+            )
+            restored_actions = restored_buffer.actions[
+                : len(restored_buffer)
+            ].reshape(
+                -1,
+                *restored_buffer.actions.shape[2:],
+            )
         if any(
             not observation_space.contains(observation)
-            for observation in restored_buffer.observations
+            for observation in restored_observations
         ):
             raise ValueError("Checkpoint rollout contains an invalid observation")
         if isinstance(action_space, Discrete):
@@ -491,14 +513,14 @@ class PPOTrainer(RLTrainer):
                 action.shape != ()
                 or not np.issubdtype(action.dtype, np.integer)
                 or not 0 <= int(action) < action_space.n
-                for action in restored_buffer.actions
+                for action in restored_actions
             ):
                 raise ValueError("Checkpoint rollout contains an invalid policy action")
         elif any(
             action.shape != action_space.shape
             or not np.issubdtype(action.dtype, np.floating)
             or not np.isfinite(action).all()
-            for action in restored_buffer.actions
+            for action in restored_actions
         ):
             raise ValueError("Checkpoint rollout contains an invalid policy action")
         restored_generator = np.random.default_rng()

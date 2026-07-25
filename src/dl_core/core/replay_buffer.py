@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from .rl_types import Transition
+from .rl_types import Transition, TransitionBatch
 
 
 @dataclass(slots=True)
@@ -67,23 +67,99 @@ class ReplayBuffer:
         self._add(transition)
 
     def _add(self, transition: Transition[Any, Any]) -> None:
-        self.observations[self.position] = np.asarray(
-            transition.observation,
-            dtype=self.observation_dtype,
+        self._add_arrays(
+            observations=np.expand_dims(np.asarray(transition.observation), 0),
+            actions=np.expand_dims(np.asarray(transition.action), 0),
+            rewards=np.asarray([transition.reward], dtype=np.float32),
+            next_observations=np.expand_dims(
+                np.asarray(transition.next_observation),
+                0,
+            ),
+            terminated=np.asarray([transition.terminated], dtype=np.bool_),
+            truncated=np.asarray([transition.truncated], dtype=np.bool_),
         )
-        self.actions[self.position] = np.asarray(
-            transition.action,
-            dtype=self.action_dtype,
+
+    def add_batch(self, transitions: TransitionBatch[Any, Any]) -> None:
+        """Append a batch of transitions with ring-buffer wraparound."""
+        self._add_batch(transitions)
+
+    def _add_batch(self, transitions: TransitionBatch[Any, Any]) -> None:
+        self._add_arrays(
+            observations=np.asarray(transitions.observations),
+            actions=np.asarray(transitions.actions),
+            rewards=np.asarray(transitions.rewards),
+            next_observations=np.asarray(transitions.next_observations),
+            terminated=np.asarray(transitions.terminated),
+            truncated=np.asarray(transitions.truncated),
         )
-        self.rewards[self.position] = transition.reward
-        self.next_observations[self.position] = np.asarray(
-            transition.next_observation,
-            dtype=self.observation_dtype,
+
+    def _add_arrays(
+        self,
+        *,
+        observations: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        next_observations: np.ndarray,
+        terminated: np.ndarray,
+        truncated: np.ndarray,
+    ) -> None:
+        batch_size = int(rewards.shape[0])
+        original_batch_size = batch_size
+        expected_shapes = {
+            "observations": (batch_size, *self.observation_shape),
+            "actions": (batch_size, *self.action_shape),
+            "rewards": (batch_size,),
+            "next_observations": (batch_size, *self.observation_shape),
+            "terminated": (batch_size,),
+            "truncated": (batch_size,),
+        }
+        values = {
+            "observations": observations,
+            "actions": actions,
+            "rewards": rewards,
+            "next_observations": next_observations,
+            "terminated": terminated,
+            "truncated": truncated,
+        }
+        for name, expected_shape in expected_shapes.items():
+            if values[name].shape != expected_shape:
+                raise ValueError(
+                    f"Replay batch {name} shape {values[name].shape} does not "
+                    f"match {expected_shape}"
+                )
+        if batch_size == 0:
+            return
+        if batch_size >= self.capacity:
+            start = batch_size - self.capacity
+            observations = observations[start:]
+            actions = actions[start:]
+            rewards = rewards[start:]
+            next_observations = next_observations[start:]
+            terminated = terminated[start:]
+            truncated = truncated[start:]
+            batch_size = self.capacity
+            write_position = (
+                self.position + original_batch_size - self.capacity
+            ) % self.capacity
+        else:
+            write_position = self.position
+        indices = (write_position + np.arange(batch_size)) % self.capacity
+        self.observations[indices] = observations.astype(
+            self.observation_dtype,
+            copy=False,
         )
-        self.terminated[self.position] = transition.terminated
-        self.truncated[self.position] = transition.truncated
-        self.position = (self.position + 1) % self.capacity
-        self.size = min(self.size + 1, self.capacity)
+        self.actions[indices] = actions.astype(self.action_dtype, copy=False)
+        self.rewards[indices] = rewards.astype(np.float32, copy=False)
+        self.next_observations[indices] = next_observations.astype(
+            self.observation_dtype,
+            copy=False,
+        )
+        self.terminated[indices] = terminated.astype(np.bool_, copy=False)
+        self.truncated[indices] = truncated.astype(np.bool_, copy=False)
+        self.position = (
+            self.position + original_batch_size
+        ) % self.capacity
+        self.size = min(self.size + batch_size, self.capacity)
 
     def sample(self, batch_size: int, device: torch.device) -> ReplayBatch:
         """Sample a tensor batch uniformly with replacement."""

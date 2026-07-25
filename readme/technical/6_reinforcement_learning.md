@@ -134,6 +134,11 @@ Q-learning, DQN, and SAC can use the compatibility vector collector. PPO
 temporarily rejects vector training until its rollout storage represents
 independent `[time, environment]` streams.
 
+Replay storage accepts transition batches directly and preserves configured
+observation/action dtypes. PPO rollout storage is preallocated as
+`[time, environment, ...]`; generalized advantages are propagated only within
+the same environment stream before the rollout is flattened for minibatches.
+
 RL callbacks can implement `on_episode_start`, `on_episode_end`,
 `on_update_end`, and `on_evaluation_end`. The existing run-level
 `on_training_start`, `on_training_end`, and `on_training_finalized` hooks remain

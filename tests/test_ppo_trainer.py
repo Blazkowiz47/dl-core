@@ -99,10 +99,86 @@ def test_rollout_buffer_rejects_invalid_checkpoint_state() -> None:
         truncated=False,
     )
     state = buffer.state_dict()
-    state["log_probabilities"] = [float("nan")]
+    state["log_probabilities"][0, 0] = float("nan")
 
     with pytest.raises(ValueError, match="must be finite"):
         buffer.load_state_dict(state)
+
+
+def test_rollout_buffer_loads_legacy_single_stream_checkpoint() -> None:
+    """The vector buffer should resume pre-vector scalar rollout checkpoints."""
+    buffer = RolloutBuffer(capacity=2)
+    buffer.load_state_dict(
+        {
+            "observations": [np.asarray([1.0], dtype=np.float32)],
+            "actions": [np.asarray(0)],
+            "rewards": [1.0],
+            "values": [0.5],
+            "log_probabilities": [-0.1],
+            "next_values": [0.25],
+            "terminated": [False],
+            "truncated": [True],
+        }
+    )
+
+    assert len(buffer) == 1
+    assert buffer.rewards[0, 0] == 1.0
+
+
+def test_rollout_buffer_round_trips_after_clear() -> None:
+    """Cleared allocated storage should serialize as an empty rollout."""
+    buffer = RolloutBuffer(capacity=2)
+    buffer.add(
+        observation=np.asarray([1.0], dtype=np.float32),
+        action=0,
+        reward=1.0,
+        value=0.5,
+        log_probability=-0.1,
+        next_value=0.25,
+        terminated=False,
+        truncated=True,
+    )
+    buffer.clear()
+    restored = RolloutBuffer(capacity=2)
+
+    restored.load_state_dict(buffer.state_dict())
+
+    assert len(restored) == 0
+    assert restored.observations is None
+
+
+def test_rollout_buffer_computes_gae_per_environment_stream() -> None:
+    """Advantages from one environment must not propagate into another lane."""
+    buffer = RolloutBuffer(capacity=2, num_envs=2)
+    buffer.add_batch(
+        observations=np.asarray([[0.0], [10.0]], dtype=np.float32),
+        actions=np.asarray([0, 1]),
+        rewards=np.asarray([1.0, 2.0]),
+        values=np.asarray([0.0, 0.0]),
+        log_probabilities=np.asarray([-0.1, -0.2]),
+        next_values=np.asarray([0.0, 0.0]),
+        terminated=np.asarray([False, True]),
+        truncated=np.asarray([False, False]),
+    )
+    buffer.add_batch(
+        observations=np.asarray([[1.0], [11.0]], dtype=np.float32),
+        actions=np.asarray([1, 0]),
+        rewards=np.asarray([3.0, 4.0]),
+        values=np.asarray([0.0, 0.0]),
+        log_probabilities=np.asarray([-0.3, -0.4]),
+        next_values=np.asarray([0.0, 0.0]),
+        terminated=np.asarray([True, True]),
+        truncated=np.asarray([False, False]),
+    )
+
+    batch = buffer.compute_batch(
+        gamma=1.0,
+        gae_lambda=1.0,
+        device=torch.device("cpu"),
+    )
+
+    assert batch.advantages.tolist() == pytest.approx([4.0, 2.0, 3.0, 4.0])
+    assert batch.observations[:, 0].tolist() == [0.0, 10.0, 1.0, 11.0]
 
 
 def test_ppo_is_registered_and_builtin_model_supports_both_policy_types(
@@ -260,6 +336,9 @@ def test_ppo_checkpoint_restores_partial_rollout(tmp_path: Path) -> None:
     restored.load_checkpoint(str(checkpoint_path))
 
     assert len(restored.rollout_buffer) == 1
-    assert restored.rollout_buffer.rewards == trainer.rollout_buffer.rewards
+    assert np.array_equal(
+        restored.rollout_buffer.rewards[:1],
+        trainer.rollout_buffer.rewards[:1],
+    )
     trainer.close()
     restored.close()

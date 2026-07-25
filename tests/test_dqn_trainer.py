@@ -12,7 +12,12 @@ import torch
 from gymnasium.spaces import Box
 
 from dl_core import load_builtin_components
-from dl_core.core import ReplayBuffer, TRAINER_REGISTRY, Transition
+from dl_core.core import (
+    ReplayBuffer,
+    TRAINER_REGISTRY,
+    Transition,
+    TransitionBatch,
+)
 from dl_core.models import DQNMLP
 from dl_core.trainers import DQNTrainer
 
@@ -75,6 +80,26 @@ def test_replay_buffer_round_trip_preserves_ring_and_sampling_state() -> None:
     restored_sample = restored.sample(3, torch.device("cpu"))
     assert torch.equal(first_sample.observations, restored_sample.observations)
     assert torch.equal(first_sample.terminated, restored_sample.terminated)
+
+
+def test_replay_buffer_add_batch_wraps_and_retains_latest_transitions() -> None:
+    """Batch insertion should preserve ring ordering without scalar loops."""
+    buffer = ReplayBuffer(3, (1,), (), action_dtype=np.int64, seed=3)
+    buffer.add_batch(
+        TransitionBatch(
+            observations=np.arange(5, dtype=np.float32).reshape(5, 1),
+            actions=np.arange(5, dtype=np.int64),
+            rewards=np.arange(5, dtype=np.float32),
+            next_observations=np.arange(1, 6, dtype=np.float32).reshape(5, 1),
+            terminated=np.asarray([False, False, False, False, True]),
+            truncated=np.zeros(5, dtype=np.bool_),
+        )
+    )
+
+    assert len(buffer) == 3
+    assert buffer.position == 2
+    assert buffer.observations[:, 0].tolist() == [3.0, 4.0, 2.0]
+    assert buffer.actions.tolist() == [3, 4, 2]
 
 
 @pytest.mark.parametrize(
