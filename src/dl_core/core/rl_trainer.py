@@ -15,7 +15,6 @@ from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
-from dl_core.environments import make_environment
 from dl_core.utils import ArtifactManager, set_seeds
 from dl_core.utils.config_names import (
     resolve_config_experiment_name,
@@ -282,6 +281,8 @@ class RLTrainer(ABC):
         self._setup_environment()
 
     def _setup_environment(self) -> None:
+        from dl_core.environments import make_environment
+
         environment_config = self.config.get("environment")
         if not isinstance(environment_config, dict):
             raise TypeError("environment must be a mapping")

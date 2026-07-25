@@ -43,7 +43,7 @@ def test_rl_preflight_resolves_algorithm_components_without_stepping(
         return environment
 
     monkeypatch.setattr(
-        "dl_core.core.rl_trainer.make_environment",
+        "dl_core.environments.make_environment",
         _make_environment,
     )
     monkeypatch.setattr(

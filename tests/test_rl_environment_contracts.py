@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import numpy as np
 from gymnasium.spaces import Discrete
 
@@ -20,6 +23,22 @@ from dl_core.environments import (
     GymnasiumVectorEnvironment,
     make_environment,
 )
+
+
+def test_environment_factory_can_be_imported_before_core_components() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from dl_core.environments import make_environment; "
+            "assert callable(make_environment)",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_gymnasium_environment_is_registered_and_usable() -> None:
