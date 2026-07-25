@@ -7,7 +7,14 @@ from typing import Any
 import numpy as np
 from gymnasium.spaces import Discrete
 
-from dl_core.core import RLTrainer, Transition, config_field, register_trainer
+from dl_core.core import (
+    BatchActionOutput,
+    RLTrainer,
+    Transition,
+    TransitionBatch,
+    config_field,
+    register_trainer,
+)
 
 
 @register_trainer("q_learning")
@@ -106,6 +113,9 @@ class QLearningTrainer(RLTrainer):
 
     def select_action(self, observation: Any, *, deterministic: bool) -> int:
         """Choose an epsilon-greedy action for a discrete observation."""
+        return self._select_action(observation, deterministic=deterministic)
+
+    def _select_action(self, observation: Any, *, deterministic: bool) -> int:
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
         if not observation_space.contains(observation):
@@ -123,11 +133,43 @@ class QLearningTrainer(RLTrainer):
             action_index = int(self.random_generator.choice(best_actions))
         return action_index + int(action_space.start)
 
+    def select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[int]:
+        """Choose epsilon-greedy actions for a batch of discrete states."""
+        return self._select_actions(observations, deterministic=deterministic)
+
+    def _select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[int]:
+        values = np.asarray(observations)
+        if values.shape != (self.environment.num_envs,):
+            raise ValueError("Q-learning observations must have shape [num_envs]")
+        return BatchActionOutput(
+            actions=[
+                self._select_action(observation, deterministic=deterministic)
+                for observation in values
+            ],
+            action_info=[{} for _ in range(self.environment.num_envs)],
+        )
+
     def process_transition(
         self,
         transition: Transition[Any, Any],
     ) -> dict[str, float]:
         """Apply one terminal-aware tabular Q-learning update."""
+        return self._process_transition(transition)
+
+    def _process_transition(
+        self,
+        transition: Transition[Any, Any],
+    ) -> dict[str, float]:
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
         if not observation_space.contains(transition.observation):
@@ -159,6 +201,44 @@ class QLearningTrainer(RLTrainer):
             "q_learning/q_value": float(self.q_table[state_index, action_index]),
             "q_learning/epsilon": self.epsilon,
         }
+
+    def process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        """Apply tabular updates in stable environment-lane order."""
+        return self._process_transition_batch(transitions)
+
+    def _process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        logs: list[dict[str, float]] = []
+        for environment_index in range(transitions.size):
+            logs.append(
+                self._process_transition(
+                    Transition(
+                        observation=self.environment.batch_item(
+                            transitions.observations,
+                            environment_index,
+                        ),
+                        action=self.environment.batch_item(
+                            transitions.actions,
+                            environment_index,
+                        ),
+                        reward=float(transitions.rewards[environment_index]),
+                        next_observation=self.environment.batch_item(
+                            transitions.next_observations,
+                            environment_index,
+                        ),
+                        terminated=bool(
+                            transitions.terminated[environment_index]
+                        ),
+                        truncated=bool(transitions.truncated[environment_index]),
+                    )
+                )
+            )
+        return logs
 
     def algorithm_state_dict(self) -> dict[str, Any]:
         """Return Q-table and exploration-generator state."""

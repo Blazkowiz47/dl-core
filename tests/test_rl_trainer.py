@@ -49,6 +49,7 @@ class _RecordingCallback(Callback):
 class _TestRLTrainer(RLTrainer):
     def setup_algorithm(self) -> None:
         self.transition_count = 0
+        self.transition_steps: list[int] = []
         self.action_model_modes: list[bool] = []
         self.models = {"policy": nn.Linear(1, 1)}
 
@@ -61,6 +62,7 @@ class _TestRLTrainer(RLTrainer):
         transition: Transition[Any, Any],
     ) -> dict[str, float]:
         self.transition_count += 1
+        self.transition_steps.append(self.global_step)
         return {"update/count": float(self.transition_count)}
 
     def algorithm_state_dict(self) -> dict[str, Any]:
@@ -204,6 +206,7 @@ def test_rl_trainer_collects_vector_environments_and_tracks_each_lane(
     assert trainer.collector_step == 4
     assert trainer.current_episode == 4
     assert trainer.update_step == 8
+    assert trainer.transition_steps == list(range(1, 9))
     assert callback.episodes == [0, 1, 2, 3]
     assert len(trainer.episode_metrics) == 4
     assert {metric["environment_index"] for metric in trainer.episode_metrics} == {

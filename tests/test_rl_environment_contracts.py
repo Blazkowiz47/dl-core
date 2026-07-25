@@ -7,6 +7,7 @@ from gymnasium.spaces import Discrete
 
 from dl_core import load_builtin_components
 from dl_core.core import (
+    BatchActionOutput,
     BatchedEnvironment,
     ENVIRONMENT_REGISTRY,
     Environment,
@@ -121,3 +122,11 @@ def test_rl_value_objects_preserve_transition_and_episode_state() -> None:
     assert transition.done is True
     assert result.episode_return == 2.5
     assert result.final_info["is_success"] is True
+
+
+def test_batch_action_output_aligns_optional_metadata() -> None:
+    output = BatchActionOutput(actions=[0, 1])
+
+    assert output.action_info == [{}, {}]
+    with np.testing.assert_raises_regex(ValueError, "must align"):
+        BatchActionOutput(actions=[0, 1], action_info=[{}])

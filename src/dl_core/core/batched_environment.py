@@ -221,6 +221,10 @@ class BatchedEnvironment:
         updated[mask] = np.asarray(replacements)[mask]
         return updated
 
+    def stack_values(self, values: list[Any]) -> Any:
+        """Stack per-lane values using the vector environment structure."""
+        return self._stack_values(values)
+
     def _stack_values(self, values: list[Any]) -> Any:
         first = values[0]
         if isinstance(first, dict):

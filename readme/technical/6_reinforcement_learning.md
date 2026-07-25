@@ -123,16 +123,19 @@ evaluation_environment:
 ```
 
 `global_step` counts transitions, while `collector_step` counts vector
-environment calls. The compatibility collector invokes existing scalar
-algorithm hooks in stable environment-index order. Evaluation deliberately uses
-one scalar environment so videos and deterministic episode artifacts have
+environment calls. `select_actions` and `process_transition_batch` expose one
+whole collector step to vector-aware algorithms. Existing custom trainers that
+only implement `select_action` and `process_transition` remain compatible
+through stable environment-index dispatch. Evaluation deliberately uses one
+scalar environment so videos and deterministic episode artifacts have
 unambiguous identity. A transition budget can overshoot by at most
 `num_envs - 1` because a vector step is atomic. An episode budget has the same
 maximum overshoot when several lanes complete in one vector step.
 
-Q-learning, DQN, and SAC can use the compatibility vector collector. PPO
-temporarily rejects vector training until its rollout storage represents
-independent `[time, environment]` streams.
+Tabular Q-learning consumes vector steps in stable lane order. DQN and SAC can
+use the scalar compatibility path while their replay updates remain unchanged.
+PPO temporarily rejects vector training until its rollout update consumes the
+independent `[time, environment]` streams already represented by its buffer.
 
 Replay storage accepts transition batches directly and preserves configured
 observation/action dtypes. PPO rollout storage is preallocated as

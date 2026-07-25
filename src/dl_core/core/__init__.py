@@ -35,6 +35,7 @@ from .base_transform import BaseTransform
 from .rl_trainer import RLTrainer
 from .rl_types import (
     ActionOutput,
+    BatchActionOutput,
     Environment,
     EpisodeContext,
     EpisodeRecord,
@@ -126,6 +127,7 @@ __all__ = [
     "Environment",
     "VectorEnvironment",
     "ActionOutput",
+    "BatchActionOutput",
     "Transition",
     "TransitionBatch",
     "EpisodeContext",

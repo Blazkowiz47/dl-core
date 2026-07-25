@@ -158,6 +158,38 @@ def test_q_learning_supports_nonzero_discrete_starts(tmp_path: Path) -> None:
     )
 
 
+def test_q_learning_collects_vector_steps_through_batch_hooks(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=8,
+        max_episode_steps=2,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = QLearningTrainer(config)
+    trainer.setup()
+
+    trainer.perform_training()
+
+    assert trainer.global_step == 8
+    assert trainer.collector_step == 4
+    assert trainer.update_step == 8
+    assert trainer.epsilon == pytest.approx(0.2)
+    trainer.close()
+
+
 def test_q_learning_rejects_incompatible_checkpoint_spaces(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = QLearningTrainer(_config(tmp_path))

@@ -108,8 +108,8 @@ class TransitionBatch(Generic[ObservationT, ActionT]):
     next_observations: ObservationT
     terminated: np.ndarray
     truncated: np.ndarray
-    infos: dict[str, Any] = field(default_factory=dict)
-    action_info: dict[str, Any] = field(default_factory=dict)
+    infos: list[dict[str, Any]] = field(default_factory=list)
+    action_info: list[dict[str, Any]] = field(default_factory=list)
     final_observations: ObservationT | None = None
 
     @property
@@ -189,3 +189,17 @@ class ActionOutput(Generic[ActionT]):
 
     action: ActionT
     info: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class BatchActionOutput(Generic[ActionT]):
+    """Actions and per-lane policy metadata selected in one model call."""
+
+    actions: list[ActionT]
+    action_info: list[dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.action_info:
+            self.action_info = [{} for _ in self.actions]
+        if len(self.action_info) != len(self.actions):
+            raise ValueError("Batch action metadata must align with actions")

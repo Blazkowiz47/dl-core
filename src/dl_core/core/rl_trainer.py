@@ -32,7 +32,14 @@ from .registry import (
     CALLBACK_REGISTRY,
     EPISODE_MANAGER_REGISTRY,
 )
-from .rl_types import ActionOutput, EpisodeContext, EpisodeResult, Transition
+from .rl_types import (
+    ActionOutput,
+    BatchActionOutput,
+    EpisodeContext,
+    EpisodeResult,
+    Transition,
+    TransitionBatch,
+)
 
 
 class RLTrainer(ABC):
@@ -477,19 +484,20 @@ class RLTrainer(ABC):
             if self.max_episodes is not None and self.current_episode >= self.max_episodes:
                 break
 
-            actions: list[Any] = []
-            action_infos: list[dict[str, Any]] = []
-            for environment_index in range(num_envs):
-                action_output = self.select_action(
-                    self.environment.batch_item(observations, environment_index),
-                    deterministic=False,
+            action_output = self.select_actions(
+                observations,
+                deterministic=False,
+            )
+            actions = action_output.actions
+            action_infos = action_output.action_info
+            if len(actions) != num_envs:
+                raise ValueError(
+                    "Batched action selection must return one action per environment"
                 )
-                if isinstance(action_output, ActionOutput):
-                    actions.append(action_output.action)
-                    action_infos.append(action_output.info)
-                else:
-                    actions.append(action_output)
-                    action_infos.append({})
+            if len(action_infos) != num_envs:
+                raise ValueError(
+                    "Batched action metadata must contain one mapping per environment"
+                )
 
             (
                 next_observations,
@@ -515,6 +523,7 @@ class RLTrainer(ABC):
             )
             done = np.logical_or(terminated, truncated)
 
+            final_infos: list[dict[str, Any]] = []
             for environment_index in range(num_envs):
                 final_info = lane_infos[environment_index]
                 if environment_terminated[environment_index] or (
@@ -536,24 +545,43 @@ class RLTrainer(ABC):
                     info=final_info,
                     action_info=action_infos[environment_index],
                 )
-                self.global_step += 1
+                final_infos.append(final_info)
                 for manager in self.episode_managers.values():
                     manager.record_transition(
                         environment_index,
                         transition,
                         phase="train",
                     )
-                update_logs = self.process_transition(transition)
-                if update_logs is not None:
-                    self.update_step += 1
-                    self.callbacks.on_update_end(
-                        self.update_step,
-                        {
-                            **update_logs,
-                            "update": float(self.update_step),
-                            "global_step": float(self.global_step),
-                        },
-                    )
+            self.global_step += num_envs
+            batched_final_observations = self.environment.stack_values(
+                final_observations
+            )
+            update_logs = self.process_transition_batch(
+                TransitionBatch(
+                    observations=observations,
+                    actions=self.environment.stack_values(actions),
+                    rewards=rewards,
+                    next_observations=batched_final_observations,
+                    terminated=terminated,
+                    truncated=truncated,
+                    infos=final_infos,
+                    action_info=action_infos,
+                    final_observations=batched_final_observations,
+                )
+            )
+            for logs in update_logs:
+                self.update_step += 1
+                self.callbacks.on_update_end(
+                    self.update_step,
+                    {
+                        **logs,
+                        "update": float(self.update_step),
+                        "global_step": float(self.global_step),
+                    },
+                )
+
+            for environment_index in range(num_envs):
+                final_info = final_infos[environment_index]
                 if not done[environment_index]:
                     continue
 
@@ -1046,6 +1074,94 @@ class RLTrainer(ABC):
         transition: Transition[Any, Any],
     ) -> dict[str, float] | None:
         """Consume a training transition and optionally report update metrics."""
+
+    def select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[Any]:
+        """Select one action per environment lane."""
+        return self._select_actions(
+            observations,
+            deterministic=deterministic,
+        )
+
+    def _select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[Any]:
+        actions: list[Any] = []
+        action_info: list[dict[str, Any]] = []
+        for environment_index in range(self.environment.num_envs):
+            output = self.select_action(
+                self.environment.batch_item(observations, environment_index),
+                deterministic=deterministic,
+            )
+            if isinstance(output, ActionOutput):
+                actions.append(output.action)
+                action_info.append(output.info)
+            else:
+                actions.append(output)
+                action_info.append({})
+        return BatchActionOutput(actions=actions, action_info=action_info)
+
+    def process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        """Consume one transition from every environment lane."""
+        return self._process_transition_batch(transitions)
+
+    def _process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        update_logs: list[dict[str, float]] = []
+        batch_global_step = self.global_step
+        try:
+            for environment_index in range(transitions.size):
+                self.global_step = (
+                    batch_global_step - transitions.size + environment_index + 1
+                )
+                logs = self.process_transition(
+                    Transition(
+                        observation=self.environment.batch_item(
+                            transitions.observations,
+                            environment_index,
+                        ),
+                        action=self.environment.batch_item(
+                            transitions.actions,
+                            environment_index,
+                        ),
+                        reward=float(transitions.rewards[environment_index]),
+                        next_observation=self.environment.batch_item(
+                            transitions.next_observations,
+                            environment_index,
+                        ),
+                        terminated=bool(
+                            transitions.terminated[environment_index]
+                        ),
+                        truncated=bool(transitions.truncated[environment_index]),
+                        info=(
+                            transitions.infos[environment_index]
+                            if transitions.infos
+                            else {}
+                        ),
+                        action_info=(
+                            transitions.action_info[environment_index]
+                            if transitions.action_info
+                            else {}
+                        ),
+                    )
+                )
+                if logs is not None:
+                    update_logs.append(logs)
+        finally:
+            self.global_step = batch_global_step
+        return update_logs
 
     @abstractmethod
     def algorithm_state_dict(self) -> dict[str, Any]:
