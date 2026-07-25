@@ -287,6 +287,94 @@ def test_sac_temperature_update_uses_detached_policy_density(tmp_path: Path) -> 
     trainer.close()
 
 
+def test_sac_batches_vector_actions_replay_and_update_schedules(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=8,
+        max_episode_steps=4,
+        train_frequency=1,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "Pendulum-v1",
+        "num_envs": 2,
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "Pendulum-v1",
+    }
+    trainer = SACTrainer(config)
+    trainer.setup()
+    action_batch_sizes: list[int] = []
+    sample_action = trainer._sample_action_and_log_probability
+
+    def recording_sample_action(
+        observations: torch.Tensor,
+        *,
+        deterministic: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if not torch.is_grad_enabled():
+            action_batch_sizes.append(int(observations.shape[0]))
+        return sample_action(observations, deterministic=deterministic)
+
+    trainer._sample_action_and_log_probability = recording_sample_action
+    trainer.perform_training()
+
+    assert trainer.global_step == 8
+    assert trainer.collector_step == 4
+    assert trainer.update_step == 8
+    assert len(trainer.replay_buffer) == 8
+    assert action_batch_sizes.count(2) == 4
+    trainer.close()
+
+
+def test_sac_applies_vector_warmup_per_transition(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = SACTrainer(_config(tmp_path, learning_starts=3))
+    trainer.setup()
+    observation, _ = trainer.environment.reset(seed=29)
+    observations = np.stack((observation, observation))
+    actor_batch_sizes: list[int] = []
+
+    def fixed_policy_actions(
+        observation_batch: torch.Tensor,
+        *,
+        deterministic: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        del deterministic
+        actor_batch_sizes.append(int(observation_batch.shape[0]))
+        actions = torch.full(
+            (observation_batch.shape[0], 1),
+            0.5,
+            device=observation_batch.device,
+        )
+        return actions, torch.zeros(
+            observation_batch.shape[0],
+            device=observation_batch.device,
+        )
+
+    trainer._sample_action_and_log_probability = fixed_policy_actions
+    trainer.global_step = 2
+    output = trainer.select_actions(observations, deterministic=False)
+    expected_random = np.random.default_rng(29).uniform(
+        trainer.environment.action_space.low,
+        trainer.environment.action_space.high,
+        size=(1, *trainer.environment.action_space.shape),
+    ).astype(trainer.environment.action_space.dtype)
+
+    assert actor_batch_sizes == [1]
+    assert np.array_equal(output.actions[0], expected_random[0])
+    assert np.array_equal(output.actions[1], np.asarray([0.5], dtype=np.float32))
+    assert all(
+        trainer.environment.action_space.contains(action)
+        for action in output.actions
+    )
+    trainer.close()
+
+
 def test_sac_checkpoint_restores_temperature_target_and_replay(tmp_path: Path) -> None:
     load_builtin_components()
     config = _config(tmp_path, automatic_entropy_tuning=True)

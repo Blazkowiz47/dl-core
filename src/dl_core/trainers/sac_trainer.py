@@ -14,11 +14,13 @@ from torch.distributions import Normal
 from torch.nn import functional as functional
 
 from dl_core.core import (
+    BatchActionOutput,
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
     RLTrainer,
     ReplayBuffer,
     Transition,
+    TransitionBatch,
     config_field,
     register_trainer,
 )
@@ -310,69 +312,176 @@ class SACTrainer(RLTrainer):
 
     def select_action(self, observation: Any, *, deterministic: bool) -> np.ndarray:
         """Select a bounded deterministic or stochastic continuous action."""
-        if not self.environment.observation_space.contains(observation):
+        return self._select_action(observation, deterministic=deterministic)
+
+    def _select_action(
+        self,
+        observation: Any,
+        *,
+        deterministic: bool,
+    ) -> np.ndarray:
+        return self._select_actions(
+            np.expand_dims(np.asarray(observation), axis=0),
+            deterministic=deterministic,
+        ).actions[0]
+
+    def select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[np.ndarray]:
+        """Select bounded continuous actions with one actor call."""
+        return self._select_actions(observations, deterministic=deterministic)
+
+    def _select_actions(
+        self,
+        observations: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[np.ndarray]:
+        observation_batch = np.asarray(observations)
+        if observation_batch.ndim == 0 or observation_batch.shape[0] == 0:
+            raise ValueError("SAC action selection requires at least one observation")
+        if any(
+            not self.environment.observation_space.contains(observation)
+            for observation in observation_batch
+        ):
             raise ValueError("Observation is outside the configured space")
         action_space = self.environment.action_space
-        if not deterministic and self.global_step < self.learning_starts:
-            return self.random_generator.uniform(
+        batch_size = int(observation_batch.shape[0])
+        warmup = np.zeros(batch_size, dtype=np.bool_)
+        if not deterministic:
+            warmup = (
+                self.global_step + np.arange(batch_size) < self.learning_starts
+            )
+        action_batch = np.empty(
+            (batch_size, *action_space.shape),
+            dtype=action_space.dtype,
+        )
+        if warmup.any():
+            action_batch[warmup] = self.random_generator.uniform(
                 action_space.low,
                 action_space.high,
+                size=(int(warmup.sum()), *action_space.shape),
             ).astype(action_space.dtype)
 
-        observations = self._observations_to_tensor(
-            np.expand_dims(np.asarray(observation), axis=0)
+        policy = ~warmup
+        if policy.any():
+            observation_tensor = self._observations_to_tensor(
+                observation_batch[policy]
+            )
+            actor = self.models["actor"]
+            was_training = actor.training
+            try:
+                if deterministic:
+                    actor.eval()
+                with torch.no_grad(), self.accelerator.autocast_context():
+                    actions, _ = self._sample_action_and_log_probability(
+                        observation_tensor,
+                        deterministic=deterministic,
+                    )
+            finally:
+                actor.train(was_training)
+            action_batch[policy] = (
+                actions.reshape(-1, *action_space.shape)
+                .detach()
+                .cpu()
+                .numpy()
+                .astype(action_space.dtype)
+            )
+        action_batch = np.clip(
+            action_batch,
+            action_space.low,
+            action_space.high,
         )
-        actor = self.models["actor"]
-        was_training = actor.training
-        try:
-            if deterministic:
-                actor.eval()
-            with torch.no_grad(), self.accelerator.autocast_context():
-                actions, _ = self._sample_action_and_log_probability(
-                    observations,
-                    deterministic=deterministic,
-                )
-        finally:
-            actor.train(was_training)
-        action = (
-            actions[0]
-            .reshape(action_space.shape)
-            .detach()
-            .cpu()
-            .numpy()
-            .astype(action_space.dtype)
+        return BatchActionOutput(
+            actions=[
+                np.asarray(action, dtype=action_space.dtype)
+                .reshape(action_space.shape)
+                .copy()
+                for action in action_batch
+            ]
         )
-        return np.clip(action, action_space.low, action_space.high)
 
     def process_transition(
         self,
         transition: Transition[Any, Any],
     ) -> dict[str, float] | None:
         """Store one transition and run scheduled SAC replay updates."""
+        logs = self._process_transition_batch(
+            TransitionBatch(
+                observations=np.expand_dims(
+                    np.asarray(transition.observation),
+                    axis=0,
+                ),
+                actions=np.expand_dims(np.asarray(transition.action), axis=0),
+                rewards=np.asarray([transition.reward], dtype=np.float32),
+                next_observations=np.expand_dims(
+                    np.asarray(transition.next_observation),
+                    axis=0,
+                ),
+                terminated=np.asarray([transition.terminated], dtype=np.bool_),
+                truncated=np.asarray([transition.truncated], dtype=np.bool_),
+                infos=[transition.info],
+                action_info=[transition.action_info],
+            )
+        )
+        return logs[-1] if logs else None
+
+    def process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
+        """Insert a vector step and run every crossed SAC update cycle."""
+        return self._process_transition_batch(transitions)
+
+    def _process_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> list[dict[str, float]]:
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
-        if not observation_space.contains(transition.observation):
-            raise ValueError("Transition observation is outside the configured space")
-        if not observation_space.contains(transition.next_observation):
-            raise ValueError("Transition next observation is outside the configured space")
-        if not action_space.contains(transition.action):
-            raise ValueError("Transition action is outside the configured space")
-        if not np.isfinite(transition.reward):
-            raise ValueError("Transition reward must be finite")
-        self.replay_buffer.add(transition)
-        if (
-            self.global_step < self.learning_starts
-            or len(self.replay_buffer) < self.batch_size
-            or self.global_step % self.train_frequency != 0
+        if any(
+            not observation_space.contains(observation)
+            for observation in np.asarray(transitions.observations)
         ):
-            return None
+            raise ValueError("Transition observation is outside the configured space")
+        if any(
+            not observation_space.contains(observation)
+            for observation in np.asarray(transitions.next_observations)
+        ):
+            raise ValueError("Transition next observation is outside the configured space")
+        if any(
+            not action_space.contains(action)
+            for action in np.asarray(transitions.actions)
+        ):
+            raise ValueError("Transition action is outside the configured space")
+        if not np.isfinite(transitions.rewards).all():
+            raise ValueError("Transition reward must be finite")
+        previous_global_step = self.global_step - transitions.size
+        previous_replay_size = len(self.replay_buffer)
+        self.replay_buffer.add_batch(transitions)
+        first_ready_step = max(
+            previous_global_step + 1,
+            self.learning_starts,
+            previous_global_step + max(self.batch_size - previous_replay_size, 1),
+        )
+        update_cycles = max(
+            0,
+            self.global_step // self.train_frequency
+            - (first_ready_step - 1) // self.train_frequency,
+        )
+        if update_cycles == 0:
+            return []
 
+        update_logs: list[dict[str, float]] = []
         critic_losses: list[float] = []
         actor_losses: list[float] = []
         alpha_losses: list[float] = []
         q_means: list[float] = []
         target_q_means: list[float] = []
-        for _ in range(self.gradient_steps):
+        for gradient_update in range(update_cycles * self.gradient_steps):
             batch = self.replay_buffer.sample(
                 self.batch_size,
                 self.accelerator.get_device(),
@@ -503,15 +612,25 @@ class SACTrainer(RLTrainer):
             )
             target_q_means.append(float(targets.detach().mean().item()))
 
-        return {
-            "sac/critic_loss": float(np.mean(critic_losses)),
-            "sac/actor_loss": float(np.mean(actor_losses)),
-            "sac/alpha_loss": float(np.mean(alpha_losses)),
-            "sac/alpha": float(self._alpha().detach().item()),
-            "sac/q_mean": float(np.mean(q_means)),
-            "sac/target_q_mean": float(np.mean(target_q_means)),
-            "sac/replay_size": float(len(self.replay_buffer)),
-        }
+            if (gradient_update + 1) % self.gradient_steps == 0:
+                update_logs.append(
+                    {
+                        "sac/critic_loss": float(np.mean(critic_losses)),
+                        "sac/actor_loss": float(np.mean(actor_losses)),
+                        "sac/alpha_loss": float(np.mean(alpha_losses)),
+                        "sac/alpha": float(self._alpha().detach().item()),
+                        "sac/q_mean": float(np.mean(q_means)),
+                        "sac/target_q_mean": float(np.mean(target_q_means)),
+                        "sac/replay_size": float(len(self.replay_buffer)),
+                    }
+                )
+                critic_losses = []
+                actor_losses = []
+                alpha_losses = []
+                q_means = []
+                target_q_means = []
+
+        return update_logs
 
     def _observations_to_tensor(self, observations: Any) -> torch.Tensor:
         tensor = torch.as_tensor(observations, device=self.accelerator.get_device())

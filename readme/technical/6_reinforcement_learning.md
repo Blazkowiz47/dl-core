@@ -139,8 +139,12 @@ crossed by that atomic step in schedule order. PPO performs batched policy and
 next-value inference, stores independent `[time, environment]` streams, and
 flattens them only after per-lane GAE is complete. `rollout_steps` counts
 synchronized collector calls, so an update uses
-`rollout_steps * num_envs` samples. SAC can use the scalar compatibility path
-while its replay updates remain unchanged.
+`rollout_steps * num_envs` samples. SAC samples continuous actions in one actor
+call, inserts vector transitions directly into replay, and runs the gradient
+work for every update-frequency boundary crossed by the atomic vector step.
+Each crossed boundary emits its own update log, and warm-up is applied to the
+first `learning_starts` transitions even when that boundary falls inside a
+vector step.
 
 Replay storage accepts transition batches directly and preserves configured
 observation/action dtypes. PPO rollout storage is preallocated as
