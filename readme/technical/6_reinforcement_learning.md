@@ -110,6 +110,45 @@ RL callbacks can implement `on_episode_start`, `on_episode_end`,
 `on_training_start`, `on_training_end`, and `on_training_finalized` hooks remain
 shared with epoch training.
 
+## Episode Managers
+
+Episode managers are the reinforcement-learning counterpart to the metric
+managers used by `EpochTrainer`. They accumulate environment transitions,
+compute episode summaries, and optionally persist complete trajectories while
+callbacks remain responsible for external logging and side effects.
+
+The built-in `standard` manager always computes return, length, reward
+statistics, termination, truncation, and success when the environment exposes
+`is_success`. Complete trajectories preserve the initial observation followed
+by one observation per transition, so an episode of length `T` contains `T + 1`
+observations and `T` actions, rewards, termination flags, and truncation flags.
+
+```yaml
+episode_managers:
+  standard:
+    capture_phases: [evaluation]
+    capture_every_n_episodes: 10
+    max_captured_episodes: 20
+    info_keys: [is_success, collision]
+    capture_action_info: false
+```
+
+Captured array-valued trajectories are portable compressed NumPy archives under
+`final/episodes/<phase>/`; the episode index and scalar summary streams remain
+JSONL. Array dtypes are preserved and arbitrary Python objects are not pickled.
+Environments with array-valued observations and actions, including nested
+dictionaries and tuples, can persist their environment-boundary trajectory.
+Exact hidden simulator state is available only when a concrete environment
+provides a separate state snapshot capability.
+
+Episode managers use the normal component workflow:
+
+```bash
+dl-core list episode_manager
+dl-core describe episode_manager standard
+dl-core add episode_manager PathAnalysis
+```
+
 The built-in local metric tracker and the MLflow and W&B companion callbacks
 record episode, algorithm-update, and evaluation metrics as well as supervised
 epoch metrics. Training-episode series stay separate from the aggregate metrics

@@ -22,6 +22,7 @@ _BUILTIN_COMPONENT_MODULES = (
     "datasets",
     "environments",
     "executors",
+    "episode_managers",
     "metrics_sources",
     "metric_managers",
     "metrics",

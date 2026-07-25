@@ -17,6 +17,7 @@ from dl_core.core import (
     CALLBACK_REGISTRY,
     CRITERION_REGISTRY,
     DATASET_REGISTRY,
+    EPISODE_MANAGER_REGISTRY,
     ENVIRONMENT_REGISTRY,
     EXECUTOR_REGISTRY,
     FACE_DETECTOR_REGISTRY,
@@ -39,6 +40,7 @@ _COMPONENT_REGISTRIES: dict[str, ComponentRegistry] = {
     "callback": CALLBACK_REGISTRY,
     "criterion": CRITERION_REGISTRY,
     "dataset": DATASET_REGISTRY,
+    "episode_manager": EPISODE_MANAGER_REGISTRY,
     "environment": ENVIRONMENT_REGISTRY,
     "executor": EXECUTOR_REGISTRY,
     "face_detector": FACE_DETECTOR_REGISTRY,
@@ -67,6 +69,10 @@ _DESCRIBE_TYPE_ALIASES = {
     "criterions": "criterion",
     "dataset": "dataset",
     "datasets": "dataset",
+    "episode_manager": "episode_manager",
+    "episode_managers": "episode_manager",
+    "episodemanager": "episode_manager",
+    "episodemanagers": "episode_manager",
     "environment": "environment",
     "environments": "environment",
     "executor": "executor",
@@ -478,6 +484,8 @@ def _build_config_example(
         payload = {"criterions": {component_name: field_values}}
     elif component_type == "metric_manager":
         payload = {"metric_managers": {component_name: field_values}}
+    elif component_type == "episode_manager":
+        payload = {"episode_managers": {component_name: field_values}}
     elif component_type == "callback":
         payload = {"callbacks": {component_name: field_values}}
     elif component_type == "optimizer":

@@ -192,6 +192,43 @@ def test_cli_add_metric_manager_defaults_to_plain_base(tmp_path: Path) -> None:
     )
 
 
+def test_cli_add_episode_manager_defaults_to_plain_base(tmp_path: Path) -> None:
+    """Episode-manager scaffolds should expose the episode summary contract."""
+    target_dir = create_experiment_scaffold(
+        "episode-manager-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "episode_manager",
+            "PathAnalysis",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = (
+        target_dir / "src" / "episode_managers" / "pathanalysis.py"
+    )
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import BaseEpisodeManager" in component_text
+    assert "class PathAnalysisEpisodeManager(BaseEpisodeManager):" in component_text
+    assert "def summarize_episode(" in component_text
+
+    load_builtin_components()
+    load_local_components(target_dir / "configs" / "base.yaml")
+
+    from dl_core.core import EPISODE_MANAGER_REGISTRY
+
+    assert EPISODE_MANAGER_REGISTRY.get_class("pathanalysis").__name__ == (
+        "PathAnalysisEpisodeManager"
+    )
+
+
 def test_cli_add_metric_defaults_to_editable_compute_template(tmp_path: Path) -> None:
     """Metric scaffolds should start with a pure compute method."""
     target_dir = create_experiment_scaffold("metric-demo", root_dir=str(tmp_path))

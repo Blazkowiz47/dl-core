@@ -15,6 +15,7 @@ from dl_core.core import (
     AUGMENTATION_REGISTRY,
     CALLBACK_REGISTRY,
     CRITERION_REGISTRY,
+    EPISODE_MANAGER_REGISTRY,
     EXECUTOR_REGISTRY,
     METRIC_MANAGER_REGISTRY,
     METRIC_REGISTRY,
@@ -97,6 +98,13 @@ _COMPONENT_SPECS = {
         init_docstring="Local executor extensions.",
         register_name="register_executor",
     ),
+    "episode_manager": ComponentSpec(
+        canonical_name="episode_manager",
+        package_dir="episode_managers",
+        class_suffix="EpisodeManager",
+        init_docstring="Local reinforcement-learning episode managers.",
+        register_name="register_episode_manager",
+    ),
     "metric": ComponentSpec(
         canonical_name="metric",
         package_dir="metrics",
@@ -153,6 +161,7 @@ _COMPONENT_BASE_REGISTRIES: dict[str, ComponentRegistry] = {
     "callback": CALLBACK_REGISTRY,
     "criterion": CRITERION_REGISTRY,
     "executor": EXECUTOR_REGISTRY,
+    "episode_manager": EPISODE_MANAGER_REGISTRY,
     "metric": METRIC_REGISTRY,
     "metric_manager": METRIC_MANAGER_REGISTRY,
     "model": MODEL_REGISTRY,
@@ -186,6 +195,14 @@ _DEFAULT_COMPONENT_BASE_SPECS = {
         import_path="dl_core.core",
         base_class="BaseExecutor",
         class_docstring="Local executor scaffold based on BaseExecutor.",
+    ),
+    "episode_manager": ComponentBaseSpec(
+        canonical_name="episode_manager",
+        import_path="dl_core.core",
+        base_class="BaseEpisodeManager",
+        class_docstring=(
+            "Local episode manager scaffold based on BaseEpisodeManager."
+        ),
     ),
     "metric": ComponentBaseSpec(
         canonical_name="metric",
@@ -244,6 +261,10 @@ _COMPONENT_TYPE_ALIASES = {
     "datasets": "dataset",
     "executor": "executor",
     "executors": "executor",
+    "episode_manager": "episode_manager",
+    "episode_managers": "episode_manager",
+    "episodemanager": "episode_manager",
+    "episodemanagers": "episode_manager",
     "metric": "metric",
     "metrics": "metric",
     "metricmanager": "metric_manager",
@@ -607,6 +628,16 @@ def _render_component(
                 import_path=metric_manager_base.import_path,
                 base_class=metric_manager_base.base_class,
                 class_docstring=metric_manager_base.class_docstring,
+            )
+    if spec.canonical_name == "episode_manager":
+        episode_manager_base = _component_base_required(component_base)
+        if _is_default_component_base(spec.canonical_name, episode_manager_base):
+            return _episode_manager_component(
+                registry_literal=registry_literal,
+                class_name=class_name,
+                import_path=episode_manager_base.import_path,
+                base_class=episode_manager_base.base_class,
+                class_docstring=episode_manager_base.class_docstring,
             )
     if spec.canonical_name == "model":
         model_base = _component_base_required(component_base)
@@ -1926,6 +1957,41 @@ class {class_name}({base_class}):
             }},
             "validation": {{}},
             "test": {{}},
+        }}
+'''
+
+
+def _episode_manager_component(
+    *,
+    registry_literal: str,
+    class_name: str,
+    import_path: str,
+    base_class: str,
+    class_docstring: str,
+) -> str:
+    """Render an episode-manager scaffold with summary customization."""
+    return f'''"""Local episode manager scaffold."""
+
+from __future__ import annotations
+
+from dl_core.core import EpisodeRecord, EpisodeResult, register_episode_manager
+from {import_path} import {base_class}
+
+
+@register_episode_manager({registry_literal})
+class {class_name}({base_class}):
+    """{class_docstring}"""
+
+    def summarize_episode(
+        self,
+        record: EpisodeRecord,
+        result: EpisodeResult,
+        **statistics: float | int,
+    ) -> dict[str, float]:
+        """Compute scalar metrics for one completed episode."""
+        return {{
+            "episode/return": float(statistics["episode_return"]),
+            "episode/length": float(statistics["length"]),
         }}
 '''
 

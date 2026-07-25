@@ -246,6 +246,7 @@ DATASET_REGISTRY = ComponentRegistry("Dataset")
 ENVIRONMENT_REGISTRY = ComponentRegistry("Environment")
 CRITERION_REGISTRY = ComponentRegistry("Criterion")
 METRIC_MANAGER_REGISTRY = ComponentRegistry("MetricManager")
+EPISODE_MANAGER_REGISTRY = ComponentRegistry("EpisodeManager")
 CALLBACK_REGISTRY = ComponentRegistry("Callback")
 ACCELERATOR_REGISTRY = ComponentRegistry("Accelerator")
 METRIC_REGISTRY = ComponentRegistry("Metric")
@@ -266,6 +267,7 @@ COMPONENT_REGISTRIES = (
     ENVIRONMENT_REGISTRY,
     CRITERION_REGISTRY,
     METRIC_MANAGER_REGISTRY,
+    EPISODE_MANAGER_REGISTRY,
     CALLBACK_REGISTRY,
     ACCELERATOR_REGISTRY,
     METRIC_REGISTRY,
@@ -309,6 +311,11 @@ def register_criterion(names: Union[str, List[str]]):
 def register_metric_manager(names: Union[str, List[str]]):
     """Convenience decorator for registering metric managers."""
     return METRIC_MANAGER_REGISTRY.register(names)
+
+
+def register_episode_manager(names: Union[str, List[str]]):
+    """Convenience decorator for registering episode managers."""
+    return EPISODE_MANAGER_REGISTRY.register(names)
 
 
 def register_callback(names: Union[str, List[str]]):
@@ -387,6 +394,7 @@ def get_all_registered_components() -> Dict[str, List[str]]:
         "environments": ENVIRONMENT_REGISTRY.list_registered(),
         "criterions": CRITERION_REGISTRY.list_registered(),
         "metric_managers": METRIC_MANAGER_REGISTRY.list_registered(),
+        "episode_managers": EPISODE_MANAGER_REGISTRY.list_registered(),
         "callbacks": CALLBACK_REGISTRY.list_registered(),
         "accelerator": ACCELERATOR_REGISTRY.list_registered(),
         "metric": METRIC_REGISTRY.list_registered(),

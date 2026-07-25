@@ -16,6 +16,7 @@ from .base_executor import BaseExecutor
 from .base_metric import BaseMetric
 from .base_metrics_source import BaseMetricsSource
 from .base_metric_manager import BaseMetricManager
+from .base_episode_manager import BaseEpisodeManager
 from .base_biometric_model import BaseBiometricModel
 from .base_model import BaseModel
 from .base_sampler import BaseSampler
@@ -31,7 +32,15 @@ from .epoch_trainer import EpochTrainer
 from .sequence_trainer import SequenceStepOutput, SequenceTrainer
 from .base_transform import BaseTransform
 from .rl_trainer import RLTrainer
-from .rl_types import ActionOutput, Environment, EpisodeResult, Transition
+from .rl_types import (
+    ActionOutput,
+    Environment,
+    EpisodeContext,
+    EpisodeRecord,
+    EpisodeResult,
+    Transition,
+    TransitionBatch,
+)
 from .replay_buffer import ReplayBatch, ReplayBuffer
 from .rollout_buffer import RolloutBatch, RolloutBuffer
 from .config_metadata import ConfigFieldSpec, config_field
@@ -44,6 +53,7 @@ from .registry import (
     CRITERION_REGISTRY,
     DATASET_REGISTRY,
     ENVIRONMENT_REGISTRY,
+    EPISODE_MANAGER_REGISTRY,
     EXECUTOR_REGISTRY,
     FACE_DETECTOR_REGISTRY,
     METRIC_MANAGER_REGISTRY,
@@ -65,6 +75,7 @@ from .registry import (
     register_criterion,
     register_dataset,
     register_environment,
+    register_episode_manager,
     register_executor,
     register_face_detector,
     register_metric,
@@ -94,6 +105,7 @@ __all__ = [
     "BaseTracker",
     "BaseMetricsSource",
     "BaseMetricManager",
+    "BaseEpisodeManager",
     "BaseSampler",
     "Callback",
     "BaseTrainer",
@@ -111,6 +123,9 @@ __all__ = [
     "Environment",
     "ActionOutput",
     "Transition",
+    "TransitionBatch",
+    "EpisodeContext",
+    "EpisodeRecord",
     "EpisodeResult",
     "RLTrainer",
     "ReplayBatch",
@@ -123,6 +138,7 @@ __all__ = [
     "TRAINER_REGISTRY",
     "DATASET_REGISTRY",
     "ENVIRONMENT_REGISTRY",
+    "EPISODE_MANAGER_REGISTRY",
     "CRITERION_REGISTRY",
     "METRIC_REGISTRY",
     "METRIC_MANAGER_REGISTRY",
@@ -141,6 +157,7 @@ __all__ = [
     "register_trainer",
     "register_dataset",
     "register_environment",
+    "register_episode_manager",
     "register_face_detector",
     "register_criterion",
     "register_metric",

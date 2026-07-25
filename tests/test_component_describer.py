@@ -20,6 +20,24 @@ def test_cli_list_metric_managers_prints_registered_names(capsys) -> None:
     assert "- standard_act" in output
 
 
+def test_cli_list_and_describe_episode_manager(capsys) -> None:
+    """Episode managers should use the standard discovery commands."""
+    exit_code = cli_main(["list", "episode_manager"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Registered episode manager" in output
+    assert "- standard" in output
+
+    exit_code = cli_main(["describe", "episode_manager", "standard"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Target type: episode_manager" in output
+    assert "StandardEpisodeManager" in output
+    assert "episode_managers:" in output
+
+
 def test_cli_list_and_describe_environment(capsys) -> None:
     """Environment registrations should use the standard discovery commands."""
     exit_code = cli_main(["list", "environment"])

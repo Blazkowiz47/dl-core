@@ -12,6 +12,7 @@ LOCAL_COMPONENT_SUBPACKAGES = (
     "criterions",
     "datasets",
     "environments",
+    "episode_managers",
     "executors",
     "metric_managers",
     "metrics",

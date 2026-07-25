@@ -317,6 +317,7 @@ uv run dl-core add trainer MyTrainer
 uv run dl-core add trainer MyPolicy --base rltrainer
 uv run dl-core add callback MyMetrics
 uv run dl-core add metric_manager MyManager
+uv run dl-core add episode_manager MyEpisodeManager
 uv run dl-core add sampler MySampler
 uv run dl-core add optimizer MyOptimizer
 uv run dl-core add scheduler MyScheduler
