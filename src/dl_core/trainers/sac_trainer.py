@@ -47,6 +47,12 @@ class SACTrainer(RLTrainer):
     CONFIG_FIELDS = RLTrainer.CONFIG_FIELDS + [
         config_field("gamma", "float", "Reward discount factor.", default=0.99),
         config_field(
+            "n_step",
+            "int",
+            "Transitions combined in each replay return.",
+            default=1,
+        ),
+        config_field(
             "buffer_size",
             "int",
             "Maximum transitions retained in replay memory.",
@@ -143,6 +149,7 @@ class SACTrainer(RLTrainer):
         )
         action_dim = int(np.prod(action_space.shape))
         self.gamma = float(self.trainer_config.get("gamma", 0.99))
+        self.n_step = int(self.trainer_config.get("n_step", 1))
         self.buffer_size = int(self.trainer_config.get("buffer_size", 1000000))
         self.batch_size = int(self.trainer_config.get("batch_size", 256))
         self.learning_starts = int(self.trainer_config.get("learning_starts", 5000))
@@ -166,6 +173,8 @@ class SACTrainer(RLTrainer):
         )
         if not np.isfinite(self.gamma) or not 0.0 <= self.gamma <= 1.0:
             raise ValueError("gamma must be finite and in [0, 1]")
+        if self.n_step <= 0:
+            raise ValueError("n_step must be positive")
         if self.buffer_size <= 0 or self.batch_size <= 0:
             raise ValueError("buffer_size and batch_size must be positive")
         if self.batch_size > self.buffer_size:
@@ -275,6 +284,8 @@ class SACTrainer(RLTrainer):
             action_shape=action_space.shape,
             observation_dtype=observation_dtype,
             action_dtype=action_space.dtype,
+            gamma=self.gamma,
+            n_step=self.n_step,
             seed=self.seed,
         )
         self.random_generator = np.random.default_rng(self.seed)
@@ -461,11 +472,24 @@ class SACTrainer(RLTrainer):
             raise ValueError("Transition reward must be finite")
         previous_global_step = self.global_step - transitions.size
         previous_replay_size = len(self.replay_buffer)
-        self.replay_buffer.add_batch(transitions)
+        added_per_environment = self.replay_buffer.add_batch(transitions)
+        if (
+            len(self.replay_buffer) < self.batch_size
+            or self.global_step < self.learning_starts
+        ):
+            return []
+        replay_ready_step = previous_global_step + 1
+        if previous_replay_size < self.batch_size:
+            required_entries = self.batch_size - previous_replay_size
+            replay_ready_step = previous_global_step + int(
+                np.flatnonzero(
+                    np.cumsum(added_per_environment) >= required_entries
+                )[0]
+            ) + 1
         first_ready_step = max(
             previous_global_step + 1,
             self.learning_starts,
-            previous_global_step + max(self.batch_size - previous_replay_size, 1),
+            replay_ready_step,
         )
         first_update_step = (
             (first_ready_step + self.train_frequency - 1)
@@ -517,7 +541,7 @@ class SACTrainer(RLTrainer):
                         self._alpha().detach() * next_log_probabilities
                     )
                     targets = batch.rewards + (
-                        self.gamma * (~batch.terminated).float() * next_q
+                        batch.discounts * (~batch.terminated).float() * next_q
                     )
                     if not torch.isfinite(targets).all():
                         raise FloatingPointError("SAC critic targets must be finite")
@@ -748,6 +772,7 @@ class SACTrainer(RLTrainer):
             "checkpoint_replay_buffer": self.checkpoint_replay_buffer,
             "training_parameters": {
                 "gamma": self.gamma,
+                "n_step": self.n_step,
                 "buffer_size": self.buffer_size,
                 "batch_size": self.batch_size,
                 "learning_starts": self.learning_starts,
@@ -783,6 +808,7 @@ class SACTrainer(RLTrainer):
             raise ValueError("Checkpoint replay-buffer policy does not match config")
         expected_training_parameters = {
             "gamma": self.gamma,
+            "n_step": self.n_step,
             "buffer_size": self.buffer_size,
             "batch_size": self.batch_size,
             "learning_starts": self.learning_starts,
@@ -792,7 +818,16 @@ class SACTrainer(RLTrainer):
             "log_std_min": self.log_std_min,
             "log_std_max": self.log_std_max,
         }
-        if state.get("training_parameters") != expected_training_parameters:
+        saved_training_parameters = state.get("training_parameters")
+        if (
+            isinstance(saved_training_parameters, dict)
+            and "n_step" not in saved_training_parameters
+        ):
+            saved_training_parameters = {
+                **saved_training_parameters,
+                "n_step": 1,
+            }
+        if saved_training_parameters != expected_training_parameters:
             raise ValueError("Checkpoint SAC training parameters do not match config")
 
         generator_state = state.get("random_generator_state")
@@ -817,6 +852,8 @@ class SACTrainer(RLTrainer):
                 action_shape=self.replay_buffer.action_shape,
                 observation_dtype=self.replay_buffer.observation_dtype,
                 action_dtype=self.replay_buffer.action_dtype,
+                gamma=self.gamma,
+                n_step=self.n_step,
                 seed=self.seed,
             )
             restored_replay_buffer.load_state_dict(replay_state)

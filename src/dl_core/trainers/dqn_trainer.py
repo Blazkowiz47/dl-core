@@ -31,6 +31,12 @@ class DQNTrainer(RLTrainer):
     CONFIG_FIELDS = RLTrainer.CONFIG_FIELDS + [
         config_field("gamma", "float", "Reward discount factor.", default=0.99),
         config_field(
+            "n_step",
+            "int",
+            "Transitions combined in each replay return.",
+            default=1,
+        ),
+        config_field(
             "buffer_size",
             "int",
             "Maximum transitions retained in replay memory.",
@@ -116,6 +122,7 @@ class DQNTrainer(RLTrainer):
             input_dim = int(np.prod(observation_shape))
 
         self.gamma = float(self.trainer_config.get("gamma", 0.99))
+        self.n_step = int(self.trainer_config.get("n_step", 1))
         self.buffer_size = int(self.trainer_config.get("buffer_size", 100000))
         self.batch_size = int(self.trainer_config.get("batch_size", 64))
         self.learning_starts = int(self.trainer_config.get("learning_starts", 1000))
@@ -135,6 +142,8 @@ class DQNTrainer(RLTrainer):
         )
         if not 0.0 <= self.gamma <= 1.0:
             raise ValueError("gamma must be in [0, 1]")
+        if self.n_step <= 0:
+            raise ValueError("n_step must be positive")
         if self.buffer_size <= 0 or self.batch_size <= 0:
             raise ValueError("buffer_size and batch_size must be positive")
         if self.batch_size > self.buffer_size:
@@ -196,6 +205,8 @@ class DQNTrainer(RLTrainer):
             action_shape=(),
             observation_dtype=observation_dtype,
             action_dtype=np.int64,
+            gamma=self.gamma,
+            n_step=self.n_step,
             seed=self.seed,
         )
         self.epsilon = self.epsilon_start
@@ -325,15 +336,33 @@ class DQNTrainer(RLTrainer):
 
         previous_global_step = self.global_step - transitions.size
         previous_replay_size = len(self.replay_buffer)
-        self.replay_buffer.add_batch(transitions)
+        added_per_environment = self.replay_buffer.add_batch(transitions)
         decay_fraction = min(self.global_step / self.epsilon_decay_steps, 1.0)
         self.epsilon = self.epsilon_start + (
             (self.epsilon_end - self.epsilon_start) * decay_fraction
         )
+        if (
+            len(self.replay_buffer) < self.batch_size
+            or self.global_step < self.learning_starts
+        ):
+            if (
+                self.global_step // self.target_update_frequency
+                > previous_global_step // self.target_update_frequency
+            ):
+                self._synchronize_target_network()
+            return []
+        replay_ready_step = previous_global_step + 1
+        if previous_replay_size < self.batch_size:
+            required_entries = self.batch_size - previous_replay_size
+            replay_ready_step = previous_global_step + int(
+                np.flatnonzero(
+                    np.cumsum(added_per_environment) >= required_entries
+                )[0]
+            ) + 1
         first_ready_step = max(
             previous_global_step + 1,
             self.learning_starts,
-            previous_global_step + max(self.batch_size - previous_replay_size, 1),
+            replay_ready_step,
         )
         first_update_step = (
             (first_ready_step + self.train_frequency - 1)
@@ -396,7 +425,7 @@ class DQNTrainer(RLTrainer):
                         else:
                             next_q_values = target_next_q_values.max(dim=1).values
                         targets = batch.rewards + (
-                            self.gamma
+                            batch.discounts
                             * (~batch.terminated).float()
                             * next_q_values
                         )
@@ -473,6 +502,7 @@ class DQNTrainer(RLTrainer):
                 else None
             ),
             "checkpoint_replay_buffer": self.checkpoint_replay_buffer,
+            "n_step": self.n_step,
             "observation_space": repr(self.environment.observation_space),
             "action_space": repr(self.environment.action_space),
         }
@@ -493,6 +523,8 @@ class DQNTrainer(RLTrainer):
             raise ValueError("Checkpoint exploration generator state is invalid")
         if bool(state.get("checkpoint_replay_buffer")) != self.checkpoint_replay_buffer:
             raise ValueError("Checkpoint replay-buffer policy does not match config")
+        if int(state.get("n_step", 1)) != self.n_step:
+            raise ValueError("Checkpoint n_step does not match config")
         replay_state = state.get("replay_buffer")
         if self.checkpoint_replay_buffer:
             if not isinstance(replay_state, dict):

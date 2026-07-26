@@ -225,6 +225,48 @@ def test_sac_uses_twin_minimum_and_terminal_aware_targets(
     trainer.close()
 
 
+def test_sac_uses_n_step_rewards_and_bootstrap_discount(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = SACTrainer(_config(tmp_path, n_step=2))
+    trainer.setup()
+    _use_zero_policy_statistics(trainer)
+    with torch.no_grad():
+        for parameter in trainer.models["critics"].parameters():
+            parameter.zero_()
+        for parameter in trainer.models["target_critics"].parameters():
+            parameter.zero_()
+        target_critics = trainer.models["target_critics"].critics
+        target_critics[0][-1].bias.fill_(2.0)
+        target_critics[1][-1].bias.fill_(5.0)
+    trainer.global_step = 1
+    first_metrics = trainer.process_transition(
+        Transition(
+            observation=np.zeros(3, dtype=np.float32),
+            action=np.zeros(1, dtype=np.float32),
+            reward=1.0,
+            next_observation=np.zeros(3, dtype=np.float32),
+            terminated=False,
+            truncated=False,
+        )
+    )
+    trainer.global_step = 2
+    metrics = trainer.process_transition(
+        Transition(
+            observation=np.zeros(3, dtype=np.float32),
+            action=np.zeros(1, dtype=np.float32),
+            reward=2.0,
+            next_observation=np.zeros(3, dtype=np.float32),
+            terminated=False,
+            truncated=False,
+        )
+    )
+
+    assert first_metrics is None
+    assert metrics is not None
+    assert metrics["sac/target_q_mean"] == pytest.approx(4.42)
+    trainer.close()
+
+
 def test_sac_soft_updates_target_critics(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = SACTrainer(_config(tmp_path, tau=0.25))
@@ -328,6 +370,34 @@ def test_sac_batches_vector_actions_replay_and_update_schedules(
     assert trainer.update_step == 8
     assert len(trainer.replay_buffer) == 8
     assert action_batch_sizes.count(2) == 4
+    trainer.close()
+
+
+def test_sac_preserves_crossed_vector_update_steps_with_n_step_replay(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = SACTrainer(_config(tmp_path, n_step=2, train_frequency=1))
+    trainer.setup()
+    observation, _ = trainer.environment.reset(seed=29)
+    observations = np.repeat(observation[None, :], 2, axis=0)
+    actions = np.zeros((2, *trainer.environment.action_space.shape), dtype=np.float32)
+    first_transitions = TransitionBatch(
+        observations=observations,
+        actions=actions,
+        rewards=np.ones(2, dtype=np.float32),
+        next_observations=observations,
+        terminated=np.zeros(2, dtype=np.bool_),
+        truncated=np.zeros(2, dtype=np.bool_),
+    )
+    trainer.global_step = 2
+    first_logs = trainer.process_transition_batch(first_transitions)
+    trainer.global_step = 4
+    logs = trainer.process_transition_batch(first_transitions)
+
+    assert first_logs == []
+    assert len(logs) == 2
+    assert len(trainer.replay_buffer) == 2
     trainer.close()
 
 

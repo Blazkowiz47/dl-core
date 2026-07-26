@@ -81,6 +81,54 @@ def test_replay_buffer_round_trip_preserves_ring_and_sampling_state() -> None:
     restored_sample = restored.sample(3, torch.device("cpu"))
     assert torch.equal(first_sample.observations, restored_sample.observations)
     assert torch.equal(first_sample.terminated, restored_sample.terminated)
+    assert torch.equal(first_sample.discounts, restored_sample.discounts)
+
+
+def test_replay_buffer_loads_legacy_one_step_state() -> None:
+    buffer = ReplayBuffer(3, (), ())
+    buffer.add(
+        Transition(
+            observation=0.0,
+            action=1.0,
+            reward=2.0,
+            next_observation=1.0,
+            terminated=False,
+            truncated=False,
+        )
+    )
+    state = buffer.state_dict()
+    for key in ("gamma", "n_step", "discounts"):
+        state.pop(key)
+    restored = ReplayBuffer(3, (), ())
+    restored.load_state_dict(state)
+
+    assert restored.discounts[0] == pytest.approx(0.99)
+
+
+@pytest.mark.parametrize(("missing_key", "message"), [
+    ("gamma", "gamma does not match"),
+    ("discounts", "discounts shape"),
+])
+def test_n_step_replay_rejects_incomplete_checkpoint_schema(
+    missing_key: str,
+    message: str,
+) -> None:
+    buffer = ReplayBuffer(3, (), (), gamma=0.9, n_step=2)
+    buffer.add(
+        Transition(
+            observation=0.0,
+            action=1.0,
+            reward=2.0,
+            next_observation=1.0,
+            terminated=True,
+            truncated=False,
+        )
+    )
+    state = buffer.state_dict()
+    state.pop(missing_key)
+
+    with pytest.raises(ValueError, match=message):
+        ReplayBuffer(3, (), (), gamma=0.9, n_step=2).load_state_dict(state)
 
 
 def test_replay_buffer_add_batch_wraps_and_retains_latest_transitions() -> None:
@@ -101,6 +149,97 @@ def test_replay_buffer_add_batch_wraps_and_retains_latest_transitions() -> None:
     assert buffer.position == 2
     assert buffer.observations[:, 0].tolist() == [3.0, 4.0, 2.0]
     assert buffer.actions.tolist() == [3, 4, 2]
+
+
+def test_replay_buffer_builds_discounted_n_step_returns() -> None:
+    buffer = ReplayBuffer(
+        8,
+        (),
+        (),
+        action_dtype=np.int64,
+        gamma=0.5,
+        n_step=3,
+    )
+    for index, reward in enumerate((1.0, 2.0, 4.0, 8.0)):
+        buffer.add(
+            Transition(
+                observation=index,
+                action=index % 2,
+                reward=reward,
+                next_observation=index + 1,
+                terminated=index == 3,
+                truncated=False,
+            )
+        )
+
+    assert len(buffer) == 4
+    assert buffer.observations[:4].tolist() == [0, 1, 2, 3]
+    assert buffer.rewards[:4].tolist() == pytest.approx([3.0, 6.0, 8.0, 8.0])
+    assert buffer.discounts[:4].tolist() == pytest.approx(
+        [0.125, 0.125, 0.25, 0.5]
+    )
+    assert buffer.next_observations[:4].tolist() == [3, 4, 4, 4]
+    assert buffer.terminated[:4].tolist() == [False, True, True, True]
+    assert buffer.pending_transitions == [[]]
+
+
+def test_n_step_replay_keeps_vector_lanes_independent() -> None:
+    buffer = ReplayBuffer(
+        8,
+        (),
+        (),
+        action_dtype=np.int64,
+        gamma=1.0,
+        n_step=2,
+    )
+    first_added = buffer.add_batch(
+        TransitionBatch(
+            observations=np.asarray([0, 10]),
+            actions=np.asarray([0, 1]),
+            rewards=np.asarray([1.0, 10.0], dtype=np.float32),
+            next_observations=np.asarray([1, 11]),
+            terminated=np.zeros(2, dtype=np.bool_),
+            truncated=np.zeros(2, dtype=np.bool_),
+        )
+    )
+    second_added = buffer.add_batch(
+        TransitionBatch(
+            observations=np.asarray([1, 11]),
+            actions=np.asarray([1, 0]),
+            rewards=np.asarray([2.0, 20.0], dtype=np.float32),
+            next_observations=np.asarray([2, 12]),
+            terminated=np.asarray([True, False]),
+            truncated=np.zeros(2, dtype=np.bool_),
+        )
+    )
+
+    assert buffer.rewards[:3].tolist() == [3.0, 2.0, 30.0]
+    assert buffer.observations[:3].tolist() == [0, 1, 10]
+    assert buffer.terminated[:3].tolist() == [True, True, False]
+    assert [len(pending) for pending in buffer.pending_transitions] == [0, 1]
+    assert first_added.tolist() == [0, 0]
+    assert second_added.tolist() == [2, 1]
+
+
+def test_n_step_replay_discards_incomplete_windows_when_restored() -> None:
+    buffer = ReplayBuffer(8, (), (), gamma=0.9, n_step=3)
+    for index in range(2):
+        buffer.add(
+            Transition(
+                observation=index,
+                action=0.0,
+                reward=1.0,
+                next_observation=index + 1,
+                terminated=False,
+                truncated=False,
+            )
+        )
+    state = buffer.state_dict()
+    restored = ReplayBuffer(8, (), (), gamma=0.9, n_step=3)
+    restored.load_state_dict(state)
+
+    assert len(restored) == 0
+    assert restored.pending_transitions == []
 
 
 @pytest.mark.parametrize(
@@ -271,6 +410,46 @@ def test_dqn_uses_terminal_aware_targets(
     trainer.close()
 
 
+def test_dqn_uses_n_step_rewards_and_bootstrap_discount(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(_config(tmp_path, n_step=2))
+    trainer.setup()
+    with torch.no_grad():
+        trainer.models["online"].network[-1].weight.zero_()
+        trainer.models["online"].network[-1].bias.zero_()
+        trainer.models["target"].network[-1].weight.zero_()
+        trainer.models["target"].network[-1].bias.copy_(
+            torch.tensor([2.0, 0.0, 0.0, 0.0])
+        )
+    trainer.global_step = 1
+    first_metrics = trainer.process_transition(
+        Transition(
+            observation=0,
+            action=1,
+            reward=1.0,
+            next_observation=1,
+            terminated=False,
+            truncated=False,
+        )
+    )
+    trainer.global_step = 2
+    metrics = trainer.process_transition(
+        Transition(
+            observation=1,
+            action=1,
+            reward=2.0,
+            next_observation=2,
+            terminated=False,
+            truncated=False,
+        )
+    )
+
+    assert first_metrics is None
+    assert metrics is not None
+    assert metrics["dqn/target_q_mean"] == pytest.approx(4.42)
+    trainer.close()
+
+
 @pytest.mark.parametrize(
     ("double_dqn", "expected_target"),
     [(True, 1.9), (False, 5.5)],
@@ -411,6 +590,40 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
     assert trainer.update_step == 4
     assert len(trainer.replay_buffer) == 8
     assert inference_batches.count(2) == 4
+    trainer.close()
+
+
+def test_dqn_preserves_crossed_vector_update_steps_with_n_step_replay(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(_config(tmp_path, n_step=2, train_frequency=1))
+    trainer.setup()
+    first_transitions = TransitionBatch(
+        observations=np.asarray([0, 1], dtype=np.int64),
+        actions=np.asarray([1, 1], dtype=np.int64),
+        rewards=np.ones(2, dtype=np.float32),
+        next_observations=np.asarray([1, 2], dtype=np.int64),
+        terminated=np.zeros(2, dtype=np.bool_),
+        truncated=np.zeros(2, dtype=np.bool_),
+    )
+    trainer.global_step = 2
+    first_logs = trainer.process_transition_batch(first_transitions)
+    trainer.global_step = 4
+    logs = trainer.process_transition_batch(
+        TransitionBatch(
+            observations=first_transitions.next_observations,
+            actions=np.asarray([1, 1], dtype=np.int64),
+            rewards=np.ones(2, dtype=np.float32),
+            next_observations=np.asarray([2, 3], dtype=np.int64),
+            terminated=np.zeros(2, dtype=np.bool_),
+            truncated=np.zeros(2, dtype=np.bool_),
+        )
+    )
+
+    assert first_logs == []
+    assert len(logs) == 2
+    assert len(trainer.replay_buffer) == 2
     trainer.close()
 
 

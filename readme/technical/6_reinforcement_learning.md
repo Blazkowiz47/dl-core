@@ -156,9 +156,18 @@ first `learning_starts` transitions even when that boundary falls inside a
 vector step.
 
 Replay storage accepts transition batches directly and preserves configured
-observation/action dtypes. PPO rollout storage is preallocated as
-`[time, environment, ...]`; generalized advantages are propagated only within
-the same environment stream before the rollout is flattened for minibatches.
+observation/action dtypes. DQN and SAC accept `n_step` to store discounted
+multi-transition rewards with the matching `gamma ** steps` bootstrap
+coefficient. N-step windows are independent for every vector lane and flush
+their shorter tails at termination or truncation. An incomplete window is not
+yet a replay entry and is intentionally omitted from checkpoints because a
+resumed environment begins at a new episode boundary.
+`ReplayBuffer.add()` returns the number of matured entries, while
+`add_batch()` returns that count per vector lane for custom update scheduling.
+
+PPO rollout storage is preallocated as `[time, environment, ...]`; generalized
+advantages are propagated only within the same environment stream before the
+rollout is flattened for minibatches.
 
 DQN and SAC expose `should_update(global_step, transitions)` at every update
 step that is eligible after `learning_starts` and `train_frequency`. The
@@ -298,6 +307,7 @@ trainer:
   dqn:
     total_timesteps: 100000
     gamma: 0.99
+    n_step: 1
     buffer_size: 100000
     batch_size: 64
     learning_starts: 1000
@@ -313,15 +323,16 @@ trainer:
 
 DQN uses uniform replay, a hard-updated target network, Huber loss, and Double
 DQN targets by default. True termination removes the bootstrap target;
-truncation retains it. Training and evaluation action and observation spaces
-must match exactly, including `Box` bounds and dtypes. Target synchronization is
-scheduled by environment transitions even when a synchronization step falls
-between replay updates, and model forwards honor the configured accelerator's
-autocast context. Replay sampling and epsilon exploration use separately
-checkpointed generators. Saving replay memory makes checkpoints larger but
-allows exact off-policy continuation; set `checkpoint_replay_buffer: false` to
-resume with an empty buffer. Gradient accumulation is currently rejected for
-DQN because each replay update is an independent optimizer step.
+truncation retains it with the `gamma ** steps` bootstrap coefficient. Training
+and evaluation action and observation spaces must match exactly, including
+`Box` bounds and dtypes. Target synchronization is scheduled by environment
+transitions even when a synchronization step falls between replay updates, and
+model forwards honor the configured accelerator's autocast context. Replay
+sampling and epsilon exploration use separately checkpointed generators.
+Saving replay memory makes checkpoints larger but preserves all completed
+replay entries; set `checkpoint_replay_buffer: false` to resume with an empty
+buffer. Gradient accumulation is currently rejected for DQN because each
+replay update is an independent optimizer step.
 
 ## Proximal Policy Optimization
 
@@ -418,6 +429,7 @@ trainer:
   sac:
     total_timesteps: 1000000
     gamma: 0.99
+    n_step: 1
     buffer_size: 1000000
     batch_size: 256
     learning_starts: 5000
@@ -442,7 +454,8 @@ target is the negative flattened action dimension; set
 `automatic_entropy_tuning: false` to keep `initial_alpha` fixed.
 
 The replay target uses the lower target-critic estimate. True termination
-removes the bootstrap term, while truncation retains it. Target critics receive
+removes the bootstrap term, while truncation retains it with the n-step
+bootstrap coefficient. Target critics receive
 a Polyak update after every replay gradient step. Training and evaluation spaces
 must match exactly, and unbounded, integer, or boolean action spaces are
 rejected. A flat optimizer mapping can be used to share one optimizer type and
