@@ -352,6 +352,11 @@ class DQNTrainer(RLTrainer):
                 > last_scheduled_step // self.target_update_frequency
             ):
                 self._synchronize_target_network()
+            if not self.should_update(scheduled_step, transitions):
+                if scheduled_step % self.target_update_frequency == 0:
+                    self._synchronize_target_network()
+                last_scheduled_step = scheduled_step
+                continue
             losses: list[float] = []
             q_means: list[float] = []
             target_means: list[float] = []

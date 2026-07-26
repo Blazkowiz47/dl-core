@@ -467,12 +467,21 @@ class SACTrainer(RLTrainer):
             self.learning_starts,
             previous_global_step + max(self.batch_size - previous_replay_size, 1),
         )
-        update_cycles = max(
-            0,
-            self.global_step // self.train_frequency
-            - (first_ready_step - 1) // self.train_frequency,
+        first_update_step = (
+            (first_ready_step + self.train_frequency - 1)
+            // self.train_frequency
+            * self.train_frequency
         )
-        if update_cycles == 0:
+        scheduled_updates = [
+            scheduled_step
+            for scheduled_step in range(
+                first_update_step,
+                self.global_step + 1,
+                self.train_frequency,
+            )
+            if self.should_update(scheduled_step, transitions)
+        ]
+        if not scheduled_updates:
             return []
 
         update_logs: list[dict[str, float]] = []
@@ -481,7 +490,9 @@ class SACTrainer(RLTrainer):
         alpha_losses: list[float] = []
         q_means: list[float] = []
         target_q_means: list[float] = []
-        for gradient_update in range(update_cycles * self.gradient_steps):
+        for gradient_update in range(
+            len(scheduled_updates) * self.gradient_steps
+        ):
             batch = self.replay_buffer.sample(
                 self.batch_size,
                 self.accelerator.get_device(),

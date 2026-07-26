@@ -1123,6 +1123,22 @@ class RLTrainer(ABC):
         """Consume one transition from every environment lane."""
         return self._process_transition_batch(transitions)
 
+    def should_update(
+        self,
+        global_step: int,
+        transitions: TransitionBatch[Any, Any],
+    ) -> bool:
+        """Return whether an eligible replay-based update should run."""
+        return self._should_update(global_step, transitions)
+
+    def _should_update(
+        self,
+        global_step: int,
+        transitions: TransitionBatch[Any, Any],
+    ) -> bool:
+        del global_step, transitions
+        return True
+
     def _process_transition_batch(
         self,
         transitions: TransitionBatch[Any, Any],

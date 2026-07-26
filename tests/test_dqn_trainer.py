@@ -399,6 +399,37 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
     trainer.close()
 
 
+def test_dqn_can_gate_eligible_updates_by_global_step(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(_config(tmp_path, train_frequency=1))
+    trainer.setup()
+    checked_steps: list[int] = []
+
+    def update_every_four_steps(
+        global_step: int,
+        transitions: TransitionBatch,
+    ) -> bool:
+        checked_steps.append(global_step)
+        return global_step % 4 == 0 and transitions.size == 6
+
+    trainer._should_update = update_every_four_steps
+    trainer.global_step = 6
+    logs = trainer.process_transition_batch(
+        TransitionBatch(
+            observations=np.arange(6, dtype=np.int64) % 4,
+            actions=np.ones(6, dtype=np.int64),
+            rewards=np.ones(6, dtype=np.float32),
+            next_observations=(np.arange(6, dtype=np.int64) + 1) % 4,
+            terminated=np.zeros(6, dtype=np.bool_),
+            truncated=np.zeros(6, dtype=np.bool_),
+        )
+    )
+
+    assert checked_steps == [1, 2, 3, 4, 5, 6]
+    assert len(logs) == 1
+    trainer.close()
+
+
 def test_dqn_orders_target_syncs_between_crossed_vector_updates(
     tmp_path: Path,
 ) -> None:

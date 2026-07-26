@@ -151,6 +151,22 @@ observation/action dtypes. PPO rollout storage is preallocated as
 `[time, environment, ...]`; generalized advantages are propagated only within
 the same environment stream before the rollout is flattened for minibatches.
 
+DQN and SAC expose `should_update(global_step, transitions)` at every update
+step that is eligible after `learning_starts` and `train_frequency`. The
+default always returns `True`. A custom trainer can override its private
+implementation when an experiment needs a data-dependent schedule:
+
+```python
+class FourStepDQNTrainer(DQNTrainer):
+    def _should_update(self, global_step, transitions):
+        return global_step % 4 == 0 and transitions.rewards.mean() > 0
+```
+
+Set `train_frequency: 1` when the hook must inspect every environment step.
+Returning `False` skips that update cycle without discarding the transitions
+that were added to replay. DQN target-network synchronization remains tied to
+environment steps and is not delayed by a skipped gradient update.
+
 RL callbacks can implement `on_episode_start`, `on_episode_end`,
 `on_update_end`, and `on_evaluation_end`. The existing run-level
 `on_training_start`, `on_training_end`, and `on_training_finalized` hooks remain

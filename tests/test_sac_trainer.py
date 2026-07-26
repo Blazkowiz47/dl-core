@@ -13,7 +13,7 @@ from torch.distributions import Normal
 from torch.nn import functional
 
 from dl_core import load_builtin_components
-from dl_core.core import TRAINER_REGISTRY, Transition
+from dl_core.core import TRAINER_REGISTRY, Transition, TransitionBatch
 from dl_core.models import SACGaussianActor, SACTwinQNetwork
 from dl_core.trainers import SACTrainer
 
@@ -328,6 +328,36 @@ def test_sac_batches_vector_actions_replay_and_update_schedules(
     assert trainer.update_step == 8
     assert len(trainer.replay_buffer) == 8
     assert action_batch_sizes.count(2) == 4
+    trainer.close()
+
+
+def test_sac_can_gate_eligible_updates_by_global_step(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = SACTrainer(_config(tmp_path, train_frequency=1))
+    trainer.setup()
+    checked_steps: list[int] = []
+
+    def update_on_even_steps(global_step: int, transitions: object) -> bool:
+        checked_steps.append(global_step)
+        return global_step % 2 == 0
+
+    trainer._should_update = update_on_even_steps
+    trainer.global_step = 4
+    observation, _ = trainer.environment.reset(seed=29)
+    action = trainer.environment.action_space.sample()
+    logs = trainer.process_transition_batch(
+        TransitionBatch(
+            observations=np.repeat(observation[None, :], 4, axis=0),
+            actions=np.repeat(action[None, :], 4, axis=0),
+            rewards=np.ones(4, dtype=np.float32),
+            next_observations=np.repeat(observation[None, :], 4, axis=0),
+            terminated=np.zeros(4, dtype=np.bool_),
+            truncated=np.zeros(4, dtype=np.bool_),
+        )
+    )
+
+    assert checked_steps == [1, 2, 3, 4]
+    assert len(logs) == 2
     trainer.close()
 
 
