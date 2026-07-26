@@ -14,7 +14,7 @@ Compatible companion package floors:
 
 - `deep-learning-azure>=0.0.18,<0.1`
 - `deep-learning-mlflow>=0.0.11,<0.1`
-- `deep-learning-robotics>=0.0.2,<0.1` with
+- `deep-learning-robotics>=0.0.3,<0.1` with
   `deep-learning-core>=0.0.28,<0.1`
 - `deep-learning-wandb>=0.0.12,<0.1`
 
@@ -26,44 +26,7 @@ Compatible companion package floors:
 - public trainer, environment, episode-manager, and scaffold behavior remains
   unchanged
 
-## What's New in 0.0.27?
-
-- episode managers provide generic RL summaries and selective, complete
-  trajectory capture alongside the existing metric-manager system
-- scalar and same-step vector environments share one collector contract with
-  preserved terminal observations and per-lane episode identity
-- Q-learning, DQN, PPO, and SAC now consume vector collection natively; neural
-  policies perform batched inference and replay/rollout storage preserves the
-  correct algorithm-specific scheduling and boundary semantics
-- replay insertion and PPO rollout/GAE computation operate on real batches,
-  while scalar custom trainers remain compatible through the original hooks
-- extension packages can import and register environments without depending on
-  dl-core import order
-
-## What's New in 0.0.26?
-
-- Gymnasium-compatible environments can now be registered, discovered, and
-  created through a first-class environment contract
-- `RLTrainer` provides an episode-based lifecycle, deterministic evaluation,
-  RL callback hooks, and resumable algorithm checkpoints alongside
-  `EpochTrainer`
-- `QLearningTrainer` adds tabular epsilon-greedy learning for finite discrete
-  Gymnasium environments
-- `DQNTrainer` adds replay-based discrete control with target networks,
-  Double-DQN targets, and a built-in MLP Q-network
-- `PPOTrainer` adds clipped on-policy optimization, GAE, and discrete or
-  bounded-continuous actor-critic policies
-- `SACTrainer` adds replay-based bounded-continuous control with twin critics,
-  Polyak targets, and optional automatic entropy tuning
-- `dl-run --validate-only` now resolves RL environments, models, optimizers,
-  and callbacks without resetting or stepping an environment
-- `dl-core add trainer MyPolicy --base rltrainer` scaffolds custom algorithms
-  against the episode-oriented lifecycle
-- the local metric callback records RL episode, update, and evaluation metrics
-- local component loading now cleans up registrations and import paths between
-  projects, while registry lookups prefer the most specific matching prefix
-- configuration validation rejects malformed root and component structures
-  more consistently
+Previous versions are recorded in the [release history](RELEASES.md).
 
 ## Install
 

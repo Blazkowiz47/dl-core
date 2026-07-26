@@ -13,6 +13,8 @@ Current development version: `0.0.28`.
   and component scaffolding use fewer one-off implementation helpers
 - public APIs and runtime behavior remain unchanged
 
+Previous versions are recorded in the [release history](../RELEASES.md).
+
 ## Companion Packages
 
 - [`dl-azure`](https://github.com/Blazkowiz47/dl-azure): Azure execution and
