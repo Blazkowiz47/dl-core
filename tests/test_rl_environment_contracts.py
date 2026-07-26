@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from unittest.mock import patch
 
 import numpy as np
-from gymnasium.spaces import Discrete
+from gymnasium.spaces import Box, Discrete
 
 from dl_core import load_builtin_components
 from dl_core.core import (
@@ -19,6 +20,7 @@ from dl_core.core import (
     register_environment,
 )
 from dl_core.environments import (
+    ActionHistoryWrapper,
     GymnasiumEnvironment,
     GymnasiumVectorEnvironment,
     make_environment,
@@ -117,6 +119,121 @@ def test_gymnasium_vector_environment_preserves_terminal_observations() -> None:
     assert all(np.asarray(observation).shape == (4,) for observation in final_observations)
     assert not np.array_equal(final_observations[0], reset_observations[0])
     environment.close()
+
+
+def test_action_history_augments_scalar_discrete_observations() -> None:
+    load_builtin_components()
+    environment = make_environment(
+        {
+            "name": "gymnasium",
+            "id": "FrozenLake-v1",
+            "kwargs": {"is_slippery": False},
+            "action_history": {"length": 2},
+        }
+    )
+    observation, _ = environment.reset(seed=7)
+    next_observation, _, _, _, _ = environment.step(1)
+
+    assert isinstance(environment, ActionHistoryWrapper)
+    assert isinstance(environment.observation_space, Box)
+    assert environment.observation_space.shape == (24,)
+    assert observation[:16].sum() == 1.0
+    assert not observation[16:].any()
+    assert not next_observation[16:20].any()
+    assert next_observation[20:].tolist() == [0.0, 1.0, 0.0, 0.0]
+    assert environment.observation_space.contains(next_observation)
+    environment.close()
+
+
+def test_action_history_preserves_vector_final_history_and_resets_lanes() -> None:
+    load_builtin_components()
+    vector_environment = make_environment(
+        {
+            "name": "gymnasium_vector",
+            "id": "CartPole-v1",
+            "num_envs": 2,
+            "kwargs": {"max_episode_steps": 1},
+            "action_history": {"length": 2},
+        }
+    )
+    assert isinstance(vector_environment, ActionHistoryWrapper)
+    environment = BatchedEnvironment(vector_environment)
+    observations, _ = environment.reset_batch([3, 4])
+    (
+        reset_observations,
+        _,
+        _,
+        truncated,
+        _,
+        final_observations,
+    ) = environment.step_batch([0, 1])
+
+    assert observations.shape == (2, 8)
+    assert truncated.all()
+    assert not reset_observations[:, 4:].any()
+    assert final_observations[0][4:].tolist() == [0.0, 0.0, 1.0, 0.0]
+    assert final_observations[1][4:].tolist() == [0.0, 0.0, 0.0, 1.0]
+    assert all(
+        environment.observation_space.contains(observation)
+        for observation in final_observations
+    )
+    environment.close()
+
+
+def test_action_history_validates_box_values_without_lossy_casts() -> None:
+    class IntegerBoxEnvironment:
+        observation_space = Box(0, 10, shape=(1,), dtype=np.int32)
+        action_space = Box(0, 1, shape=(1,), dtype=np.int32)
+
+        def __init__(self) -> None:
+            self.step_calls = 0
+            self.observation = np.asarray([2], dtype=np.int32)
+
+        def reset(self, *, seed=None, options=None):
+            del seed, options
+            return self.observation, {}
+
+        def step(self, action):
+            self.step_calls += 1
+            return np.asarray([3], dtype=np.int32), 0.0, False, False, {}
+
+        def render(self):
+            return None
+
+        def close(self):
+            return None
+
+    source_environment = IntegerBoxEnvironment()
+    environment = ActionHistoryWrapper(
+        source_environment,
+        history_length=2,
+    )
+    observation, _ = environment.reset()
+    next_observation, _, _, _, _ = environment.step(
+        np.asarray([1], dtype=np.int32)
+    )
+
+    assert observation.tolist() == [2.0, 0.0, 0.0]
+    assert next_observation.tolist() == [3.0, 0.0, 1.0]
+    with np.testing.assert_raises_regex(ValueError, "outside"):
+        environment.step(np.asarray([1.5], dtype=np.float64))
+    assert source_environment.step_calls == 1
+    source_environment.observation = np.asarray([2.5], dtype=np.float64)
+    with np.testing.assert_raises_regex(ValueError, "outside"):
+        environment.reset()
+
+
+def test_action_history_rejects_invalid_length_before_environment_creation() -> None:
+    with patch.object(ENVIRONMENT_REGISTRY, "get") as get_environment:
+        with np.testing.assert_raises_regex(TypeError, "must be an integer"):
+            make_environment(
+                {
+                    "name": "gymnasium",
+                    "id": "CartPole-v1",
+                    "action_history": {"length": 1.5},
+                }
+            )
+    get_environment.assert_not_called()
 
 
 def test_rl_value_objects_preserve_transition_and_episode_state() -> None:

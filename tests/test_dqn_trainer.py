@@ -152,6 +152,21 @@ def test_dqn_is_registered_and_builtin_model_has_expected_shape(tmp_path: Path) 
     trainer.close()
 
 
+def test_dqn_trains_with_action_history_observations(tmp_path: Path) -> None:
+    load_builtin_components()
+    config = _config(tmp_path, total_timesteps=4)
+    config["environment"]["action_history"] = {"length": 2}
+    trainer = DQNTrainer(config)
+    trainer.setup()
+    trainer.perform_training()
+
+    assert isinstance(trainer.environment.observation_space, Box)
+    assert trainer.environment.observation_space.shape == (24,)
+    assert trainer.global_step == 4
+    assert trainer.update_step == 4
+    trainer.close()
+
+
 def test_dqn_requires_identical_box_observation_spaces(tmp_path: Path) -> None:
     load_builtin_components()
     config = _config(tmp_path)

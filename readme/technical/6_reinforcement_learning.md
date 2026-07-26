@@ -30,9 +30,18 @@ environment = make_environment(
         "name": "gymnasium",
         "id": "FrozenLake-v1",
         "kwargs": {"is_slippery": False},
+        "action_history": {"length": 4},
     }
 )
 ```
+
+The optional `action_history` wrapper appends the previous actions to each
+observation. Discrete observations and actions are one-hot encoded, while
+`Box` values are flattened, producing one flat floating-point `Box`
+observation that the built-in DQN and SAC models can consume directly. Empty
+history slots are zero-filled after reset. Vector environments keep independent
+histories per lane, clear a lane after same-step autoreset, and retain the
+completed history in that lane's `final_obs`.
 
 Extension packages and experiment repositories can register compatible
 environments without changing the trainer implementation:
