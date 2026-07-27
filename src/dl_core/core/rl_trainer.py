@@ -7,6 +7,7 @@ import random
 import traceback
 from abc import ABC, abstractmethod
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -562,16 +563,26 @@ class RLTrainer(ABC):
             else None
         )
         last_evaluation_episode = -1
+        overlap_environment_steps = bool(
+            getattr(self, "overlap_environment_steps", False)
+            and self.environment.supports_async_step
+        )
+        pending_transition_batch: TransitionBatch[Any, Any] | None = None
+        pending_phase_timings: dict[str, float] | None = None
         while not self.stop_training:
             if self.total_timesteps > 0 and self.global_step >= self.total_timesteps:
                 break
             if self.max_episodes is not None and self.current_episode >= self.max_episodes:
                 break
 
+            action_selection_start = perf_counter()
             action_output = self.select_actions(
                 observations,
                 deterministic=False,
             )
+            action_selection_ms = (
+                perf_counter() - action_selection_start
+            ) * 1000.0
             actions = action_output.actions
             action_infos = action_output.action_info
             if len(actions) != num_envs:
@@ -583,6 +594,36 @@ class RLTrainer(ABC):
                     "Batched action metadata must contain one mapping per environment"
                 )
 
+            environment_dispatch_start = perf_counter()
+            self.environment.step_batch_async(actions)
+            environment_dispatch_ms = (
+                perf_counter() - environment_dispatch_start
+            ) * 1000.0
+            learner_update_ms = 0.0
+            update_logs: list[dict[str, float]] = []
+            if overlap_environment_steps and pending_transition_batch is not None:
+                assert pending_phase_timings is not None
+                transition_batch_to_process = pending_transition_batch
+                phase_timings = pending_phase_timings
+                pending_transition_batch = None
+                pending_phase_timings = None
+                learner_update_start = perf_counter()
+                update_logs = self.process_transition_batch(
+                    transition_batch_to_process
+                )
+                learner_update_ms = (
+                    perf_counter() - learner_update_start
+                ) * 1000.0
+                self._emit_vector_update_logs(
+                    update_logs,
+                    global_step=self.global_step,
+                    phase_timings={
+                        **phase_timings,
+                        "rl/timing/learner_update_ms": learner_update_ms,
+                    },
+                )
+
+            environment_wait_start = perf_counter()
             (
                 next_observations,
                 rewards,
@@ -590,8 +631,12 @@ class RLTrainer(ABC):
                 environment_truncated,
                 lane_infos,
                 final_observations,
-            ) = self.environment.step_batch(actions)
+            ) = self.environment.step_batch_wait()
+            environment_wait_ms = (
+                perf_counter() - environment_wait_start
+            ) * 1000.0
             self.collector_step += 1
+            transition_processing_start = perf_counter()
             episode_lengths += 1
             episode_returns += rewards
             trainer_truncated = episode_lengths >= self.max_episode_steps
@@ -640,28 +685,54 @@ class RLTrainer(ABC):
             batched_final_observations = self.environment.stack_values(
                 final_observations
             )
-            update_logs = self.process_transition_batch(
-                TransitionBatch(
-                    observations=observations,
-                    actions=self.environment.stack_values(actions),
-                    rewards=rewards,
-                    next_observations=batched_final_observations,
-                    terminated=terminated,
-                    truncated=truncated,
-                    infos=final_infos,
-                    action_info=action_infos,
-                    final_observations=batched_final_observations,
-                )
+            transition_batch = TransitionBatch(
+                observations=observations,
+                actions=self.environment.stack_values(actions),
+                rewards=rewards,
+                next_observations=batched_final_observations,
+                terminated=terminated,
+                truncated=truncated,
+                infos=final_infos,
+                action_info=action_infos,
+                final_observations=batched_final_observations,
             )
-            for logs in update_logs:
-                self.update_step += 1
-                self.callbacks.on_update_end(
-                    self.update_step,
-                    {
-                        **logs,
-                        "update": float(self.update_step),
-                        "global_step": float(self.global_step),
-                    },
+            if overlap_environment_steps:
+                pending_transition_batch = transition_batch
+            else:
+                learner_update_start = perf_counter()
+                update_logs = self.process_transition_batch(transition_batch)
+                learner_update_ms = (
+                    perf_counter() - learner_update_start
+                ) * 1000.0
+            transition_processing_ms = (
+                perf_counter() - transition_processing_start
+            ) * 1000.0
+            if not overlap_environment_steps:
+                transition_processing_ms -= learner_update_ms
+            transition_processing_ms = max(transition_processing_ms, 0.0)
+            phase_timings = {
+                "rl/timing/action_selection_ms": action_selection_ms,
+                "rl/timing/environment_dispatch_ms": environment_dispatch_ms,
+                "rl/timing/environment_wait_ms": environment_wait_ms,
+                "rl/timing/learner_update_ms": learner_update_ms,
+                "rl/timing/transition_processing_ms": transition_processing_ms,
+                "rl/timing/collector_cycle_ms": (
+                    action_selection_ms
+                    + environment_dispatch_ms
+                    + environment_wait_ms
+                    + transition_processing_ms
+                ),
+                "rl/collection_overlap_enabled": float(
+                    overlap_environment_steps
+                ),
+            }
+            if overlap_environment_steps:
+                pending_phase_timings = phase_timings
+            else:
+                self._emit_vector_update_logs(
+                    update_logs,
+                    global_step=self.global_step,
+                    phase_timings=phase_timings,
                 )
 
             for environment_index in range(num_envs):
@@ -703,6 +774,60 @@ class RLTrainer(ABC):
                 self.current_episode += 1
                 self.current_epoch = self.current_episode
 
+            step_checkpoint_due = (
+                next_checkpoint_step is not None
+                and self.global_step >= next_checkpoint_step
+            )
+            evaluation_due = (
+                next_evaluation_episode is not None
+                and self.evaluation_episodes > 0
+                and self.current_episode >= next_evaluation_episode
+            )
+            episode_checkpoint_due = (
+                next_checkpoint_episode is not None
+                and self.current_episode >= next_checkpoint_episode
+            )
+            budget_reached = (
+                self.total_timesteps > 0
+                and self.global_step >= self.total_timesteps
+            )
+            episode_budget_reached = (
+                self.max_episodes is not None
+                and self.current_episode >= self.max_episodes
+            )
+            if (
+                overlap_environment_steps
+                and pending_transition_batch is not None
+                and (
+                    step_checkpoint_due
+                    or evaluation_due
+                    or episode_checkpoint_due
+                    or budget_reached
+                    or episode_budget_reached
+                    or self.stop_training
+                )
+            ):
+                assert pending_phase_timings is not None
+                transition_batch_to_process = pending_transition_batch
+                phase_timings = pending_phase_timings
+                pending_transition_batch = None
+                pending_phase_timings = None
+                learner_update_start = perf_counter()
+                flushed_update_logs = self.process_transition_batch(
+                    transition_batch_to_process
+                )
+                flushed_learner_update_ms = (
+                    perf_counter() - learner_update_start
+                ) * 1000.0
+                self._emit_vector_update_logs(
+                    flushed_update_logs,
+                    global_step=self.global_step,
+                    phase_timings={
+                        **phase_timings,
+                        "rl/timing/learner_update_ms": flushed_learner_update_ms,
+                    },
+                )
+
             if self._progress_bar is not None:
                 progress_value = (
                     self.global_step
@@ -721,24 +846,13 @@ class RLTrainer(ABC):
                     updates=self.update_step,
                     refresh=False,
                 )
-            if (
-                next_checkpoint_step is not None
-                and self.global_step >= next_checkpoint_step
-            ):
+            if step_checkpoint_due:
                 self.save_checkpoint(
                     f"step_{self.global_step:012d}.pth"
                 )
                 while next_checkpoint_step <= self.global_step:
                     next_checkpoint_step += self.checkpoint_frequency_steps
 
-            budget_reached = (
-                self.total_timesteps > 0
-                and self.global_step >= self.total_timesteps
-            )
-            episode_budget_reached = (
-                self.max_episodes is not None
-                and self.current_episode >= self.max_episodes
-            )
             if budget_reached or episode_budget_reached or self.stop_training:
                 break
 
@@ -804,24 +918,35 @@ class RLTrainer(ABC):
                 )
             observations = next_observations
 
-            if (
-                next_evaluation_episode is not None
-                and self.evaluation_episodes > 0
-                and self.current_episode >= next_evaluation_episode
-            ):
+            if evaluation_due:
                 self.evaluate()
                 last_evaluation_episode = self.current_episode
                 while next_evaluation_episode <= self.current_episode:
                     next_evaluation_episode += self.evaluation_frequency
-            if (
-                next_checkpoint_episode is not None
-                and self.current_episode >= next_checkpoint_episode
-            ):
+            if episode_checkpoint_due:
                 self.save_checkpoint(
                     f"episode_{self.current_episode:08d}.pth"
                 )
                 while next_checkpoint_episode <= self.current_episode:
                     next_checkpoint_episode += self.checkpoint_frequency
+
+        if pending_transition_batch is not None:
+            assert pending_phase_timings is not None
+            learner_update_start = perf_counter()
+            final_update_logs = self.process_transition_batch(
+                pending_transition_batch
+            )
+            final_learner_update_ms = (
+                perf_counter() - learner_update_start
+            ) * 1000.0
+            self._emit_vector_update_logs(
+                final_update_logs,
+                global_step=self.global_step,
+                phase_timings={
+                    **pending_phase_timings,
+                    "rl/timing/learner_update_ms": final_learner_update_ms,
+                },
+            )
 
         for environment_index in range(num_envs):
             for manager in self.episode_managers.values():
@@ -832,6 +957,25 @@ class RLTrainer(ABC):
         ):
             self.evaluate()
         self.save_checkpoint("latest.pth")
+
+    def _emit_vector_update_logs(
+        self,
+        update_logs: list[dict[str, float]],
+        *,
+        global_step: int,
+        phase_timings: dict[str, float],
+    ) -> None:
+        for logs in update_logs:
+            self.update_step += 1
+            self.callbacks.on_update_end(
+                self.update_step,
+                {
+                    **logs,
+                    **phase_timings,
+                    "update": float(self.update_step),
+                    "global_step": float(global_step),
+                },
+            )
 
     def run_episode(self, *, training: bool, episode: int) -> EpisodeResult:
         """Run one training or evaluation episode."""

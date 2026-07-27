@@ -109,6 +109,12 @@ class DQNTrainer(RLTrainer):
             "Optimizer steps between actor-policy weight synchronizations.",
             default=100,
         ),
+        config_field(
+            "overlap_environment_steps",
+            "bool",
+            "Step async vector environments while replay updates run.",
+            default=True,
+        ),
     ]
 
     def setup_algorithm(self) -> None:
@@ -157,6 +163,9 @@ class DQNTrainer(RLTrainer):
         )
         self.actor_model_sync_frequency = int(
             self.trainer_config.get("actor_model_sync_frequency", 100)
+        )
+        self.overlap_environment_steps = bool(
+            self.trainer_config.get("overlap_environment_steps", True)
         )
         if not 0.0 <= self.gamma <= 1.0:
             raise ValueError("gamma must be in [0, 1]")

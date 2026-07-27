@@ -343,6 +343,7 @@ trainer:
     checkpoint_replay_buffer: true
     actor_model_copies: 0
     actor_model_sync_frequency: 100
+    overlap_environment_steps: true
 ```
 
 DQN uses uniform replay, a hard-updated target network, Huber loss, and Double
@@ -372,6 +373,27 @@ On resume, the first training action recreates every copy from the restored
 online model. Update logs expose `dqn/actor_model_copies`,
 `dqn/actor_policy_version`, and `dqn/actor_policy_lag`; lag counts optimizer
 steps since the most recent snapshot synchronization.
+
+`overlap_environment_steps` defaults to `true`. With an async vector
+environment, DQN dispatches the next vector step before applying replay updates
+from the previous step. Environment workers can therefore simulate while the
+learner uses the accelerator. Actions for the in-flight vector step use the
+policy state from before that replay update, giving collection a deliberate
+one-vector-step policy lag. The transition is still inserted at its original
+global-step boundary, and pending transitions are flushed before evaluation,
+checkpoints, or the end of training. Sync and scalar environments retain the
+blocking order. Set the option to `false` when exact action-after-update
+ordering is more important than collection throughput.
+
+Vector update logs include `rl/timing/action_selection_ms`,
+`rl/timing/environment_dispatch_ms`, `rl/timing/environment_wait_ms`,
+`rl/timing/learner_update_ms`, `rl/timing/transition_processing_ms`, and
+`rl/timing/collector_cycle_ms`. `rl/collection_overlap_enabled` reports whether
+the configured environment actually supports the overlap. The collector-cycle
+metric sums collection phases and excludes learner time so overlapped and
+blocking runs remain comparable. These wall-clock metrics avoid explicit
+accelerator synchronization; use them to identify pipeline stalls without
+adding a synchronization point to every update.
 
 This setting does not require `torchrun`: it is one learner process using
 multiple inference replicas on the same device. It can improve utilization

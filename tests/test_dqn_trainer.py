@@ -595,7 +595,14 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
     trainer = DQNTrainer(config)
     trainer.setup()
     inference_batches: list[int] = []
+    events: list[str] = []
+    update_metrics: list[dict[str, float]] = []
+    callback_global_steps: list[int] = []
     original_q_values = trainer._q_values
+    step_batch_async = trainer.environment.step_batch_async
+    step_batch_wait = trainer.environment.step_batch_wait
+    process_transition_batch = trainer.process_transition_batch
+    on_update_end = trainer.callbacks.on_update_end
 
     def recording_q_values(
         model: torch.nn.Module,
@@ -605,7 +612,33 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
             inference_batches.append(int(observations.shape[0]))
         return original_q_values(model, observations)
 
+    def recording_step_batch_async(actions: list[int]) -> None:
+        events.append("dispatch")
+        step_batch_async(actions)
+
+    def recording_step_batch_wait():
+        events.append("wait")
+        return step_batch_wait()
+
+    def recording_process_transition_batch(
+        transitions: TransitionBatch,
+    ) -> list[dict[str, float]]:
+        events.append("update")
+        return process_transition_batch(transitions)
+
+    def recording_update_end(
+        update: int,
+        logs: dict[str, float] | None = None,
+    ) -> None:
+        update_metrics.append(logs or {})
+        callback_global_steps.append(trainer.global_step)
+        on_update_end(update, logs)
+
     trainer._q_values = recording_q_values
+    trainer.environment.step_batch_async = recording_step_batch_async
+    trainer.environment.step_batch_wait = recording_step_batch_wait
+    trainer.process_transition_batch = recording_process_transition_batch
+    trainer.callbacks.on_update_end = recording_update_end
     trainer.perform_training()
 
     assert trainer.global_step == 8
@@ -613,6 +646,33 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
     assert trainer.update_step == 4
     assert len(trainer.replay_buffer) == 8
     assert inference_batches.count(2) == 4
+    assert events == [
+        "dispatch",
+        "wait",
+        "dispatch",
+        "update",
+        "wait",
+        "dispatch",
+        "update",
+        "wait",
+        "dispatch",
+        "update",
+        "wait",
+        "update",
+    ]
+    assert [metrics["global_step"] for metrics in update_metrics] == [
+        2.0,
+        4.0,
+        6.0,
+        8.0,
+    ]
+    assert callback_global_steps == [2, 4, 6, 8]
+    assert all(
+        metrics["rl/collection_overlap_enabled"] == 1.0
+        and metrics["rl/timing/learner_update_ms"] >= 0.0
+        and metrics["rl/timing/environment_wait_ms"] >= 0.0
+        for metrics in update_metrics
+    )
     trainer.close()
 
 
