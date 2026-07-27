@@ -99,10 +99,19 @@ trainer:
     evaluation_frequency: 20
     evaluation_episodes: 5
     checkpoint_frequency: 100
+    checkpoint_frequency_steps: 0
+    show_progress: false
 ```
 
 Set a positive `total_timesteps`, `max_episodes`, or both. When both are set,
 training stops at the first budget reached.
+
+`checkpoint_frequency` keeps episode-based checkpoint scheduling for existing
+projects. Set `checkpoint_frequency_steps` to save additional numbered
+checkpoints after each transition interval; scalar environments save at the
+first episode boundary after an interval, while vector environments save after
+the vector step that reaches it. Set `show_progress: true` to display completed
+transitions, episodes, and optimizer updates on the main process.
 
 Training and evaluation environments are separate instances. Evaluation uses
 deterministic action selection, evaluation model mode, and a distinct seed

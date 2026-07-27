@@ -14,6 +14,7 @@ import torch
 from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
+from tqdm import tqdm
 
 from dl_core.utils import ArtifactManager, set_seeds
 from dl_core.utils.config_names import (
@@ -82,6 +83,18 @@ class RLTrainer(ABC):
             default=100,
         ),
         config_field(
+            "checkpoint_frequency_steps",
+            "int",
+            "Save a numbered checkpoint every N training transitions.",
+            default=0,
+        ),
+        config_field(
+            "show_progress",
+            "bool",
+            "Display training progress on the main process.",
+            default=False,
+        ),
+        config_field(
             "continue_model",
             "str | None",
             "RL checkpoint path used to resume a run.",
@@ -114,6 +127,10 @@ class RLTrainer(ABC):
         self.checkpoint_frequency = int(
             trainer_config.get("checkpoint_frequency", 100)
         )
+        self.checkpoint_frequency_steps = int(
+            trainer_config.get("checkpoint_frequency_steps", 0)
+        )
+        self.show_progress = bool(trainer_config.get("show_progress", False))
         self.continue_model = trainer_config.get("continue_model")
         if self.total_timesteps < 0:
             raise ValueError("total_timesteps cannot be negative")
@@ -129,6 +146,8 @@ class RLTrainer(ABC):
             raise ValueError("evaluation_episodes cannot be negative")
         if self.checkpoint_frequency < 0:
             raise ValueError("checkpoint_frequency cannot be negative")
+        if self.checkpoint_frequency_steps < 0:
+            raise ValueError("checkpoint_frequency_steps cannot be negative")
 
         self.accelerator: BaseAccelerator
         self.environment: BatchedEnvironment
@@ -146,6 +165,7 @@ class RLTrainer(ABC):
         self.collector_step = 0
         self.update_step = 0
         self.stop_training = False
+        self._progress_bar: tqdm | None = None
         self.episode_metrics: list[dict[str, Any]] = []
         self.evaluation_metrics: list[dict[str, Any]] = []
 
@@ -380,9 +400,38 @@ class RLTrainer(ABC):
 
     def perform_training(self) -> None:
         """Run episodes until the configured training budget is exhausted."""
-        self._perform_training()
+        try:
+            self._perform_training()
+        finally:
+            if self._progress_bar is not None:
+                self._progress_bar.close()
+                self._progress_bar = None
 
     def _perform_training(self) -> None:
+        next_checkpoint_step = (
+            (self.global_step // self.checkpoint_frequency_steps + 1)
+            * self.checkpoint_frequency_steps
+            if self.checkpoint_frequency_steps > 0
+            else None
+        )
+        if self.show_progress and self.accelerator.is_main_process():
+            progress_uses_steps = self.total_timesteps > 0
+            progress_total = (
+                self.total_timesteps
+                if progress_uses_steps
+                else int(self.max_episodes or 0)
+            )
+            progress_value = (
+                self.global_step if progress_uses_steps else self.current_episode
+            )
+            self._progress_bar = tqdm(
+                total=progress_total,
+                initial=min(progress_value, progress_total),
+                desc="RL training",
+                unit="step" if progress_uses_steps else "episode",
+                dynamic_ncols=True,
+            )
+
         if self.environment.num_envs == 1:
             last_evaluation_episode = -1
             while not self.stop_training:
@@ -409,6 +458,24 @@ class RLTrainer(ABC):
                     "episode/truncated": result.truncated,
                 }
                 self.episode_metrics.append(episode_logs)
+                if self._progress_bar is not None:
+                    progress_value = (
+                        self.global_step
+                        if self.total_timesteps > 0
+                        else self.current_episode
+                    )
+                    self._progress_bar.update(
+                        max(
+                            0,
+                            min(progress_value, self._progress_bar.total)
+                            - self._progress_bar.n,
+                        )
+                    )
+                    self._progress_bar.set_postfix(
+                        episodes=self.current_episode,
+                        updates=self.update_step,
+                        refresh=False,
+                    )
 
                 if (
                     self.evaluation_frequency > 0
@@ -425,6 +492,15 @@ class RLTrainer(ABC):
                     self.save_checkpoint(
                         f"episode_{self.current_episode:08d}.pth"
                     )
+                if (
+                    next_checkpoint_step is not None
+                    and self.global_step >= next_checkpoint_step
+                ):
+                    self.save_checkpoint(
+                        f"step_{self.global_step:012d}.pth"
+                    )
+                    while next_checkpoint_step <= self.global_step:
+                        next_checkpoint_step += self.checkpoint_frequency_steps
 
             if (
                 self.evaluation_episodes > 0
@@ -626,6 +702,34 @@ class RLTrainer(ABC):
                 self.callbacks.on_episode_end(episode, episode_logs)
                 self.current_episode += 1
                 self.current_epoch = self.current_episode
+
+            if self._progress_bar is not None:
+                progress_value = (
+                    self.global_step
+                    if self.total_timesteps > 0
+                    else self.current_episode
+                )
+                self._progress_bar.update(
+                    max(
+                        0,
+                        min(progress_value, self._progress_bar.total)
+                        - self._progress_bar.n,
+                    )
+                )
+                self._progress_bar.set_postfix(
+                    episodes=self.current_episode,
+                    updates=self.update_step,
+                    refresh=False,
+                )
+            if (
+                next_checkpoint_step is not None
+                and self.global_step >= next_checkpoint_step
+            ):
+                self.save_checkpoint(
+                    f"step_{self.global_step:012d}.pth"
+                )
+                while next_checkpoint_step <= self.global_step:
+                    next_checkpoint_step += self.checkpoint_frequency_steps
 
             budget_reached = (
                 self.total_timesteps > 0
@@ -836,6 +940,16 @@ class RLTrainer(ABC):
                         "global_step": float(self.global_step),
                     }
                     self.callbacks.on_update_end(self.update_step, update_logs)
+                if self._progress_bar is not None and self.total_timesteps > 0:
+                    self._progress_bar.update(
+                        min(self.global_step, self._progress_bar.total)
+                        - self._progress_bar.n
+                    )
+                    self._progress_bar.set_postfix(
+                        episodes=self.current_episode,
+                        updates=self.update_step,
+                        refresh=False,
+                    )
             observation = returned_observation
 
         result = EpisodeResult(
@@ -1052,6 +1166,9 @@ class RLTrainer(ABC):
         self._close()
 
     def _close(self) -> None:
+        if self._progress_bar is not None:
+            self._progress_bar.close()
+            self._progress_bar = None
         close_error: Exception | None = None
         for attribute in ("environment", "evaluation_environment"):
             environment = getattr(self, attribute, None)

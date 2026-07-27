@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from torch import nn
@@ -188,6 +189,7 @@ def test_rl_trainer_collects_vector_environments_and_tracks_each_lane(
         "name": "gymnasium_vector",
         "id": "FrozenLake-v1",
         "num_envs": 2,
+        "vectorization_mode": "sync",
         "kwargs": {"is_slippery": False},
     }
     config["evaluation_environment"] = {
@@ -213,6 +215,170 @@ def test_rl_trainer_collects_vector_environments_and_tracks_each_lane(
         0,
         1,
     }
+    trainer.close()
+
+
+def test_rl_trainer_saves_checkpoints_at_step_intervals(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(
+            tmp_path,
+            total_timesteps=4,
+            evaluation_episodes=0,
+            checkpoint_frequency=0,
+            checkpoint_frequency_steps=2,
+        )
+    )
+    trainer.setup()
+
+    trainer.perform_training()
+
+    assert trainer.artifact_manager.get_final_checkpoint_path(
+        "step_000000000002.pth"
+    ).exists()
+    assert trainer.artifact_manager.get_final_checkpoint_path(
+        "step_000000000004.pth"
+    ).exists()
+    trainer.close()
+
+
+def test_rl_trainer_resumes_step_checkpoint_schedule_after_saved_interval(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(
+            tmp_path,
+            total_timesteps=2,
+            evaluation_episodes=0,
+            checkpoint_frequency=0,
+            checkpoint_frequency_steps=2,
+        )
+    )
+    trainer.setup()
+    trainer.perform_training()
+    checkpoint_path = trainer.artifact_manager.get_final_checkpoint_path(
+        "step_000000000002.pth"
+    )
+
+    restored = _TestRLTrainer(
+        _config(
+            tmp_path,
+            total_timesteps=4,
+            evaluation_episodes=0,
+            checkpoint_frequency=0,
+            checkpoint_frequency_steps=2,
+        )
+    )
+    restored.setup()
+    restored.load_checkpoint(str(checkpoint_path))
+
+    with patch.object(
+        restored,
+        "save_checkpoint",
+        wraps=restored.save_checkpoint,
+    ) as save_checkpoint:
+        restored.perform_training()
+
+    assert [call.args[0] for call in save_checkpoint.call_args_list] == [
+        "step_000000000004.pth",
+        "latest.pth",
+    ]
+    trainer.close()
+    restored.close()
+
+
+def test_rl_trainer_saves_vector_checkpoints_after_crossed_intervals(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=6,
+        max_episode_steps=100,
+        evaluation_episodes=0,
+        checkpoint_frequency=0,
+        checkpoint_frequency_steps=3,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "vectorization_mode": "sync",
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = _TestRLTrainer(config)
+    trainer.setup()
+
+    trainer.perform_training()
+
+    assert trainer.global_step == 6
+    assert trainer.artifact_manager.get_final_checkpoint_path(
+        "step_000000000004.pth"
+    ).exists()
+    assert trainer.artifact_manager.get_final_checkpoint_path(
+        "step_000000000006.pth"
+    ).exists()
+    trainer.close()
+
+
+def test_rl_trainer_optionally_displays_step_progress(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(
+            tmp_path,
+            evaluation_episodes=0,
+            checkpoint_frequency=0,
+            show_progress=True,
+        )
+    )
+    trainer.setup()
+
+    with patch("dl_core.core.rl_trainer.tqdm") as progress_factory:
+        progress = progress_factory.return_value
+        progress.n = 0
+        progress.total = 4
+        progress.update.side_effect = lambda amount: setattr(
+            progress,
+            "n",
+            progress.n + amount,
+        )
+
+        trainer.perform_training()
+
+    assert progress.n == 4
+    progress.close.assert_called_once_with()
+    trainer.close()
+
+
+def test_rl_trainer_closes_progress_when_training_is_interrupted(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(
+            tmp_path,
+            evaluation_episodes=0,
+            checkpoint_frequency=0,
+            show_progress=True,
+        )
+    )
+    trainer.setup()
+
+    with (
+        patch("dl_core.core.rl_trainer.tqdm") as progress_factory,
+        patch.object(trainer, "run_episode", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        trainer.perform_training()
+
+    progress_factory.return_value.close.assert_called_once_with()
+    assert trainer._progress_bar is None
     trainer.close()
 
 
