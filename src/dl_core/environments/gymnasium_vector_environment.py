@@ -36,3 +36,33 @@ class GymnasiumVectorEnvironment(gym.vector.VectorWrapper):
             **make_kwargs,
         )
         super().__init__(vector_environment)
+        self.supports_async_step = isinstance(
+            vector_environment,
+            gym.vector.AsyncVectorEnv,
+        )
+
+    def step_async(self, actions: Any) -> None:
+        """Dispatch actions without waiting for asynchronous workers."""
+        self._step_async(actions)
+
+    def _step_async(self, actions: Any) -> None:
+        if not self.supports_async_step:
+            raise RuntimeError(
+                "Asynchronous stepping requires vectorization_mode='async'"
+            )
+        self.env.step_async(actions)
+
+    def step_wait(
+        self,
+    ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        """Wait for a previously dispatched asynchronous vector step."""
+        return self._step_wait()
+
+    def _step_wait(
+        self,
+    ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        if not self.supports_async_step:
+            raise RuntimeError(
+                "Asynchronous stepping requires vectorization_mode='async'"
+            )
+        return self.env.step_wait()

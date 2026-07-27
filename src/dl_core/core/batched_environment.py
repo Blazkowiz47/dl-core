@@ -20,6 +20,11 @@ class BatchedEnvironment:
     ):
         self.environment = environment
         self.is_vector = isinstance(environment, VectorEnvironment)
+        self.supports_async_step = bool(
+            self.is_vector
+            and getattr(environment, "supports_async_step", False)
+        )
+        self._pending_actions: list[Any] | None = None
         if self.is_vector:
             mode = environment.metadata.get("autoreset_mode")
             if mode != AutoresetMode.SAME_STEP:
@@ -119,9 +124,55 @@ class BatchedEnvironment:
         list[dict[str, Any]],
         list[Any],
     ]:
+        self._step_batch_async(actions)
+        return self._step_batch_wait()
+
+    def step_batch_async(self, actions: list[Any]) -> None:
+        """Dispatch a vector step so other work can run before waiting."""
+        self._step_batch_async(actions)
+
+    def _step_batch_async(self, actions: list[Any]) -> None:
         if len(actions) != self.num_envs:
             raise ValueError("Action count must match the number of environments")
-        if self.is_vector:
+        if self._pending_actions is not None:
+            raise RuntimeError("An environment step is already pending")
+        if self.supports_async_step:
+            self.environment.step_async(self._stack_values(actions))
+        self._pending_actions = actions
+
+    def step_batch_wait(
+        self,
+    ) -> tuple[
+        Any,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        list[dict[str, Any]],
+        list[Any],
+    ]:
+        """Wait for a dispatched step and preserve terminal observations."""
+        return self._step_batch_wait()
+
+    def _step_batch_wait(
+        self,
+    ) -> tuple[
+        Any,
+        np.ndarray,
+        np.ndarray,
+        np.ndarray,
+        list[dict[str, Any]],
+        list[Any],
+    ]:
+        if self._pending_actions is None:
+            raise RuntimeError("No environment step is pending")
+        actions = self._pending_actions
+        self._pending_actions = None
+        if self.supports_async_step:
+            observations, rewards, terminated, truncated, infos = (
+                self.environment.step_wait()
+            )
+            lane_infos = self._unbatch_infos(infos)
+        elif self.is_vector:
             observations, rewards, terminated, truncated, infos = (
                 self.environment.step(self._stack_values(actions))
             )

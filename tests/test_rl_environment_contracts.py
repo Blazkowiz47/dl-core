@@ -101,9 +101,11 @@ def test_gymnasium_vector_environment_preserves_terminal_observations() -> None:
     )
     assert isinstance(vector_environment, GymnasiumVectorEnvironment)
     assert isinstance(vector_environment.env, AsyncVectorEnv)
+    assert vector_environment.supports_async_step is True
     environment = BatchedEnvironment(vector_environment)
     observations, _ = environment.reset_batch([3, 4])
 
+    environment.step_batch_async([0, 1])
     (
         reset_observations,
         rewards,
@@ -111,7 +113,7 @@ def test_gymnasium_vector_environment_preserves_terminal_observations() -> None:
         truncated,
         _,
         final_observations,
-    ) = environment.step_batch([0, 1])
+    ) = environment.step_batch_wait()
 
     assert observations.shape == (2, 4)
     assert reset_observations.shape == (2, 4)
@@ -135,7 +137,60 @@ def test_gymnasium_vector_environment_accepts_explicit_sync_mode() -> None:
     )
 
     assert isinstance(vector_environment.env, SyncVectorEnv)
+    assert vector_environment.supports_async_step is False
+    environment = BatchedEnvironment(vector_environment)
+    environment.reset_batch([3, 4])
+    environment.step_batch_async([0, 1])
+    _, rewards, _, _, _, _ = environment.step_batch_wait()
+
+    assert rewards.tolist() == [1.0, 1.0]
+    with np.testing.assert_raises_regex(RuntimeError, "No environment step"):
+        environment.step_batch_wait()
     vector_environment.close()
+
+
+def test_batched_scalar_environment_accepts_split_step_api() -> None:
+    load_builtin_components()
+    scalar_environment = make_environment(
+        {
+            "name": "gymnasium",
+            "id": "FrozenLake-v1",
+            "kwargs": {"is_slippery": False},
+        }
+    )
+    environment = BatchedEnvironment(scalar_environment)
+    observations, _ = environment.reset_batch([7])
+    environment.step_batch_async([1])
+    next_observations, rewards, terminated, truncated, _, _ = (
+        environment.step_batch_wait()
+    )
+
+    assert observations.tolist() == [0]
+    assert next_observations.tolist() == [4]
+    assert rewards.tolist() == [0.0]
+    assert not terminated.any()
+    assert not truncated.any()
+    environment.close()
+
+
+def test_batched_environment_rejects_a_second_pending_step() -> None:
+    load_builtin_components()
+    vector_environment = make_environment(
+        {
+            "name": "gymnasium_vector",
+            "id": "CartPole-v1",
+            "num_envs": 2,
+        }
+    )
+    environment = BatchedEnvironment(vector_environment)
+    environment.reset_batch([3, 4])
+    environment.step_batch_async([0, 1])
+
+    with np.testing.assert_raises_regex(RuntimeError, "already pending"):
+        environment.step_batch_async([1, 0])
+
+    environment.step_batch_wait()
+    environment.close()
 
 
 def test_action_history_augments_scalar_discrete_observations() -> None:

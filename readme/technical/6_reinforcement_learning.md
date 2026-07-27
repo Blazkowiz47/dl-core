@@ -145,6 +145,14 @@ separate process so CPU-heavy simulation can run concurrently. Set
 `vectorization_mode: sync` explicitly for lightweight environments where
 inter-process communication would cost more than sequential stepping.
 
+`BatchedEnvironment.step_batch_async(actions)` dispatches work to an async
+Gymnasium vector environment, and `step_batch_wait()` collects the normalized
+result later. `step_batch(actions)` remains the blocking compatibility API and
+calls both operations in order. Sync vector and scalar environments accept the
+same split API but perform their work when `step_batch_wait()` is called, so
+trainers can use one control flow and only overlap work when the environment
+reports `supports_async_step`.
+
 `global_step` counts transitions, while `collector_step` counts vector
 environment calls. `select_actions` and `process_transition_batch` expose one
 whole collector step to vector-aware algorithms. Existing custom trainers that
