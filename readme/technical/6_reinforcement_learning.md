@@ -397,7 +397,7 @@ compile model forwards in place:
 accelerator:
   type: single_gpu
   mixed_precision: bf16
-  compile_models: true
+  compile_models: [online]
   compile_mode: default
 ```
 
@@ -405,7 +405,11 @@ Compilation is opt-in because the first forwards incur compilation time and
 some modes use additional memory. In-place compilation preserves the model
 structure and checkpoint state dictionaries. Benchmark it with the real model
 and batch shape; `default` balances compilation time and runtime performance,
-while `max-autotune` can spend longer selecting GPU kernels.
+while `max-autotune` can spend longer selecting GPU kernels. Use
+`compile_models: true` to compile every configured model, or list model names
+when trainable and frozen copies share one implementation. Listed names must
+match the trainer's runtime model keys. For DQN, compiling only `online` avoids
+redundant target-network graphs with different gradient guards.
 
 Vector update logs include `rl/timing/action_selection_ms`,
 `rl/timing/environment_dispatch_ms`, `rl/timing/environment_wait_ms`,

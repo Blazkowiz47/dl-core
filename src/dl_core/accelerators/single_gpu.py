@@ -29,8 +29,8 @@ class SingleGPUAccelerator(BaseAccelerator):
     CONFIG_FIELDS = BaseAccelerator.CONFIG_FIELDS + [
         config_field(
             "compile_models",
-            "bool",
-            "Compile model forwards in place with torch.compile.",
+            "bool | list[str]",
+            "Compile all models or only the listed model names in place.",
             default=False,
         ),
         config_field(
@@ -44,7 +44,18 @@ class SingleGPUAccelerator(BaseAccelerator):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.compile_models = bool(config.get("compile_models", False))
+        compile_models = config.get("compile_models", False)
+        if isinstance(compile_models, bool):
+            self.compile_models: bool | set[str] = compile_models
+        elif isinstance(compile_models, list) and all(
+            isinstance(name, str) and name
+            for name in compile_models
+        ):
+            self.compile_models = set(compile_models)
+        else:
+            raise TypeError(
+                "compile_models must be a boolean or a list of model names"
+            )
         self.compile_mode = str(config.get("compile_mode", "default"))
         if self.compile_mode not in {
             "default",
@@ -97,12 +108,23 @@ class SingleGPUAccelerator(BaseAccelerator):
 
         Optimizers, schedulers, and dataloaders don't need modification for single GPU.
         """
+        if isinstance(self.compile_models, set):
+            unknown_models = self.compile_models.difference(models or {})
+            if unknown_models:
+                unknown_names = ", ".join(sorted(unknown_models))
+                raise ValueError(
+                    f"compile_models contains unknown model names: {unknown_names}"
+                )
+
         # Move model to device
         prepared_models = {}
         if models:
             for name, model in models.items():
                 prepared_model = model.to(self.device)
-                if self.compile_models:
+                if self.compile_models is True or (
+                    isinstance(self.compile_models, set)
+                    and name in self.compile_models
+                ):
                     prepared_model.compile(mode=self.compile_mode)
                     self.logger.info(
                         "Compiled model %s with mode=%s",
