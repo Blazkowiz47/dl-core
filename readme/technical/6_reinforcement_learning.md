@@ -390,6 +390,23 @@ checkpoints, or the end of training. Sync and scalar environments retain the
 blocking order. Set the option to `false` when exact action-after-update
 ordering is more important than collection throughput.
 
+For a stable-shape, compute-bound network, the single-GPU accelerator can
+compile model forwards in place:
+
+```yaml
+accelerator:
+  type: single_gpu
+  mixed_precision: bf16
+  compile_models: true
+  compile_mode: default
+```
+
+Compilation is opt-in because the first forwards incur compilation time and
+some modes use additional memory. In-place compilation preserves the model
+structure and checkpoint state dictionaries. Benchmark it with the real model
+and batch shape; `default` balances compilation time and runtime performance,
+while `max-autotune` can spend longer selecting GPU kernels.
+
 Vector update logs include `rl/timing/action_selection_ms`,
 `rl/timing/environment_dispatch_ms`, `rl/timing/environment_wait_ms`,
 `rl/timing/learner_update_ms`, `rl/timing/transition_processing_ms`, and

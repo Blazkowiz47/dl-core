@@ -10,6 +10,7 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 from dl_core.core.base_accelerator import BaseAccelerator
+from dl_core.core.config_metadata import config_field
 from dl_core.core.registry import register_accelerator
 
 
@@ -25,9 +26,36 @@ class SingleGPUAccelerator(BaseAccelerator):
     - GradScaler for mixed precision
     """
 
+    CONFIG_FIELDS = BaseAccelerator.CONFIG_FIELDS + [
+        config_field(
+            "compile_models",
+            "bool",
+            "Compile model forwards in place with torch.compile.",
+            default=False,
+        ),
+        config_field(
+            "compile_mode",
+            "str",
+            "PyTorch compilation mode.",
+            default="default",
+        ),
+    ]
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.compile_models = bool(config.get("compile_models", False))
+        self.compile_mode = str(config.get("compile_mode", "default"))
+        if self.compile_mode not in {
+            "default",
+            "reduce-overhead",
+            "max-autotune",
+            "max-autotune-no-cudagraphs",
+        }:
+            raise ValueError(
+                "compile_mode must be default, reduce-overhead, max-autotune, "
+                "or max-autotune-no-cudagraphs"
+            )
 
         # Log GPU information
         if torch.cuda.is_available():
@@ -73,7 +101,15 @@ class SingleGPUAccelerator(BaseAccelerator):
         prepared_models = {}
         if models:
             for name, model in models.items():
-                prepared_models[name] = model.to(self.device)
+                prepared_model = model.to(self.device)
+                if self.compile_models:
+                    prepared_model.compile(mode=self.compile_mode)
+                    self.logger.info(
+                        "Compiled model %s with mode=%s",
+                        name,
+                        self.compile_mode,
+                    )
+                prepared_models[name] = prepared_model
 
         # Move criterions to device
         prepared_criterions = {}
