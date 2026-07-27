@@ -1396,11 +1396,18 @@ class RLTrainer(ABC):
         transition: Transition[Any, Any],
     ) -> Transition[Any, Any]:
         """Prepare one collected transition for trainer consumption."""
-        preparation_hook = self._prepare_transition
-        if (
+        preparation_hook = self.transform_transition
+        public_override = (
             getattr(preparation_hook, "__func__", None)
-            is RLTrainer._prepare_transition
-        ):
+            is not RLTrainer.transform_transition
+        )
+        legacy_hook = getattr(self, "_prepare_transition", None)
+        if not public_override and callable(legacy_hook):
+            raise RuntimeError(
+                "_prepare_transition() is no longer an extension hook; "
+                "rename it to transform_transition()"
+            )
+        elif not public_override:
             return transition
         prepared_transition = preparation_hook(
             replace(
@@ -1410,13 +1417,14 @@ class RLTrainer(ABC):
             )
         )
         if not isinstance(prepared_transition, Transition):
-            raise TypeError("_prepare_transition must return a Transition")
+            raise TypeError("transform_transition must return a Transition")
         return prepared_transition
 
-    def _prepare_transition(
+    def transform_transition(
         self,
         transition: Transition[Any, Any],
     ) -> Transition[Any, Any]:
+        """Customize one scalar transition before trainer consumption."""
         return transition
 
     def prepare_transition_batch(
@@ -1424,11 +1432,18 @@ class RLTrainer(ABC):
         transitions: TransitionBatch[Any, Any],
     ) -> TransitionBatch[Any, Any]:
         """Prepare one vector step for trainer consumption."""
-        preparation_hook = self._prepare_transition_batch
-        if (
+        preparation_hook = self.transform_transition_batch
+        public_override = (
             getattr(preparation_hook, "__func__", None)
-            is RLTrainer._prepare_transition_batch
-        ):
+            is not RLTrainer.transform_transition_batch
+        )
+        legacy_hook = getattr(self, "_prepare_transition_batch", None)
+        if not public_override and callable(legacy_hook):
+            raise RuntimeError(
+                "_prepare_transition_batch() is no longer an extension hook; "
+                "rename it to transform_transition_batch()"
+            )
+        elif not public_override:
             return transitions
         original_size = transitions.size
         prepared_transitions = preparation_hook(
@@ -1442,7 +1457,7 @@ class RLTrainer(ABC):
         )
         if not isinstance(prepared_transitions, TransitionBatch):
             raise TypeError(
-                "_prepare_transition_batch must return a TransitionBatch"
+                "transform_transition_batch must return a TransitionBatch"
             )
         if prepared_transitions.size != original_size:
             raise ValueError(
@@ -1465,10 +1480,11 @@ class RLTrainer(ABC):
                 )
         return prepared_transitions
 
-    def _prepare_transition_batch(
+    def transform_transition_batch(
         self,
         transitions: TransitionBatch[Any, Any],
     ) -> TransitionBatch[Any, Any]:
+        """Customize one vector transition before trainer consumption."""
         return transitions
 
     def should_update(
@@ -1477,13 +1493,12 @@ class RLTrainer(ABC):
         transitions: TransitionBatch[Any, Any],
     ) -> bool:
         """Return whether an eligible replay-based update should run."""
-        return self._should_update(global_step, transitions)
-
-    def _should_update(
-        self,
-        global_step: int,
-        transitions: TransitionBatch[Any, Any],
-    ) -> bool:
+        legacy_hook = getattr(self, "_should_update", None)
+        if callable(legacy_hook):
+            raise RuntimeError(
+                "_should_update() is no longer an extension hook; rename it "
+                "to should_update()"
+            )
         del global_step, transitions
         return True
 

@@ -211,7 +211,8 @@ class BaseExecutor(ABC):
         """
         Wrapper for executing a single run in parallel mode.
 
-        Subclasses can override execute_run directly or this wrapper for custom behavior.
+        Subclasses should override the public execute_run method for custom
+        execution behavior.
 
         Args:
             run_index: Run index

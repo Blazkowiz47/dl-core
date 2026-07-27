@@ -963,13 +963,13 @@ from {import_path} import {base_class}
 class {class_name}({base_class}):
     """{class_docstring}"""
 
-    def _create_train_transforms(self) -> A.Compose:
+    def create_train_transforms(self) -> A.Compose:
         """Build the training augmentation pipeline."""
         return A.Compose([
             # TODO: add train-time transforms here.
         ])
 
-    def _create_test_transforms(self) -> A.Compose:
+    def create_test_transforms(self) -> A.Compose:
         """Build the evaluation augmentation pipeline."""
         return A.Compose([
             # TODO: add validation/test transforms here.

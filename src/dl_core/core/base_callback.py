@@ -365,64 +365,63 @@ class Callback(ABC):
         episode: int,
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Run at the beginning of a reinforcement-learning episode."""
-        self._on_episode_start(episode, logs)
+        """Run at the beginning of a reinforcement-learning episode.
 
-    def _on_episode_start(
-        self,
-        episode: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        Override this public hook in custom callbacks.
+        """
         if not self.is_main_process():
             return
+        legacy_hook = getattr(self, "_on_episode_start", None)
+        if callable(legacy_hook):
+            raise RuntimeError(
+                "_on_episode_start() is no longer an extension hook; rename "
+                "it to on_episode_start()"
+            )
 
     def on_episode_end(
         self,
         episode: int,
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Run after a reinforcement-learning episode completes."""
-        self._on_episode_end(episode, logs)
-
-    def _on_episode_end(
-        self,
-        episode: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        """Run after an RL episode; override this public hook."""
         if not self.is_main_process():
             return
+        legacy_hook = getattr(self, "_on_episode_end", None)
+        if callable(legacy_hook):
+            raise RuntimeError(
+                "_on_episode_end() is no longer an extension hook; rename it "
+                "to on_episode_end()"
+            )
 
     def on_update_end(
         self,
         update: int,
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Run after an RL algorithm update completes."""
-        self._on_update_end(update, logs)
-
-    def _on_update_end(
-        self,
-        update: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        """Run after an RL update; override this public hook."""
         if not self.is_main_process():
             return
+        legacy_hook = getattr(self, "_on_update_end", None)
+        if callable(legacy_hook):
+            raise RuntimeError(
+                "_on_update_end() is no longer an extension hook; rename it "
+                "to on_update_end()"
+            )
 
     def on_evaluation_end(
         self,
         step: int,
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Run after an RL evaluation group completes."""
-        self._on_evaluation_end(step, logs)
-
-    def _on_evaluation_end(
-        self,
-        step: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        """Run after an RL evaluation group; override this public hook."""
         if not self.is_main_process():
             return
+        legacy_hook = getattr(self, "_on_evaluation_end", None)
+        if callable(legacy_hook):
+            raise RuntimeError(
+                "_on_evaluation_end() is no longer an extension hook; rename "
+                "it to on_evaluation_end()"
+            )
 
     def get_state(self) -> dict | None:
         """
@@ -815,13 +814,6 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL episode-start hook."""
-        self._on_episode_start(episode, logs)
-
-    def _on_episode_start(
-        self,
-        episode: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
         self._dispatch_rl_hook("on_episode_start", episode, logs)
 
     def on_episode_end(
@@ -830,13 +822,6 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL episode-end hook."""
-        self._on_episode_end(episode, logs)
-
-    def _on_episode_end(
-        self,
-        episode: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
         self._dispatch_rl_hook("on_episode_end", episode, logs)
 
     def on_update_end(
@@ -845,13 +830,6 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL update-end hook."""
-        self._on_update_end(update, logs)
-
-    def _on_update_end(
-        self,
-        update: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
         self._dispatch_rl_hook("on_update_end", update, logs)
 
     def on_evaluation_end(
@@ -860,13 +838,6 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL evaluation-end hook."""
-        self._on_evaluation_end(step, logs)
-
-    def _on_evaluation_end(
-        self,
-        step: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
         self._dispatch_rl_hook("on_evaluation_end", step, logs)
 
     def _dispatch_rl_hook(

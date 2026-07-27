@@ -411,7 +411,7 @@ def test_sac_can_gate_eligible_updates_by_global_step(tmp_path: Path) -> None:
         checked_steps.append(global_step)
         return global_step % 2 == 0
 
-    trainer._should_update = update_on_even_steps
+    trainer.should_update = update_on_even_steps
     trainer.global_step = 4
     observation, _ = trainer.environment.reset(seed=29)
     action = trainer.environment.action_space.sample()

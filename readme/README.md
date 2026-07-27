@@ -4,16 +4,16 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.0.33`.
-Current development version: `0.0.33`.
+Current public release: `deep-learning-core==0.0.34`.
+Current development version: `0.0.34`.
 
-## What's New in 0.0.33?
+## What's New in 0.0.34?
 
-- scalar and vector transition-preparation hooks support learning-only reward
-  shaping and replay transformations
-- custom vector hooks preserve lane alignment and cannot mutate episode
-  completion metadata
-- the default preparation path remains a zero-copy no-op
+- researcher extension hooks use public names across RL transition shaping,
+  update schedules, augmentations, metric metadata, and epoch logs
+- RL callback integrations override the public `on_*()` contract
+- private methods are reserved for internal framework implementation
+- the README and RL guide list the old-to-new hook migration names
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

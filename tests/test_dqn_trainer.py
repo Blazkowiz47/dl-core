@@ -944,7 +944,7 @@ def test_dqn_can_gate_eligible_updates_by_global_step(tmp_path: Path) -> None:
         checked_steps.append(global_step)
         return global_step % 4 == 0 and transitions.size == 6
 
-    trainer._should_update = update_every_four_steps
+    trainer.should_update = update_every_four_steps
     trainer.global_step = 6
     logs = trainer.process_transition_batch(
         TransitionBatch(

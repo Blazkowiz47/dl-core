@@ -22,16 +22,17 @@ class BaseTransform(ABC):
         self.width = kwargs.get("width", 224)
 
         # Setup transforms
-        self.train_transforms = self._create_train_transforms()
-        self.test_transforms = self._create_test_transforms()
+        self.train_transforms = self.create_train_transforms()
+        self.test_transforms = self.create_test_transforms()
 
-        if self._create_validation_transforms() is None:
-            self.validation_transforms = self._create_test_transforms()
+        validation_transforms = self.create_validation_transforms()
+        if validation_transforms is None:
+            self.validation_transforms = self.test_transforms
         else:
-            self.validation_transforms = self._create_validation_transforms()
+            self.validation_transforms = validation_transforms
 
     @abstractmethod
-    def _create_train_transforms(self) -> A.Compose:
+    def create_train_transforms(self) -> A.Compose:
         """Create training transforms.
 
         Returns:
@@ -40,7 +41,7 @@ class BaseTransform(ABC):
         pass
 
     @abstractmethod
-    def _create_test_transforms(self) -> A.Compose:
+    def create_test_transforms(self) -> A.Compose:
         """Create test transforms.
 
         Returns:
@@ -48,11 +49,11 @@ class BaseTransform(ABC):
         """
         pass
 
-    def _create_validation_transforms(self) -> A.Compose:
-        """Create test transforms.
+    def create_validation_transforms(self) -> A.Compose | None:
+        """Create validation transforms.
 
         Returns:
-            Albumentations compose pipeline for testing
+            Albumentations compose pipeline, or None to reuse test transforms.
         """
         return None
 

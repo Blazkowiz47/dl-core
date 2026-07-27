@@ -89,13 +89,13 @@ class _PreparingRLTrainer(_TestRLTrainer):
         super().setup_algorithm()
         self.prepared_rewards: list[float] = []
 
-    def _prepare_transition(
+    def transform_transition(
         self,
         transition: Transition[Any, Any],
     ) -> Transition[Any, Any]:
         return replace(transition, reward=transition.reward + 10.0)
 
-    def _prepare_transition_batch(
+    def transform_transition_batch(
         self,
         transitions: TransitionBatch[Any, Any],
     ) -> TransitionBatch[Any, Any]:
@@ -110,7 +110,7 @@ class _PreparingRLTrainer(_TestRLTrainer):
 
 
 class _MutatingBatchRLTrainer(_TestRLTrainer):
-    def _prepare_transition_batch(
+    def transform_transition_batch(
         self,
         transitions: TransitionBatch[Any, Any],
     ) -> TransitionBatch[Any, Any]:
@@ -363,7 +363,7 @@ def test_vector_preparation_must_preserve_environment_lanes(
         terminated=np.asarray([False, False]),
         truncated=np.asarray([False, False]),
     )
-    trainer._prepare_transition_batch = lambda values: replace(
+    trainer.transform_transition_batch = lambda values: replace(
         values,
         rewards=values.rewards[:1],
     )
@@ -397,7 +397,7 @@ def test_transition_preparation_isolates_nested_metadata(
         value.info["diagnostics"].clear()
         return value
 
-    trainer._prepare_transition = mutate_metadata
+    trainer.transform_transition = mutate_metadata
     trainer.prepare_transition(transition)
 
     assert transition.info == {"diagnostics": {"distance": 3}}
@@ -431,6 +431,54 @@ def test_default_transition_preparation_is_a_zero_copy_noop(
 
     assert trainer.prepare_transition(transition) is transition
     assert trainer.prepare_transition_batch(transitions) is transitions
+    trainer.close()
+
+
+def test_private_rl_hooks_raise_actionable_migration_errors(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(tmp_path, evaluation_episodes=0)
+    )
+    trainer.setup()
+    transition = Transition(
+        observation=0,
+        action=1,
+        reward=1.0,
+        next_observation=1,
+        terminated=False,
+        truncated=False,
+    )
+    transitions = TransitionBatch(
+        observations=np.asarray([[0]]),
+        actions=np.asarray([1]),
+        rewards=np.asarray([1.0], dtype=np.float32),
+        next_observations=np.asarray([[1]]),
+        terminated=np.asarray([False]),
+        truncated=np.asarray([False]),
+    )
+    trainer._prepare_transition = lambda value: replace(
+        value,
+        reward=value.reward + 1.0,
+    )
+    trainer._prepare_transition_batch = lambda values: replace(
+        values,
+        rewards=values.rewards + 2.0,
+    )
+    trainer._should_update = lambda global_step, values: (
+        global_step == 4 and values.size == 1
+    )
+
+    with pytest.raises(RuntimeError, match="transform_transition"):
+        trainer.prepare_transition(transition)
+    with pytest.raises(
+        RuntimeError,
+        match="transform_transition_batch",
+    ):
+        trainer.prepare_transition_batch(transitions)
+    with pytest.raises(RuntimeError, match="should_update"):
+        trainer.should_update(4, transitions)
     trainer.close()
 
 

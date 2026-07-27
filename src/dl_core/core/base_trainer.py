@@ -1341,7 +1341,7 @@ class EpochTrainer(ABC):
 
         self.metrics_history[split][self.current_epoch].update(metrics)
 
-    def _generate_epoch_logs(self, epoch: int) -> dict[str, float]:
+    def generate_epoch_logs(self, epoch: int) -> dict[str, float]:
         """
         Generate epoch-level logs (model stats, weight norms, etc.).
 
@@ -1361,6 +1361,12 @@ class EpochTrainer(ABC):
                 "model_name/layers/encoder": 12.5
             }
         """
+        if callable(getattr(self, "_generate_epoch_logs", None)):
+            raise RuntimeError(
+                "_generate_epoch_logs() is no longer an extension hook; "
+                "rename the override to generate_epoch_logs() and call "
+                "super().generate_epoch_logs(epoch) to retain built-in metrics"
+            )
         accelerator = getattr(self, "accelerator", None)
         if accelerator is not None and not accelerator.is_main_process():
             return {}
@@ -2829,41 +2835,6 @@ class EpochTrainer(ABC):
             logger.warning(f"Failed to compute weight norms: {e}")
 
         return weight_norms
-
-    def generate_epoch_logs(self, epoch: int) -> dict[str, float]:
-        """
-        Generate epoch-level logs (model stats, weight norms, etc.).
-
-        Called once per epoch to compute metrics not tied to a specific split.
-        Default implementation computes weight norms for all models.
-
-        Override _generate_epoch_logs() to add custom epoch-level metrics like:
-        - Learning rate tracking
-        - Gradient statistics
-        - Custom model diagnostics
-        - Resource usage metrics
-
-        Args:
-            epoch: Current epoch number
-
-        Returns:
-            Dictionary of epoch-level metrics
-
-        Example:
-            {
-                "model_name/weights/total_norm": 45.3,
-                "model_name/gradients/layer1": 2.1,
-                "model_name/layers/encoder": 12.5
-            }
-
-        Example Override:
-            def _generate_epoch_logs(self, epoch: int) -> dict[str, float]:
-                logs = super()._generate_epoch_logs(epoch)  # Get weight norms
-                logs['lr'] = self.optimizers['main'].param_groups[0]['lr']
-                logs['gpu_memory'] = torch.cuda.max_memory_allocated() / 1e9
-                return logs
-        """
-        return self._generate_epoch_logs(epoch)
 
     # =======================================================================
     # Properties for easy access

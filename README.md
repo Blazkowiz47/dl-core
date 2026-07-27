@@ -7,25 +7,28 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current public release: `deep-learning-core==0.0.33`.
-Current development version: `0.0.33`.
+Current public release: `deep-learning-core==0.0.34`.
+Current development version: `0.0.34`.
 
 Compatible companion package floors:
 
 - `deep-learning-azure>=0.0.18,<0.1`
-- `deep-learning-mlflow>=0.0.11,<0.1`
-- `deep-learning-robotics>=0.0.4,<0.1` with
-  `deep-learning-core>=0.0.28,<0.1`
-- `deep-learning-wandb>=0.0.12,<0.1`
+- `deep-learning-mlflow>=0.0.13,<0.1`
+- `deep-learning-robotics>=0.0.5,<0.1`
+- `deep-learning-wandb>=0.0.14,<0.1`
 
-## What's New in 0.0.33?
+## What's New in 0.0.34?
 
-- RL trainers expose scalar and vector transition-preparation hooks for
-  research-specific reward shaping and replay transformations
-- custom hooks receive isolated termination flags and metadata, must preserve
-  vector-lane alignment, and leave episode bookkeeping faithful to the world
-- trainers that do not override preparation retain the zero-copy collection
-  path
+- researcher extension hooks now use public names: `transform_transition()`,
+  `transform_transition_batch()`, `should_update()`, augmentation
+  `create_*_transforms()`, and metric metadata hooks
+- RL callback implementations override the public `on_episode_end()`,
+  `on_update_end()`, and `on_evaluation_end()` contract
+- `generate_epoch_logs()` is the direct public epoch-level customization point
+- migration: rename `_prepare_transition*` to `transform_transition*`,
+  `_should_update` to `should_update`, callback `_on_*` methods to `on_*`,
+  augmentation `_create_*` methods to `create_*`, and metric metadata hooks
+  without the leading underscore
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

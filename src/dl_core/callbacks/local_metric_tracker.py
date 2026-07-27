@@ -133,12 +133,13 @@ class LocalMetricTrackerCallback(Callback):
         super().on_epoch_end(epoch, logs)
         self._append_scalars(epoch, logs, phase=None)
 
-    def _on_episode_end(
+    def on_episode_end(
         self,
         episode: int,
         logs: dict[str, Any] | None = None,
     ) -> None:
-        super()._on_episode_end(episode, logs)
+        if not self.is_main_process():
+            return
         if logs and logs.get("phase") == "evaluation":
             return
         step = int(logs.get("global_step", episode)) if logs else episode
@@ -149,21 +150,23 @@ class LocalMetricTrackerCallback(Callback):
             step=step,
         )
 
-    def _on_update_end(
+    def on_update_end(
         self,
         update: int,
         logs: dict[str, Any] | None = None,
     ) -> None:
-        super()._on_update_end(update, logs)
+        if not self.is_main_process():
+            return
         step = int(logs.get("global_step", update)) if logs else update
         self._append_scalars(update, logs, index_name="update", step=step)
 
-    def _on_evaluation_end(
+    def on_evaluation_end(
         self,
         step: int,
         logs: dict[str, Any] | None = None,
     ) -> None:
-        super()._on_evaluation_end(step, logs)
+        if not self.is_main_process():
+            return
         self._append_scalars(
             step,
             logs,

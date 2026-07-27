@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 import torch
 from torch.optim import SGD
 from torch.optim.lr_scheduler import StepLR
 
 from dl_core.criterions.crossentropy import CrossEntropy
+from dl_core.core.base_trainer import EpochTrainer
 from dl_core.metric_managers.standard_manager import (
     StandardActMetricManager,
     StandardMetricManager,
@@ -146,6 +149,48 @@ def test_standard_metric_manager_computes_random_batches() -> None:
     assert {"accuracy", "auc", "f1"} <= metrics.keys()
     assert diagnostics["cm/num_samples"] == 20.0
     assert {"validation_accuracy", "validation_auc", "validation_f1"} <= logs.keys()
+
+
+def test_private_metric_hooks_raise_actionable_migration_errors() -> None:
+    """Old metadata overrides should fail clearly instead of being ignored."""
+
+    class LegacyMetricManager(StandardMetricManager):
+        def _accumulate_metadata(
+            self,
+            batch_data: dict[str, Any],
+            split: str,
+        ) -> None:
+            del batch_data, split
+
+        def _merge_metadata(
+            self,
+            existing: dict[str, Any],
+            new: dict[str, Any],
+        ) -> dict[str, Any]:
+            del new
+            return existing
+
+    manager = LegacyMetricManager(
+        {"num_classes": 2},
+        _SingleProcessAccelerator(),
+    )
+    probabilities, labels = _random_probability_batch(
+        torch.Generator().manual_seed(2030),
+        batch_size=2,
+    )
+
+    with pytest.raises(RuntimeError, match="accumulate_metadata"):
+        manager.update("train", probabilities, {"label": labels})
+    with pytest.raises(RuntimeError, match="merge_metadata"):
+        manager.merge_metadata({}, {"source": [1]})
+
+
+def test_private_epoch_log_hook_raises_actionable_migration_error() -> None:
+    """Old epoch-log overrides should provide their exact public replacement."""
+    trainer = SimpleNamespace(_generate_epoch_logs=lambda epoch: {"epoch": epoch})
+
+    with pytest.raises(RuntimeError, match="generate_epoch_logs"):
+        EpochTrainer.generate_epoch_logs(trainer, 0)
 
 
 def test_standard_act_metric_manager_computes_random_halt_stats() -> None:

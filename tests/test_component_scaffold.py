@@ -43,8 +43,8 @@ def test_cli_add_augmentation_registers_component(tmp_path: Path) -> None:
     assert component_path.exists()
     component_text = component_path.read_text()
     assert '@register_augmentation(["custom1", "Custom1"])' in component_text
-    assert "def _create_train_transforms(self) -> A.Compose:" in component_text
-    assert "def _create_test_transforms(self) -> A.Compose:" in component_text
+    assert "def create_train_transforms(self) -> A.Compose:" in component_text
+    assert "def create_test_transforms(self) -> A.Compose:" in component_text
     init_text = (target_dir / "src" / "augmentations" / "__init__.py").read_text()
     assert "from .custom1 import Custom1Augmentation" in init_text
     assert '"Custom1Augmentation"' in init_text

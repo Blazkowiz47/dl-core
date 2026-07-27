@@ -1770,7 +1770,8 @@ class FrameWrapper(BaseWrapper):
 
     def get_file_list(self, split: str) -> list[dict]:
         """
-        Not needed since we override _get_split directly.
+        Project datasets should override public get_split; this built-in wrapper
+        uses an internal specialization for frame-aware loading.
         """
         raise NotImplementedError(
             "FrameWrapper uses _get_split directly; get_file_list is not implemented."

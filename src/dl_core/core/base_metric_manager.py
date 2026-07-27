@@ -220,9 +220,9 @@ class BaseMetricManager(ABC):
         self.accumulated_data[split]["labels"].append(labels_np)
 
         # Optional: accumulate metadata for per-attack metrics
-        self._accumulate_metadata(batch_data, split)
+        self.accumulate_metadata(batch_data, split)
 
-    def _accumulate_metadata(self, batch_data: Dict[str, Any], split: str) -> None:
+    def accumulate_metadata(self, batch_data: Dict[str, Any], split: str) -> None:
         """
         Accumulate additional metadata (e.g., attack types, datasets).
 
@@ -232,7 +232,12 @@ class BaseMetricManager(ABC):
             batch_data: Batch data dictionary
             split: Dataset split
         """
-        pass
+        legacy_hook = getattr(self, "_accumulate_metadata", None)
+        if callable(legacy_hook):
+            raise RuntimeError(
+                "_accumulate_metadata() is no longer an extension hook; "
+                "rename it to accumulate_metadata()"
+            )
 
     def compute(self, split: str) -> Dict[str, float]:
         """
@@ -432,7 +437,7 @@ class BaseMetricManager(ABC):
 
                 # Merge metadata if present
                 if "metadata" in rank_data and rank_data["metadata"]:
-                    all_metadata = self._merge_metadata(
+                    all_metadata = self.merge_metadata(
                         all_metadata, rank_data["metadata"]
                     )
 
@@ -448,7 +453,7 @@ class BaseMetricManager(ABC):
             "metadata": all_metadata,
         }
 
-    def _merge_metadata(self, existing: Dict, new: Dict) -> Dict:
+    def merge_metadata(self, existing: Dict, new: Dict) -> Dict:
         """
         Merge metadata from different ranks.
 
@@ -462,6 +467,12 @@ class BaseMetricManager(ABC):
         Returns:
             Merged metadata dictionary
         """
+        legacy_hook = getattr(self, "_merge_metadata", None)
+        if callable(legacy_hook):
+            raise RuntimeError(
+                "_merge_metadata() is no longer an extension hook; rename it "
+                "to merge_metadata()"
+            )
         return existing
 
     def _get_default_value(self, metric_name: str) -> Dict[str, float]:

@@ -250,7 +250,7 @@ class StandardActMetricManager(StandardMetricManager):
         }
         return local_data
 
-    def _merge_metadata(self, existing: Dict, new: Dict) -> Dict:
+    def merge_metadata(self, existing: Dict, new: Dict) -> Dict:
         merged = dict(existing)
         existing_steps = merged.get("steps")
         new_steps = new.get("steps")
@@ -305,7 +305,7 @@ class StandardActMetricManager(StandardMetricManager):
         self.accumulated_data[split]["steps"].append(steps_np)
 
         # Optional: accumulate metadata for per-attack metrics
-        self._accumulate_metadata(batch_data, split)
+        self.accumulate_metadata(batch_data, split)
 
     def reset_metrics(self, split: str) -> None:
         super().reset_metrics(split)

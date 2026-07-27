@@ -18,7 +18,7 @@ class StandardTransform(BaseTransform):
         width: Target width (default: 224)
     """
 
-    def _create_train_transforms(self) -> A.Compose:
+    def create_train_transforms(self) -> A.Compose:
         """Create standard training transforms."""
         return A.Compose(
             [
@@ -50,7 +50,7 @@ class StandardTransform(BaseTransform):
             ]
         )
 
-    def _create_test_transforms(self) -> A.Compose:
+    def create_test_transforms(self) -> A.Compose:
         """Create standard test transforms."""
         return A.Compose(
             [

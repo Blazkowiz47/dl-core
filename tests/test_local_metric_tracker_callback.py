@@ -5,8 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+
+import pytest
 
 from dl_core.callbacks.local_metric_tracker import LocalMetricTrackerCallback
+from dl_core.core import Callback
 from dl_core.utils.artifact_manager import ArtifactManager
 
 
@@ -148,3 +152,30 @@ def test_local_metric_tracker_callback_appends_per_metric_jsonl() -> None:
                 "value": 5.0,
             }
         ]
+
+
+def test_private_callback_hook_raises_actionable_migration_error() -> None:
+    """Old callback overrides should fail clearly instead of being ignored."""
+
+    class LegacyCallback(Callback):
+        def __init__(self) -> None:
+            super().__init__()
+            self.received_episode = -1
+
+        def _on_episode_end(
+            self,
+            episode: int,
+            logs: dict[str, object] | None = None,
+        ) -> None:
+            del logs
+            self.received_episode = episode
+
+    callback = LegacyCallback()
+    callback.set_trainer(
+        SimpleNamespace(accelerator=_DummyAccelerator())
+    )
+
+    with pytest.raises(RuntimeError, match="on_episode_end"):
+        callback.on_episode_end(7)
+
+    assert callback.received_episode == -1

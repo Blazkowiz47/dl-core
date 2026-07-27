@@ -200,8 +200,8 @@ transformation immediately before learning, `RLTrainer` exposes
 `prepare_transition()` and `prepare_transition_batch()`. Their default
 implementations return the collected data unchanged.
 
-Override `_prepare_transition()` for scalar collection or
-`_prepare_transition_batch()` for vector collection:
+Override the public `transform_transition()` hook for scalar collection or
+`transform_transition_batch()` for vector collection:
 
 ```python
 from dataclasses import replace
@@ -210,12 +210,18 @@ from dl_core.trainers import DQNTrainer
 
 
 class ClippedRewardDQNTrainer(DQNTrainer):
-    def _prepare_transition_batch(self, transitions):
+    def transform_transition_batch(self, transitions):
         return replace(
             transitions,
             rewards=transitions.rewards.clip(-1.0, 1.0),
         )
 ```
+
+For 0.0.33 experiments, rename `_prepare_transition()` to
+`transform_transition()`, `_prepare_transition_batch()` to
+`transform_transition_batch()`, and `_should_update()` to `should_update()`.
+Version 0.0.34 raises an actionable migration error when it detects an old
+private override, preventing an experiment from silently changing behavior.
 
 The prepared transition is what DQN and SAC insert into replay. Their replay
 buffers retain `observations`, `actions`, `rewards`, `next_observations`,
@@ -245,12 +251,12 @@ rollout is flattened for minibatches.
 
 DQN and SAC expose `should_update(global_step, transitions)` at every update
 step that is eligible after `learning_starts` and `train_frequency`. The
-default always returns `True`. A custom trainer can override its private
-implementation when an experiment needs a data-dependent schedule:
+default always returns `True`. A custom trainer can override this public hook
+when an experiment needs a data-dependent schedule:
 
 ```python
 class FourStepDQNTrainer(DQNTrainer):
-    def _should_update(self, global_step, transitions):
+    def should_update(self, global_step, transitions):
         return global_step % 4 == 0 and transitions.rewards.mean() > 0
 ```
 

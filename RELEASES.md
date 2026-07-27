@@ -3,6 +3,15 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.0.33
+
+- RL trainers expose scalar and vector transition-preparation hooks for
+  research-specific reward shaping and replay transformations
+- custom hooks receive isolated termination flags and metadata, must preserve
+  vector-lane alignment, and leave episode bookkeeping faithful to the world
+- trainers that do not override preparation retain the zero-copy collection
+  path
+
 ## 0.0.32
 
 - async vector environments expose split dispatch/wait operations, and DQN can
