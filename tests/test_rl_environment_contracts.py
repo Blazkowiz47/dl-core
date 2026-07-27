@@ -7,6 +7,7 @@ import sys
 from unittest.mock import patch
 
 import numpy as np
+from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv
 from gymnasium.spaces import Box, Discrete
 
 from dl_core import load_builtin_components
@@ -99,6 +100,7 @@ def test_gymnasium_vector_environment_preserves_terminal_observations() -> None:
         }
     )
     assert isinstance(vector_environment, GymnasiumVectorEnvironment)
+    assert isinstance(vector_environment.env, AsyncVectorEnv)
     environment = BatchedEnvironment(vector_environment)
     observations, _ = environment.reset_batch([3, 4])
 
@@ -119,6 +121,21 @@ def test_gymnasium_vector_environment_preserves_terminal_observations() -> None:
     assert all(np.asarray(observation).shape == (4,) for observation in final_observations)
     assert not np.array_equal(final_observations[0], reset_observations[0])
     environment.close()
+
+
+def test_gymnasium_vector_environment_accepts_explicit_sync_mode() -> None:
+    load_builtin_components()
+    vector_environment = make_environment(
+        {
+            "name": "gymnasium_vector",
+            "id": "CartPole-v1",
+            "num_envs": 2,
+            "vectorization_mode": "sync",
+        }
+    )
+
+    assert isinstance(vector_environment.env, SyncVectorEnv)
+    vector_environment.close()
 
 
 def test_action_history_augments_scalar_discrete_observations() -> None:

@@ -11,7 +11,7 @@ from dl_core.core.registry import register_environment
 
 @register_environment("gymnasium_vector")
 class GymnasiumVectorEnvironment(gym.vector.VectorWrapper):
-    """Create a same-step autoreset Gymnasium vector environment."""
+    """Create a same-step autoreset vector environment, asynchronously by default."""
 
     def __init__(self, config: dict[str, Any]):
         environment_id = config.get("id")
@@ -20,7 +20,7 @@ class GymnasiumVectorEnvironment(gym.vector.VectorWrapper):
         num_envs = int(config.get("num_envs", 1))
         if num_envs <= 0:
             raise ValueError("environment.num_envs must be positive")
-        vectorization_mode = str(config.get("vectorization_mode", "sync"))
+        vectorization_mode = str(config.get("vectorization_mode", "async"))
         if vectorization_mode not in {"sync", "async"}:
             raise ValueError("vectorization_mode must be 'sync' or 'async'")
         make_kwargs = config.get("kwargs", {})

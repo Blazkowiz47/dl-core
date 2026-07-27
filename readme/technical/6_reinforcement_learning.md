@@ -124,12 +124,17 @@ environment:
   name: gymnasium_vector
   id: CartPole-v1
   num_envs: 8
-  vectorization_mode: sync
+  vectorization_mode: async
 
 evaluation_environment:
   name: gymnasium
   id: CartPole-v1
 ```
+
+The vector adapter defaults to `async`, placing each training environment in a
+separate process so CPU-heavy simulation can run concurrently. Set
+`vectorization_mode: sync` explicitly for lightweight environments where
+inter-process communication would cost more than sequential stepping.
 
 `global_step` counts transitions, while `collector_step` counts vector
 environment calls. `select_actions` and `process_transition_batch` expose one
