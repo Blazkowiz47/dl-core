@@ -7,8 +7,8 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current public release: `deep-learning-core==0.0.31`.
-Current development version: `0.0.31`.
+Current public release: `deep-learning-core==0.0.32`.
+Current development version: `0.0.32`.
 
 Compatible companion package floors:
 
@@ -18,14 +18,16 @@ Compatible companion package floors:
   `deep-learning-core>=0.0.28,<0.1`
 - `deep-learning-wandb>=0.0.12,<0.1`
 
-## What's New in 0.0.31?
+## What's New in 0.0.32?
 
-- DQN can shard vector-environment inference over configurable read-only actor
-  copies and one CUDA stream per copy on a single GPU
-- actor snapshots synchronize from the online policy at a configurable
-  optimizer-step interval and expose policy-version and lag metrics
-- deterministic evaluation uses the authoritative online policy, while
-  checkpoints recreate derived actor copies without duplicating their weights
+- async vector environments expose split dispatch/wait operations, and DQN can
+  overlap the next environment step with replay learning by default
+- DQN reports collector and learner phase timings so environment, replay,
+  model-update, and actor synchronization bottlenecks remain attributable
+- the single-GPU accelerator can compile all models or selected runtime model
+  keys in place, while DQN keeps variable inference outside learner graphs
+- local auto-resume recognizes numbered step, episode, and legacy epoch
+  checkpoints when `latest.pth` is unavailable
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

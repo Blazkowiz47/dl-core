@@ -3,6 +3,15 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.0.31
+
+- DQN can shard vector-environment inference over configurable read-only actor
+  copies and one CUDA stream per copy on a single GPU
+- actor snapshots synchronize from the online policy at a configurable
+  optimizer-step interval and expose policy-version and lag metrics
+- deterministic evaluation uses the authoritative online policy, while
+  checkpoints recreate derived actor copies without duplicating their weights
+
 ## 0.0.30
 
 - Gymnasium vector environments now use separate asynchronous processes by

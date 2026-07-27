@@ -4,15 +4,16 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.0.31`.
-Current development version: `0.0.31`.
+Current public release: `deep-learning-core==0.0.32`.
+Current development version: `0.0.32`.
 
-## What's New in 0.0.31?
+## What's New in 0.0.32?
 
-- DQN supports configurable, inference-only actor copies on one GPU
-- vector-environment lanes are balanced over actor-specific CUDA streams
-- snapshot synchronization, policy-lag metrics, and checkpoint reconstruction
-  keep actor copies observable and resumable
+- asynchronous environment dispatch can overlap DQN replay learning
+- collector and learner phase timings expose the dominant RL bottlenecks
+- selected single-GPU models can use in-place PyTorch compilation without
+  changing checkpoint keys
+- numbered RL checkpoints participate in local auto-resume
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

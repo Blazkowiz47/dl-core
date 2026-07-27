@@ -154,7 +154,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert claude_text == "@AGENTS.md\n"
     assert "`CLAUDE.md`: Claude-compatible pointer to `AGENTS.md`" in readme_text
     assert "concrete single-run and sweep experiment configs" in readme_text
-    assert '"deep-learning-core>=0.0.31,<0.1"' in pyproject_text
+    assert '"deep-learning-core>=0.0.32,<0.1"' in pyproject_text
     assert "   - `CLAUDE.md`" in readme_text
     assert "scripts/temporary/test_dataset.py" in readme_text
     assert "scripts/temporary/test_model.py" in readme_text
