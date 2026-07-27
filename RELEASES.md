@@ -3,6 +3,17 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.0.32
+
+- async vector environments expose split dispatch/wait operations, and DQN can
+  overlap the next environment step with replay learning by default
+- DQN reports collector and learner phase timings so environment, replay,
+  model-update, and actor synchronization bottlenecks remain attributable
+- the single-GPU accelerator can compile all models or selected runtime model
+  keys in place, while DQN keeps variable inference outside learner graphs
+- local auto-resume recognizes numbered step, episode, and legacy epoch
+  checkpoints when `latest.pth` is unavailable
+
 ## 0.0.31
 
 - DQN can shard vector-environment inference over configurable read-only actor

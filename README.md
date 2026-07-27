@@ -7,29 +7,25 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current public release: `deep-learning-core==0.0.32`.
-Current development version: `0.0.32`.
+Current public release: `deep-learning-core==0.0.33`.
+Current development version: `0.0.33`.
 
 Compatible companion package floors:
 
 - `deep-learning-azure>=0.0.18,<0.1`
 - `deep-learning-mlflow>=0.0.11,<0.1`
-- `deep-learning-robotics>=0.0.3,<0.1` with
+- `deep-learning-robotics>=0.0.4,<0.1` with
   `deep-learning-core>=0.0.28,<0.1`
 - `deep-learning-wandb>=0.0.12,<0.1`
 
-## What's New in 0.0.32?
+## What's New in 0.0.33?
 
-- async vector environments expose split dispatch/wait operations, and DQN can
-  overlap the next environment step with replay learning by default
-- DQN reports collector and learner phase timings so environment, replay,
-  model-update, and actor synchronization bottlenecks remain attributable
 - RL trainers expose scalar and vector transition-preparation hooks for
   research-specific reward shaping and replay transformations
-- the single-GPU accelerator can compile all models or selected runtime model
-  keys in place, while DQN keeps variable inference outside learner graphs
-- local auto-resume recognizes numbered step, episode, and legacy epoch
-  checkpoints when `latest.pth` is unavailable
+- custom hooks receive isolated termination flags and metadata, must preserve
+  vector-lane alignment, and leave episode bookkeeping faithful to the world
+- trainers that do not override preparation retain the zero-copy collection
+  path
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
