@@ -7,8 +7,8 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current public release: `deep-learning-core==0.0.29`.
-Current development version: `0.0.29`.
+Current public release: `deep-learning-core==0.0.30`.
+Current development version: `0.0.30`.
 
 Compatible companion package floors:
 
@@ -18,14 +18,13 @@ Compatible companion package floors:
   `deep-learning-core>=0.0.28,<0.1`
 - `deep-learning-wandb>=0.0.12,<0.1`
 
-## What's New in 0.0.29?
+## What's New in 0.0.30?
 
-- DQN and SAC can gate eligible replay updates through
-  `should_update(global_step, transitions)`
-- environments can append configurable Box or one-hot discrete action histories
-  to scalar and vector observations while preserving terminal `final_obs`
-- DQN and SAC support vector-safe n-step replay returns with shortened episode
-  tails, matching bootstrap discounts, and backward-compatible checkpoints
+- Gymnasium vector environments now use separate asynchronous processes by
+  default, while explicit synchronous collection remains available
+- RL trainers can save numbered checkpoints by transition count with
+  `checkpoint_frequency_steps`
+- RL trainers can display step or episode progress with `show_progress`
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

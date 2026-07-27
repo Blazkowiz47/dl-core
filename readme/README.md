@@ -4,14 +4,14 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.0.29`.
-Current development version: `0.0.29`.
+Current public release: `deep-learning-core==0.0.30`.
+Current development version: `0.0.30`.
 
-## What's New in 0.0.29?
+## What's New in 0.0.30?
 
-- DQN and SAC expose data-dependent replay-update scheduling
-- scalar and vector environments can append configurable action histories
-- DQN and SAC support vector-safe n-step returns and checkpoint restoration
+- Gymnasium vector environments use separate asynchronous processes by default
+- RL trainers support transition-count checkpoint intervals
+- RL trainers can display optional step or episode progress
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

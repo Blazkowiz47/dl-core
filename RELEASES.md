@@ -3,6 +3,15 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.0.29
+
+- DQN and SAC can gate eligible replay updates through
+  `should_update(global_step, transitions)`
+- environments can append configurable Box or one-hot discrete action histories
+  to scalar and vector observations while preserving terminal `final_obs`
+- DQN and SAC support vector-safe n-step replay returns with shortened episode
+  tails, matching bootstrap discounts, and backward-compatible checkpoints
+
 ## 0.0.28
 
 - RL collection, replay insertion, episode persistence, environment creation,
