@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -427,6 +428,7 @@ class DQNTrainer(RLTrainer):
         self,
         transitions: TransitionBatch[Any, Any],
     ) -> list[dict[str, float]]:
+        transition_validation_start = perf_counter()
         observation_space = self.environment.observation_space
         action_space = self.environment.action_space
         if any(
@@ -444,10 +446,15 @@ class DQNTrainer(RLTrainer):
             for action in np.asarray(transitions.actions)
         ):
             raise ValueError("Transition action is outside the configured space")
+        transition_validation_ms = (
+            perf_counter() - transition_validation_start
+        ) * 1000.0
 
         previous_global_step = self.global_step - transitions.size
         previous_replay_size = len(self.replay_buffer)
+        replay_add_start = perf_counter()
         added_per_environment = self.replay_buffer.add_batch(transitions)
+        replay_add_ms = (perf_counter() - replay_add_start) * 1000.0
         decay_fraction = min(self.global_step / self.epsilon_decay_steps, 1.0)
         self.epsilon = self.epsilon_start + (
             (self.epsilon_end - self.epsilon_start) * decay_fraction
@@ -500,11 +507,19 @@ class DQNTrainer(RLTrainer):
             losses: list[float] = []
             q_means: list[float] = []
             target_means: list[float] = []
+            replay_sample_ms = 0.0
+            model_update_ms = 0.0
+            actor_sync_ms = 0.0
             for _ in range(self.gradient_steps):
+                replay_sample_start = perf_counter()
                 batch = self.replay_buffer.sample(
                     self.batch_size,
                     self.accelerator.get_device(),
                 )
+                replay_sample_ms += (
+                    perf_counter() - replay_sample_start
+                ) * 1000.0
+                model_update_start = perf_counter()
                 observations = self._observations_to_tensor(batch.observations)
                 next_observations = self._observations_to_tensor(
                     batch.next_observations
@@ -548,12 +563,19 @@ class DQNTrainer(RLTrainer):
                     self.optimizers["q_network"],
                     self.models["online"],
                 )
+                losses.append(float(loss.detach().item()))
+                q_means.append(float(current_q_values.detach().mean().item()))
+                target_means.append(float(targets.detach().mean().item()))
+                model_update_ms += (
+                    perf_counter() - model_update_start
+                ) * 1000.0
                 if self.actor_models and optimizer_stepped:
                     self.actor_updates_since_sync += 1
                     if (
                         self.actor_updates_since_sync
                         >= self.actor_model_sync_frequency
                     ):
+                        actor_sync_start = perf_counter()
                         online_state = self.accelerator.unwrap_model(
                             self.models["online"]
                         ).state_dict()
@@ -561,15 +583,20 @@ class DQNTrainer(RLTrainer):
                             actor_model.load_state_dict(online_state)
                         self.actor_policy_version += 1
                         self.actor_updates_since_sync = 0
-                losses.append(float(loss.detach().item()))
-                q_means.append(float(current_q_values.detach().mean().item()))
-                target_means.append(float(targets.detach().mean().item()))
+                        actor_sync_ms += (
+                            perf_counter() - actor_sync_start
+                        ) * 1000.0
             update_log = {
                 "dqn/loss": float(np.mean(losses)),
                 "dqn/q_mean": float(np.mean(q_means)),
                 "dqn/target_q_mean": float(np.mean(target_means)),
                 "dqn/epsilon": self.epsilon,
                 "dqn/replay_size": float(len(self.replay_buffer)),
+                "dqn/timing/transition_validation_ms": transition_validation_ms,
+                "dqn/timing/replay_add_ms": replay_add_ms,
+                "dqn/timing/replay_sample_ms": replay_sample_ms,
+                "dqn/timing/model_update_ms": model_update_ms,
+                "dqn/timing/actor_sync_ms": actor_sync_ms,
             }
             if self.actor_model_copies > 0:
                 update_log.update(

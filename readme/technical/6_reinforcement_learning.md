@@ -395,6 +395,17 @@ blocking runs remain comparable. These wall-clock metrics avoid explicit
 accelerator synchronization; use them to identify pipeline stalls without
 adding a synchronization point to every update.
 
+DQN further separates each emitted update log into
+`dqn/timing/transition_validation_ms`, `dqn/timing/replay_add_ms`,
+`dqn/timing/replay_sample_ms`, `dqn/timing/model_update_ms`, and
+`dqn/timing/actor_sync_ms`. Model timing includes observation conversion,
+forward and backward work, the optimizer step, and the scalar synchronization
+already required to report loss and Q-value metrics. Sample, model, and actor
+timings sum across every configured gradient step in that update cycle.
+Replay-warm-up calls do not emit update logs. No timing phase adds a device-wide
+synchronization, so replay and actor timings measure host-visible dispatch and
+wait time rather than isolated accelerator completion.
+
 This setting does not require `torchrun`: it is one learner process using
 multiple inference replicas on the same device. It can improve utilization
 when small inference shards overlap, but one larger batched forward can still

@@ -671,6 +671,11 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
         metrics["rl/collection_overlap_enabled"] == 1.0
         and metrics["rl/timing/learner_update_ms"] >= 0.0
         and metrics["rl/timing/environment_wait_ms"] >= 0.0
+        and metrics["dqn/timing/transition_validation_ms"] >= 0.0
+        and metrics["dqn/timing/replay_add_ms"] >= 0.0
+        and metrics["dqn/timing/replay_sample_ms"] >= 0.0
+        and metrics["dqn/timing/model_update_ms"] >= 0.0
+        and metrics["dqn/timing/actor_sync_ms"] >= 0.0
         for metrics in update_metrics
     )
     trainer.close()
@@ -796,6 +801,48 @@ def test_dqn_synchronizes_actor_models_after_optimizer_steps(
             strict=True,
         ):
             assert torch.equal(actor_parameter, online_parameter)
+    trainer.close()
+
+
+def test_dqn_timing_sums_gradient_steps_without_double_counting_actor_sync(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(
+        _config(
+            tmp_path,
+            gradient_steps=2,
+            actor_model_copies=1,
+            actor_model_sync_frequency=1,
+        )
+    )
+    trainer.setup()
+    trainer.select_action(0, deterministic=False)
+    clock = iter(float(value) for value in range(1, 17))
+    monkeypatch.setattr(
+        "dl_core.trainers.dqn_trainer.perf_counter",
+        lambda: next(clock),
+    )
+    trainer.global_step = 1
+
+    metrics = trainer.process_transition(
+        Transition(
+            observation=0,
+            action=1,
+            reward=1.0,
+            next_observation=1,
+            terminated=False,
+            truncated=False,
+        )
+    )
+
+    assert metrics is not None
+    assert metrics["dqn/timing/transition_validation_ms"] == 1000.0
+    assert metrics["dqn/timing/replay_add_ms"] == 1000.0
+    assert metrics["dqn/timing/replay_sample_ms"] == 2000.0
+    assert metrics["dqn/timing/model_update_ms"] == 2000.0
+    assert metrics["dqn/timing/actor_sync_ms"] == 2000.0
     trainer.close()
 
 
