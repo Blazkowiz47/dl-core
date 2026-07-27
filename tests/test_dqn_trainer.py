@@ -291,6 +291,55 @@ def test_dqn_is_registered_and_builtin_model_has_expected_shape(tmp_path: Path) 
     trainer.close()
 
 
+def test_dqn_compiles_only_gradient_enabled_online_forwards(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    load_builtin_components()
+    compiled_grad_modes: list[bool] = []
+    forward_hook_grad_modes: list[bool] = []
+
+    def compile_with_grad_guard(
+        model: torch.nn.Module,
+        *,
+        mode: str,
+    ) -> None:
+        del mode
+        eager_call = model._call_impl
+
+        def compiled_call(*args: object, **kwargs: object) -> object:
+            compiled_grad_modes.append(torch.is_grad_enabled())
+            if not torch.is_grad_enabled():
+                raise RuntimeError("Inference must bypass the compiled call")
+            return eager_call(*args, **kwargs)
+
+        model._compiled_call_impl = compiled_call
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.nn.Module, "compile", compile_with_grad_guard)
+    config = _config(tmp_path, total_timesteps=4)
+    config["accelerator"] = {
+        "type": "single_gpu",
+        "compile_models": ["online"],
+    }
+    trainer = DQNTrainer(config)
+
+    trainer.setup()
+    hook = trainer.models["online"].register_forward_hook(
+        lambda _model, _inputs, _output: forward_hook_grad_modes.append(
+            torch.is_grad_enabled()
+        )
+    )
+    trainer.perform_training()
+
+    assert compiled_grad_modes
+    assert all(compiled_grad_modes)
+    assert any(forward_hook_grad_modes)
+    assert any(not grad_enabled for grad_enabled in forward_hook_grad_modes)
+    hook.remove()
+    trainer.close()
+
+
 def test_dqn_trains_with_action_history_observations(tmp_path: Path) -> None:
     load_builtin_components()
     config = _config(tmp_path, total_timesteps=4)
@@ -607,10 +656,12 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
     def recording_q_values(
         model: torch.nn.Module,
         observations: torch.Tensor,
+        *,
+        eager: bool = False,
     ) -> torch.Tensor:
         if not model.training:
             inference_batches.append(int(observations.shape[0]))
-        return original_q_values(model, observations)
+        return original_q_values(model, observations, eager=eager)
 
     def recording_step_batch_async(actions: list[int]) -> None:
         events.append("dispatch")

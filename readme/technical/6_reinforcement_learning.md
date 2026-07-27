@@ -410,6 +410,10 @@ while `max-autotune` can spend longer selecting GPU kernels. Use
 when trainable and frozen copies share one implementation. Listed names must
 match the trainer's runtime model keys. For DQN, compiling only `online` avoids
 redundant target-network graphs with different gradient guards.
+The DQN learner sends only the fixed-shape, gradient-enabled online forward
+through the compiled call. Epsilon-greedy action selection, deterministic
+evaluation, and Double-DQN next-action selection use the eager forward so their
+inference mode and variable batch sizes do not trigger extra learner graphs.
 
 Vector update logs include `rl/timing/action_selection_ms`,
 `rl/timing/environment_dispatch_ms`, `rl/timing/environment_wait_ms`,

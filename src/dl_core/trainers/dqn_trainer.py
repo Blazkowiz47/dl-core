@@ -379,6 +379,7 @@ class DQNTrainer(RLTrainer):
                     q_values = self._q_values(
                         self.models["online"],
                         self._observations_to_tensor(observation_batch[greedy]),
+                        eager=True,
                     )
             finally:
                 self.models["online"].train(was_training)
@@ -540,6 +541,7 @@ class DQNTrainer(RLTrainer):
                                 self._q_values(
                                     self.models["online"],
                                     next_observations,
+                                    eager=True,
                                 ),
                                 dim=1,
                                 keepdim=True,
@@ -639,8 +641,15 @@ class DQNTrainer(RLTrainer):
             ).float()
         return tensor.float()
 
-    def _q_values(self, model: nn.Module, observations: torch.Tensor) -> torch.Tensor:
-        output = model(observations)
+    def _q_values(
+        self,
+        model: nn.Module,
+        observations: torch.Tensor,
+        *,
+        eager: bool = False,
+    ) -> torch.Tensor:
+        # Bypass Module.compile without skipping the module's registered hooks.
+        output = model._call_impl(observations) if eager else model(observations)
         if isinstance(output, dict):
             output = output.get("q_values")
         if not isinstance(output, torch.Tensor) or output.ndim != 2:
