@@ -2,6 +2,7 @@
 
 import os
 import re
+import stat
 from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -35,30 +36,67 @@ def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
         return None
 
     latest_checkpoint = checkpoint_path / "latest.pth"
-    if latest_checkpoint.exists():
+    if latest_checkpoint.is_file():
         logger.info(f"Found latest checkpoint: {latest_checkpoint}")
         return str(latest_checkpoint)
 
-    # Find all epoch checkpoint files
-    checkpoint_pattern = re.compile(r"epoch_(\d+)\.(?:pt|pth)")
-    checkpoint_epochs = []
+    checkpoint_pattern = re.compile(
+        r"(epoch|episode|step)_(\d+)\.pth?"
+    )
+    checkpoint_candidates: dict[str, tuple[int, int, Path]] = {}
 
-    for file_path in checkpoint_path.iterdir():
-        if not file_path.is_file():
+    try:
+        checkpoint_files = list(checkpoint_path.iterdir())
+    except OSError as error:
+        logger.warning(
+            f"Failed to inspect checkpoint directory {checkpoint_dir}: {error}"
+        )
+        return None
+
+    for file_path in checkpoint_files:
+        match = checkpoint_pattern.fullmatch(file_path.name)
+        if match is None:
             continue
-        match = checkpoint_pattern.match(file_path.name)
-        if match:
-            epoch = int(match.group(1))
-            checkpoint_epochs.append((epoch, str(file_path)))
+        try:
+            file_status = file_path.stat()
+        except OSError:
+            continue
+        if not stat.S_ISREG(file_status.st_mode):
+            continue
 
-    if not checkpoint_epochs:
+        checkpoint_type = match.group(1)
+        checkpoint_number = int(match.group(2))
+        candidate = (checkpoint_number, file_status.st_mtime_ns, file_path)
+        current = checkpoint_candidates.get(checkpoint_type)
+        if current is None or (
+            checkpoint_number,
+            file_status.st_mtime_ns,
+            file_path.name,
+        ) > (current[0], current[1], current[2].name):
+            checkpoint_candidates[checkpoint_type] = candidate
+
+    if not checkpoint_candidates:
         logger.info(f"No checkpoints found in {checkpoint_dir}")
         return None
 
-    # Return path of checkpoint with highest epoch
-    latest_epoch, latest_path = max(checkpoint_epochs, key=lambda x: x[0])
-    logger.info(f"Found latest checkpoint: epoch {latest_epoch} at {latest_path}")
-    return latest_path
+    checkpoint_type, (
+        checkpoint_number,
+        _modified_time,
+        latest_path,
+    ) = max(
+        checkpoint_candidates.items(),
+        key=lambda item: (
+            item[1][1],
+            item[1][0],
+            item[0],
+            item[1][2].name,
+        ),
+    )
+    logger.info(
+        f"Found latest checkpoint: {checkpoint_type} "
+        f"{checkpoint_number} at {latest_path}"
+    )
+    return str(latest_path)
 
 
 def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
