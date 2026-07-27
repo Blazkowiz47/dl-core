@@ -4,14 +4,15 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.0.30`.
-Current development version: `0.0.30`.
+Current public release: `deep-learning-core==0.0.31`.
+Current development version: `0.0.31`.
 
-## What's New in 0.0.30?
+## What's New in 0.0.31?
 
-- Gymnasium vector environments use separate asynchronous processes by default
-- RL trainers support transition-count checkpoint intervals
-- RL trainers can display optional step or episode progress
+- DQN supports configurable, inference-only actor copies on one GPU
+- vector-environment lanes are balanced over actor-specific CUDA streams
+- snapshot synchronization, policy-lag metrics, and checkpoint reconstruction
+  keep actor copies observable and resumable
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

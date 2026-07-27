@@ -3,6 +3,14 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.0.30
+
+- Gymnasium vector environments now use separate asynchronous processes by
+  default, while explicit synchronous collection remains available
+- RL trainers can save numbered checkpoints by transition count with
+  `checkpoint_frequency_steps`
+- RL trainers can display step or episode progress with `show_progress`
+
 ## 0.0.29
 
 - DQN and SAC can gate eligible replay updates through
