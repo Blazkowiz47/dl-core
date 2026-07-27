@@ -6,6 +6,8 @@ import logging
 import random
 import traceback
 from abc import ABC, abstractmethod
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -696,6 +698,9 @@ class RLTrainer(ABC):
                 action_info=action_infos,
                 final_observations=batched_final_observations,
             )
+            transition_batch = self.prepare_transition_batch(
+                transition_batch
+            )
             if overlap_environment_steps:
                 pending_transition_batch = transition_batch
             else:
@@ -1075,7 +1080,9 @@ class RLTrainer(ABC):
             for manager in self.episode_managers.values():
                 manager.record_transition(0, transition, phase=phase)
             if training:
-                update_logs = self.process_transition(transition)
+                update_logs = self.process_transition(
+                    self.prepare_transition(transition)
+                )
                 if update_logs is not None:
                     self.update_step += 1
                     update_logs = {
@@ -1383,6 +1390,86 @@ class RLTrainer(ABC):
     ) -> list[dict[str, float]]:
         """Consume one transition from every environment lane."""
         return self._process_transition_batch(transitions)
+
+    def prepare_transition(
+        self,
+        transition: Transition[Any, Any],
+    ) -> Transition[Any, Any]:
+        """Prepare one collected transition for trainer consumption."""
+        preparation_hook = self._prepare_transition
+        if (
+            getattr(preparation_hook, "__func__", None)
+            is RLTrainer._prepare_transition
+        ):
+            return transition
+        prepared_transition = preparation_hook(
+            replace(
+                transition,
+                info=deepcopy(transition.info),
+                action_info=deepcopy(transition.action_info),
+            )
+        )
+        if not isinstance(prepared_transition, Transition):
+            raise TypeError("_prepare_transition must return a Transition")
+        return prepared_transition
+
+    def _prepare_transition(
+        self,
+        transition: Transition[Any, Any],
+    ) -> Transition[Any, Any]:
+        return transition
+
+    def prepare_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> TransitionBatch[Any, Any]:
+        """Prepare one vector step for trainer consumption."""
+        preparation_hook = self._prepare_transition_batch
+        if (
+            getattr(preparation_hook, "__func__", None)
+            is RLTrainer._prepare_transition_batch
+        ):
+            return transitions
+        original_size = transitions.size
+        prepared_transitions = preparation_hook(
+            replace(
+                transitions,
+                terminated=np.asarray(transitions.terminated).copy(),
+                truncated=np.asarray(transitions.truncated).copy(),
+                infos=deepcopy(transitions.infos),
+                action_info=deepcopy(transitions.action_info),
+            )
+        )
+        if not isinstance(prepared_transitions, TransitionBatch):
+            raise TypeError(
+                "_prepare_transition_batch must return a TransitionBatch"
+            )
+        if prepared_transitions.size != original_size:
+            raise ValueError(
+                "Prepared transition batch must preserve its environment lanes"
+            )
+        for name in ("rewards", "terminated", "truncated"):
+            if np.asarray(getattr(prepared_transitions, name)).shape != (
+                original_size,
+            ):
+                raise ValueError(
+                    f"Prepared transition batch {name} must have shape "
+                    f"({original_size},)"
+                )
+        for name in ("infos", "action_info"):
+            values = getattr(prepared_transitions, name)
+            if values and len(values) != original_size:
+                raise ValueError(
+                    f"Prepared transition batch {name} must contain one "
+                    "mapping per environment lane"
+                )
+        return prepared_transitions
+
+    def _prepare_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> TransitionBatch[Any, Any]:
+        return transitions
 
     def should_update(
         self,

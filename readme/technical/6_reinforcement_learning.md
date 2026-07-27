@@ -192,6 +192,53 @@ resumed environment begins at a new episode boundary.
 `ReplayBuffer.add()` returns the number of matured entries, while
 `add_batch()` returns that count per vector lane for custom update scheduling.
 
+### Preparing transitions before replay
+
+The environment remains the primary place to define observations, actions,
+rewards, termination, and `info`. For experiments that need a trainer-specific
+transformation immediately before learning, `RLTrainer` exposes
+`prepare_transition()` and `prepare_transition_batch()`. Their default
+implementations return the collected data unchanged.
+
+Override `_prepare_transition()` for scalar collection or
+`_prepare_transition_batch()` for vector collection:
+
+```python
+from dataclasses import replace
+
+from dl_core.trainers import DQNTrainer
+
+
+class ClippedRewardDQNTrainer(DQNTrainer):
+    def _prepare_transition_batch(self, transitions):
+        return replace(
+            transitions,
+            rewards=transitions.rewards.clip(-1.0, 1.0),
+        )
+```
+
+The prepared transition is what DQN and SAC insert into replay. Their replay
+buffers retain `observations`, `actions`, `rewards`, `next_observations`,
+`terminated`, and `truncated`; `infos`, `action_info`, and
+`final_observations` remain available to the preparation hook and trainer but
+are not stored in the built-in replay buffer. If a hook changes an observation
+or action shape or dtype, the environment's Gymnasium spaces and the model must
+declare and accept the prepared representation. The built-in trainers validate
+those values before insertion.
+
+Episode managers record the original environment transition before preparation
+so trajectory media and physical episode statistics remain faithful to the
+world. Use an environment observation builder when the model, replay buffer,
+and saved trajectory should all receive the same representation; use the
+trainer hook for learning-only reward shaping, clipping, masking, or metadata-
+dependent transformations.
+
+Vector hooks must preserve the number and ordering of environment lanes.
+“Masking” means changing values within a transition, not filtering rows from a
+batch. dl-core copies termination flags and metadata mappings before invoking
+the hook, so in-place edits to those trainer-facing values cannot change
+episode completion, callbacks, or environment-reset bookkeeping.
+
 PPO rollout storage is preallocated as `[time, environment, ...]`; generalized
 advantages are propagated only within the same environment stream before the
 rollout is flattened for minibatches.

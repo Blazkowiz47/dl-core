@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from torch import nn
 
 from dl_core import load_builtin_components
-from dl_core.core import Callback, RLTrainer, Transition
+from dl_core.core import Callback, RLTrainer, Transition, TransitionBatch
 
 
 class _RecordingCallback(Callback):
@@ -80,6 +82,42 @@ class _EmptyUpdateRLTrainer(_TestRLTrainer):
     ) -> dict[str, float]:
         self.transition_count += 1
         return {}
+
+
+class _PreparingRLTrainer(_TestRLTrainer):
+    def setup_algorithm(self) -> None:
+        super().setup_algorithm()
+        self.prepared_rewards: list[float] = []
+
+    def _prepare_transition(
+        self,
+        transition: Transition[Any, Any],
+    ) -> Transition[Any, Any]:
+        return replace(transition, reward=transition.reward + 10.0)
+
+    def _prepare_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> TransitionBatch[Any, Any]:
+        return replace(transitions, rewards=transitions.rewards + 20.0)
+
+    def process_transition(
+        self,
+        transition: Transition[Any, Any],
+    ) -> dict[str, float]:
+        self.prepared_rewards.append(transition.reward)
+        return super().process_transition(transition)
+
+
+class _MutatingBatchRLTrainer(_TestRLTrainer):
+    def _prepare_transition_batch(
+        self,
+        transitions: TransitionBatch[Any, Any],
+    ) -> TransitionBatch[Any, Any]:
+        transitions.terminated[:] = True
+        for info in transitions.infos:
+            info.clear()
+        return transitions
 
 
 def _config(tmp_path: Path, **trainer_overrides: Any) -> dict[str, Any]:
@@ -215,6 +253,184 @@ def test_rl_trainer_collects_vector_environments_and_tracks_each_lane(
         0,
         1,
     }
+    trainer.close()
+
+
+def test_rl_trainer_prepares_scalar_transition_before_consumption(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _PreparingRLTrainer(
+        _config(
+            tmp_path,
+            total_timesteps=2,
+            evaluation_episodes=0,
+            checkpoint_frequency=0,
+        )
+    )
+    trainer.setup()
+
+    trainer.run_episode(training=True, episode=0)
+
+    assert trainer.prepared_rewards
+    assert all(reward >= 10.0 for reward in trainer.prepared_rewards)
+    trainer.close()
+
+
+def test_rl_trainer_prepares_vector_batch_before_consumption(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=4,
+        max_episode_steps=2,
+        evaluation_episodes=0,
+        checkpoint_frequency=0,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "vectorization_mode": "sync",
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = _PreparingRLTrainer(config)
+    trainer.setup()
+
+    trainer.perform_training()
+
+    assert np.asarray(trainer.prepared_rewards).shape == (4,)
+    assert all(reward >= 20.0 for reward in trainer.prepared_rewards)
+    trainer.close()
+
+
+def test_vector_preparation_cannot_mutate_episode_bookkeeping(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=4,
+        max_episode_steps=2,
+        evaluation_episodes=0,
+        checkpoint_frequency=0,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "vectorization_mode": "sync",
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = _MutatingBatchRLTrainer(config)
+    trainer.setup()
+
+    trainer.perform_training()
+
+    assert trainer.episode_metrics
+    assert all(
+        not metrics["episode/terminated"]
+        and metrics["episode/truncated"]
+        for metrics in trainer.episode_metrics
+    )
+    trainer.close()
+
+
+def test_vector_preparation_must_preserve_environment_lanes(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(tmp_path, evaluation_episodes=0)
+    )
+    trainer.setup()
+    transitions = TransitionBatch(
+        observations=np.asarray([[0], [1]]),
+        actions=np.asarray([0, 1]),
+        rewards=np.asarray([0.0, 1.0], dtype=np.float32),
+        next_observations=np.asarray([[1], [2]]),
+        terminated=np.asarray([False, False]),
+        truncated=np.asarray([False, False]),
+    )
+    trainer._prepare_transition_batch = lambda values: replace(
+        values,
+        rewards=values.rewards[:1],
+    )
+
+    with pytest.raises(ValueError, match="preserve its environment lanes"):
+        trainer.prepare_transition_batch(transitions)
+    trainer.close()
+
+
+def test_transition_preparation_isolates_nested_metadata(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(tmp_path, evaluation_episodes=0)
+    )
+    trainer.setup()
+    transition = Transition(
+        observation=0,
+        action=1,
+        reward=0.0,
+        next_observation=1,
+        terminated=False,
+        truncated=False,
+        info={"diagnostics": {"distance": 3}},
+    )
+
+    def mutate_metadata(
+        value: Transition[Any, Any],
+    ) -> Transition[Any, Any]:
+        value.info["diagnostics"].clear()
+        return value
+
+    trainer._prepare_transition = mutate_metadata
+    trainer.prepare_transition(transition)
+
+    assert transition.info == {"diagnostics": {"distance": 3}}
+    trainer.close()
+
+
+def test_default_transition_preparation_is_a_zero_copy_noop(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(tmp_path, evaluation_episodes=0)
+    )
+    trainer.setup()
+    transition = Transition(
+        observation=0,
+        action=1,
+        reward=0.0,
+        next_observation=1,
+        terminated=False,
+        truncated=False,
+    )
+    transitions = TransitionBatch(
+        observations=np.asarray([[0]]),
+        actions=np.asarray([1]),
+        rewards=np.asarray([0.0], dtype=np.float32),
+        next_observations=np.asarray([[1]]),
+        terminated=np.asarray([False]),
+        truncated=np.asarray([False]),
+    )
+
+    assert trainer.prepare_transition(transition) is transition
+    assert trainer.prepare_transition_batch(transitions) is transitions
     trainer.close()
 
 

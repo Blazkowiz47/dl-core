@@ -24,6 +24,8 @@ Compatible companion package floors:
   overlap the next environment step with replay learning by default
 - DQN reports collector and learner phase timings so environment, replay,
   model-update, and actor synchronization bottlenecks remain attributable
+- RL trainers expose scalar and vector transition-preparation hooks for
+  research-specific reward shaping and replay transformations
 - the single-GPU accelerator can compile all models or selected runtime model
   keys in place, while DQN keeps variable inference outside learner graphs
 - local auto-resume recognizes numbered step, episode, and legacy epoch
