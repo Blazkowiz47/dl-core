@@ -97,6 +97,18 @@ class DQNTrainer(RLTrainer):
             "Include replay contents in resumable checkpoints.",
             default=True,
         ),
+        config_field(
+            "actor_model_copies",
+            "int",
+            "Inference-only online-policy copies used to shard training environments.",
+            default=0,
+        ),
+        config_field(
+            "actor_model_sync_frequency",
+            "int",
+            "Optimizer steps between actor-policy weight synchronizations.",
+            default=100,
+        ),
     ]
 
     def setup_algorithm(self) -> None:
@@ -140,6 +152,12 @@ class DQNTrainer(RLTrainer):
         self.checkpoint_replay_buffer = bool(
             self.trainer_config.get("checkpoint_replay_buffer", True)
         )
+        self.actor_model_copies = int(
+            self.trainer_config.get("actor_model_copies", 0)
+        )
+        self.actor_model_sync_frequency = int(
+            self.trainer_config.get("actor_model_sync_frequency", 100)
+        )
         if not 0.0 <= self.gamma <= 1.0:
             raise ValueError("gamma must be in [0, 1]")
         if self.n_step <= 0:
@@ -160,6 +178,10 @@ class DQNTrainer(RLTrainer):
             )
         if self.epsilon_decay_steps <= 0:
             raise ValueError("epsilon_decay_steps must be positive")
+        if self.actor_model_copies < 0:
+            raise ValueError("actor_model_copies cannot be negative")
+        if self.actor_model_sync_frequency <= 0:
+            raise ValueError("actor_model_sync_frequency must be positive")
         if self.accelerator.gradient_accumulation_steps != 1:
             raise ValueError("DQNTrainer requires gradient_accumulation_steps=1")
 
@@ -211,6 +233,10 @@ class DQNTrainer(RLTrainer):
         )
         self.epsilon = self.epsilon_start
         self.random_generator = np.random.default_rng(self.seed)
+        self.actor_models: list[nn.Module] = []
+        self.actor_model_streams: list[torch.cuda.Stream] = []
+        self.actor_policy_version = 0
+        self.actor_updates_since_sync = 0
 
     def select_action(self, observation: Any, *, deterministic: bool) -> int:
         """Select an epsilon-greedy discrete action."""
@@ -229,7 +255,7 @@ class DQNTrainer(RLTrainer):
         *,
         deterministic: bool,
     ) -> BatchActionOutput[int]:
-        """Select epsilon-greedy actions with one batched Q-network call."""
+        """Select epsilon-greedy actions for an observation batch."""
         return self._select_actions(observations, deterministic=deterministic)
 
     def _select_actions(
@@ -259,7 +285,83 @@ class DQNTrainer(RLTrainer):
             size=int(explore.sum()),
         )
         greedy = ~explore
-        if greedy.any():
+        if greedy.any() and self.actor_model_copies > 0 and not deterministic:
+            if not self.actor_models:
+                online_model = self.accelerator.unwrap_model(self.models["online"])
+                device = self.accelerator.get_device()
+                for _ in range(self.actor_model_copies):
+                    actor_model = copy.deepcopy(online_model).to(device)
+                    actor_model.eval()
+                    actor_model.requires_grad_(False)
+                    self.actor_models.append(actor_model)
+                if device.type == "cuda":
+                    self.actor_model_streams = [
+                        torch.cuda.Stream(device=device)
+                        for _ in range(self.actor_model_copies)
+                    ]
+                self.actor_policy_version += 1
+                self.actor_updates_since_sync = 0
+
+            environment_shards = np.array_split(
+                np.arange(batch_size),
+                self.actor_model_copies,
+            )
+            device = self.accelerator.get_device()
+            if device.type == "cuda":
+                current_stream = torch.cuda.current_stream(device=device)
+                pending_actions: list[
+                    tuple[np.ndarray, torch.Tensor, torch.cuda.Stream]
+                ] = []
+                for actor_model, actor_stream, environment_indices in zip(
+                    self.actor_models,
+                    self.actor_model_streams,
+                    environment_shards,
+                    strict=True,
+                ):
+                    greedy_indices = environment_indices[greedy[environment_indices]]
+                    if greedy_indices.size == 0:
+                        continue
+                    actor_stream.wait_stream(current_stream)
+                    with (
+                        torch.cuda.stream(actor_stream),
+                        torch.inference_mode(),
+                        self.accelerator.autocast_context(),
+                    ):
+                        q_values = self._q_values(
+                            actor_model,
+                            self._observations_to_tensor(
+                                observation_batch[greedy_indices]
+                            ),
+                        )
+                        shard_actions = torch.argmax(q_values, dim=1)
+                    pending_actions.append(
+                        (greedy_indices, shard_actions, actor_stream)
+                    )
+                for greedy_indices, shard_actions, actor_stream in pending_actions:
+                    current_stream.wait_stream(actor_stream)
+                    action_indices[greedy_indices] = (
+                        shard_actions.detach().cpu().numpy()
+                    )
+            else:
+                for actor_model, environment_indices in zip(
+                    self.actor_models,
+                    environment_shards,
+                    strict=True,
+                ):
+                    greedy_indices = environment_indices[greedy[environment_indices]]
+                    if greedy_indices.size == 0:
+                        continue
+                    with torch.inference_mode(), self.accelerator.autocast_context():
+                        q_values = self._q_values(
+                            actor_model,
+                            self._observations_to_tensor(
+                                observation_batch[greedy_indices]
+                            ),
+                        )
+                    action_indices[greedy_indices] = (
+                        torch.argmax(q_values, dim=1).detach().cpu().numpy()
+                    )
+        elif greedy.any():
             was_training = self.models["online"].training
             try:
                 self.models["online"].eval()
@@ -433,22 +535,48 @@ class DQNTrainer(RLTrainer):
                     loss = functional.smooth_l1_loss(current_q_values, targets)
                 self.optimizers["q_network"].zero_grad(set_to_none=True)
                 self.accelerator.backward(loss, self.models["online"])
-                self.accelerator.optimizer_step(
+                optimizer_stepped = self.accelerator.optimizer_step(
                     self.optimizers["q_network"],
                     self.models["online"],
                 )
+                if self.actor_models and optimizer_stepped:
+                    self.actor_updates_since_sync += 1
+                    if (
+                        self.actor_updates_since_sync
+                        >= self.actor_model_sync_frequency
+                    ):
+                        online_state = self.accelerator.unwrap_model(
+                            self.models["online"]
+                        ).state_dict()
+                        for actor_model in self.actor_models:
+                            actor_model.load_state_dict(online_state)
+                        self.actor_policy_version += 1
+                        self.actor_updates_since_sync = 0
                 losses.append(float(loss.detach().item()))
                 q_means.append(float(current_q_values.detach().mean().item()))
                 target_means.append(float(targets.detach().mean().item()))
-            update_logs.append(
-                {
-                    "dqn/loss": float(np.mean(losses)),
-                    "dqn/q_mean": float(np.mean(q_means)),
-                    "dqn/target_q_mean": float(np.mean(target_means)),
-                    "dqn/epsilon": self.epsilon,
-                    "dqn/replay_size": float(len(self.replay_buffer)),
-                }
-            )
+            update_log = {
+                "dqn/loss": float(np.mean(losses)),
+                "dqn/q_mean": float(np.mean(q_means)),
+                "dqn/target_q_mean": float(np.mean(target_means)),
+                "dqn/epsilon": self.epsilon,
+                "dqn/replay_size": float(len(self.replay_buffer)),
+            }
+            if self.actor_model_copies > 0:
+                update_log.update(
+                    {
+                        "dqn/actor_model_copies": float(
+                            self.actor_model_copies
+                        ),
+                        "dqn/actor_policy_version": float(
+                            self.actor_policy_version
+                        ),
+                        "dqn/actor_policy_lag": float(
+                            self.actor_updates_since_sync
+                        ),
+                    }
+                )
+            update_logs.append(update_log)
             if scheduled_step % self.target_update_frequency == 0:
                 self._synchronize_target_network()
             last_scheduled_step = scheduled_step
@@ -503,6 +631,7 @@ class DQNTrainer(RLTrainer):
             ),
             "checkpoint_replay_buffer": self.checkpoint_replay_buffer,
             "n_step": self.n_step,
+            "actor_policy_version": self.actor_policy_version,
             "observation_space": repr(self.environment.observation_space),
             "action_space": repr(self.environment.action_space),
         }
@@ -525,6 +654,9 @@ class DQNTrainer(RLTrainer):
             raise ValueError("Checkpoint replay-buffer policy does not match config")
         if int(state.get("n_step", 1)) != self.n_step:
             raise ValueError("Checkpoint n_step does not match config")
+        actor_policy_version = int(state.get("actor_policy_version", 0))
+        if actor_policy_version < 0:
+            raise ValueError("Checkpoint actor policy version cannot be negative")
         replay_state = state.get("replay_buffer")
         if self.checkpoint_replay_buffer:
             if not isinstance(replay_state, dict):
@@ -532,3 +664,7 @@ class DQNTrainer(RLTrainer):
             self.replay_buffer.load_state_dict(replay_state)
         self.epsilon = epsilon
         self.random_generator.bit_generator.state = generator_state
+        self.actor_models = []
+        self.actor_model_streams = []
+        self.actor_policy_version = actor_policy_version
+        self.actor_updates_since_sync = 0

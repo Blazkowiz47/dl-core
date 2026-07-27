@@ -339,6 +339,29 @@ def test_dqn_preserves_box_observation_dtype_in_replay(tmp_path: Path) -> None:
     assert trainer.replay_buffer.observation_dtype == np.dtype(np.uint8)
 
 
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"actor_model_copies": -1}, "actor_model_copies cannot be negative"),
+        (
+            {"actor_model_sync_frequency": 0},
+            "actor_model_sync_frequency must be positive",
+        ),
+    ],
+)
+def test_dqn_validates_actor_model_copy_configuration(
+    tmp_path: Path,
+    overrides: dict[str, int],
+    message: str,
+) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(_config(tmp_path, **overrides))
+
+    with pytest.raises(ValueError, match=message):
+        trainer.setup()
+    trainer.close()
+
+
 def test_dqn_supports_nonzero_discrete_starts(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = DQNTrainer(_config(tmp_path))
@@ -593,6 +616,129 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
     trainer.close()
 
 
+def test_dqn_actor_models_balance_environment_shards(tmp_path: Path) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(_config(tmp_path, actor_model_copies=2))
+    trainer.setup()
+
+    trainer.select_actions(
+        np.asarray([0], dtype=np.int64),
+        deterministic=False,
+    )
+    with torch.no_grad():
+        for action_index, actor_model in enumerate(trainer.actor_models):
+            actor_model.network[-1].weight.zero_()
+            actor_model.network[-1].bias.zero_()
+            actor_model.network[-1].bias[action_index] = 1.0
+    inference_batches: list[int] = []
+    handles = [
+        actor_model.register_forward_hook(
+            lambda _model, inputs, _output: inference_batches.append(
+                int(inputs[0].shape[0])
+            )
+        )
+        for actor_model in trainer.actor_models
+    ]
+    output = trainer.select_actions(
+        np.asarray([0, 1, 2, 3, 0], dtype=np.int64),
+        deterministic=False,
+    )
+    with torch.no_grad():
+        trainer.models["online"].network[-1].weight.zero_()
+        trainer.models["online"].network[-1].bias.zero_()
+        trainer.models["online"].network[-1].bias[3] = 1.0
+    evaluation_output = trainer.select_actions(
+        np.asarray([0, 1], dtype=np.int64),
+        deterministic=True,
+    )
+
+    assert output.actions == [0, 0, 0, 1, 1]
+    assert evaluation_output.actions == [3, 3]
+    assert inference_batches == [3, 2]
+    assert trainer.actor_policy_version == 1
+    assert len(trainer.actor_models) == 2
+    assert all(not actor_model.training for actor_model in trainer.actor_models)
+    assert all(
+        not parameter.requires_grad
+        for actor_model in trainer.actor_models
+        for parameter in actor_model.parameters()
+    )
+    online_parameter = next(trainer.models["online"].parameters())
+    assert all(
+        next(actor_model.parameters()).data_ptr() != online_parameter.data_ptr()
+        for actor_model in trainer.actor_models
+    )
+    assert all(
+        next(actor_model.parameters()).device == online_parameter.device
+        for actor_model in trainer.actor_models
+    )
+    for handle in handles:
+        handle.remove()
+    trainer.close()
+
+
+def test_dqn_synchronizes_actor_models_after_optimizer_steps(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = DQNTrainer(
+        _config(
+            tmp_path,
+            actor_model_copies=2,
+            actor_model_sync_frequency=2,
+        )
+    )
+    trainer.setup()
+    trainer.select_action(0, deterministic=False)
+    with torch.no_grad():
+        next(trainer.models["online"].parameters()).add_(1.0)
+
+    trainer.global_step = 1
+    first_metrics = trainer.process_transition(
+        Transition(
+            observation=0,
+            action=1,
+            reward=1.0,
+            next_observation=1,
+            terminated=False,
+            truncated=False,
+        )
+    )
+
+    assert first_metrics is not None
+    assert first_metrics["dqn/actor_model_copies"] == 2.0
+    assert first_metrics["dqn/actor_policy_version"] == 1.0
+    assert first_metrics["dqn/actor_policy_lag"] == 1.0
+    assert not torch.equal(
+        next(trainer.actor_models[0].parameters()),
+        next(trainer.models["online"].parameters()),
+    )
+
+    trainer.global_step = 2
+    second_metrics = trainer.process_transition(
+        Transition(
+            observation=1,
+            action=1,
+            reward=1.0,
+            next_observation=2,
+            terminated=False,
+            truncated=False,
+        )
+    )
+
+    assert second_metrics is not None
+    assert second_metrics["dqn/actor_policy_version"] == 2.0
+    assert second_metrics["dqn/actor_policy_lag"] == 0.0
+    for actor_model in trainer.actor_models:
+        for actor_parameter, online_parameter in zip(
+            actor_model.parameters(),
+            trainer.models["online"].parameters(),
+            strict=True,
+        ):
+            assert torch.equal(actor_parameter, online_parameter)
+    trainer.close()
+
+
 def test_dqn_preserves_crossed_vector_update_steps_with_n_step_replay(
     tmp_path: Path,
 ) -> None:
@@ -733,5 +879,43 @@ def test_dqn_checkpoint_restores_target_network_and_replay(tmp_path: Path) -> No
         strict=True,
     ):
         assert torch.equal(restored_parameter, parameter)
+    trainer.close()
+    restored.close()
+
+
+def test_dqn_checkpoint_recreates_actor_models_from_online_policy(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(tmp_path, actor_model_copies=2)
+    trainer = DQNTrainer(config)
+    trainer.setup()
+    trainer.select_action(0, deterministic=False)
+    trainer.actor_policy_version = 7
+    checkpoint_path = trainer.save_checkpoint("dqn-actors.pth")
+    assert checkpoint_path is not None
+
+    restored = DQNTrainer(config)
+    restored.setup()
+    restored.load_checkpoint(str(checkpoint_path))
+
+    assert restored.actor_policy_version == 7
+    assert restored.actor_models == []
+    restored.select_action(0, deterministic=False)
+    assert restored.actor_policy_version == 8
+    assert len(restored.actor_models) == 2
+    for actor_model in restored.actor_models:
+        for actor_parameter, online_parameter in zip(
+            actor_model.parameters(),
+            restored.models["online"].parameters(),
+            strict=True,
+        ):
+            assert torch.equal(actor_parameter, online_parameter)
+
+    legacy_state = restored.algorithm_state_dict()
+    legacy_state.pop("actor_policy_version")
+    restored.load_algorithm_state_dict(legacy_state)
+    assert restored.actor_policy_version == 0
+    assert restored.actor_models == []
     trainer.close()
     restored.close()

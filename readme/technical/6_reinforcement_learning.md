@@ -333,6 +333,8 @@ trainer:
     epsilon_end: 0.05
     epsilon_decay_steps: 50000
     checkpoint_replay_buffer: true
+    actor_model_copies: 0
+    actor_model_sync_frequency: 100
 ```
 
 DQN uses uniform replay, a hard-updated target network, Huber loss, and Double
@@ -347,6 +349,28 @@ Saving replay memory makes checkpoints larger but preserves all completed
 replay entries; set `checkpoint_replay_buffer: false` to resume with an empty
 buffer. Gradient accumulation is currently rejected for DQN because each
 replay update is an independent optimizer step.
+
+`actor_model_copies` is an opt-in single-GPU inference setting. The default
+`0` keeps one batched action-selection call on the authoritative online model.
+A positive value creates that many read-only policy snapshots, divides vector
+environment lanes between them as evenly as possible, and submits CUDA work on
+one stream per copy. Training updates only the authoritative online model; the
+snapshots receive its weights every `actor_model_sync_frequency` optimizer
+steps. Deterministic evaluation always uses the current online model rather
+than a potentially stale snapshot.
+
+Actor copies are derived runtime state and are not duplicated in checkpoints.
+On resume, the first training action recreates every copy from the restored
+online model. Update logs expose `dqn/actor_model_copies`,
+`dqn/actor_policy_version`, and `dqn/actor_policy_lag`; lag counts optimizer
+steps since the most recent snapshot synchronization.
+
+This setting does not require `torchrun`: it is one learner process using
+multiple inference replicas on the same device. It can improve utilization
+when small inference shards overlap, but one larger batched forward can still
+be faster for models that already saturate the GPU. Benchmark both modes for
+the actual model and environment count. Distributed gradient-synchronized
+learners remain outside the current RL runtime.
 
 ## Proximal Policy Optimization
 
