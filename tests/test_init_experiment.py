@@ -68,12 +68,18 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     presets = yaml.safe_load((target_dir / "configs" / "presets.yaml").read_text())
     readme_text = (target_dir / "README.md").read_text()
     pyproject_text = (target_dir / "pyproject.toml").read_text()
+    model_text = (
+        target_dir / "src" / "models" / "resnet_example.py"
+    ).read_text()
     helper_readme_text = (
         target_dir / "scripts" / "temporary" / "README.md"
     ).read_text()
     gitignore_text = (target_dir / ".gitignore").read_text()
     assert list(config["models"].keys()) == ["resnet_example"]
     assert "name" not in config["models"]["resnet_example"]
+    assert "from dl_core.models" not in model_text
+    assert "from torchvision.models import" in model_text
+    assert '"torchvision"' in pyproject_text
     assert config["dataset"]["name"] == component_name
     assert list(config["trainer"].keys()) == [component_name]
     assert "name" not in config["trainer"][component_name]

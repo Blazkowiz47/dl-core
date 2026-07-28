@@ -69,7 +69,7 @@ By default:
 
 - the dataset wrapper is named after the project package
 - the trainer wrapper is named after the project package
-- the model wrapper stays `ResNetExample`
+- the project owns the generated `ResNetExample` architecture
 
 ## First Files To Edit
 

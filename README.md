@@ -71,7 +71,9 @@ uv add deep-learning-core
 ```
 
 `deep-learning-core` intentionally ships with the full public runtime
-dependencies, including `torch`, `torchvision`, and `opencv-python-headless`. The Azure
+dependencies, including `torch` and `opencv-python-headless`. Generated
+classification projects declare `torchvision` directly because their example
+ResNet architecture belongs to the experiment repository. The Azure
 extra pulls in `deep-learning-azure`, which pins the Azure package versions
 used by the validated Azure packaging stack. The MLflow extra pulls in
 `deep-learning-mlflow` for local MLflow tracking. The W&B extra pulls in

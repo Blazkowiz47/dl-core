@@ -15,7 +15,6 @@ registrations:
 - executors
 - metric managers
 - metrics
-- models
 - optimizers
 - schedulers
 - trainers

@@ -4,7 +4,7 @@ The default path is:
 
 - scaffold a new experiment repository
 - use the generated project-named dataset and trainer wrappers
-- keep the default `ResNetExample` model wrapper
+- keep or replace the project-owned `ResNetExample` model
 - run locally first
 
 ## 1. Create the Experiment Repository

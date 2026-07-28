@@ -11,14 +11,14 @@ In a scaffolded project named `my-exp`:
 - model name: `resnet_example`
 
 The generated dataset is a visible `BaseWrapper` skeleton, the trainer extends
-the built-in `StandardTrainer` on top of `EpochTrainer`, and the model extends
-`ResNet`.
+the built-in `StandardTrainer` on top of `EpochTrainer`, and the project owns
+its torchvision `ResNetExample` architecture.
 
 ## How Registration Works
 
 `dl-core` does two things at runtime:
 
-1. it imports built-in package modules so core registries populate
+1. it imports built-in package modules so non-model registries populate
 2. it finds the nearest project root containing `pyproject.toml` and `src/`
 3. it imports `bootstrap.py` plus known component packages under `src/`
 

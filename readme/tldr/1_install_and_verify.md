@@ -19,8 +19,8 @@ uv sync
 uv run dl-core list
 ```
 
-You should see built-in accelerators, datasets, trainers, metrics, and models
-listed in the registry output.
+You should see built-in accelerators, datasets, trainers, and metrics. Models
+appear only after an experiment repository registers them.
 
 ## Run the Package Tests
 

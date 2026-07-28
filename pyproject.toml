@@ -45,7 +45,6 @@ dependencies = [
     "pyyaml",
     "scikit-learn",
     "torch",
-    "torchvision",
     "tqdm",
 ]
 

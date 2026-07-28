@@ -82,6 +82,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "deep-learning-core>=0.0.35,<0.1",
+    "torchvision",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -711,15 +712,96 @@ class {class_name}(BaseWrapper):
 
 def _project_resnet_model(model_name: str, class_name: str) -> str:
     """Render a project-specific model example."""
-    return f"""\"\"\"Example project ResNet wrapper.\"\"\"
+    return f"""\"\"\"Project-owned torchvision ResNet classifier.\"\"\"
 
-from dl_core.core import register_model
-from dl_core.models.resnet import ResNet
+from __future__ import annotations
+
+from typing import Any, ClassVar
+
+import torch
+from dl_core.core import BaseModel, config_field, register_model
+from torch import Tensor
+from torch.nn import Linear
+from torchvision.models import (
+    ResNet18_Weights,
+    ResNet34_Weights,
+    ResNet50_Weights,
+    ResNet101_Weights,
+    resnet18,
+    resnet34,
+    resnet50,
+    resnet101,
+)
 
 
 @register_model("{model_name}")
-class {class_name}(ResNet):
-    \"\"\"Thin local wrapper around the built-in ResNet model.\"\"\"
+class {class_name}(BaseModel):
+    \"\"\"Local ResNet whose architecture belongs to this experiment.\"\"\"
+
+    CONFIG_FIELDS: ClassVar[list[dict[str, Any]]] = (
+        BaseModel.CONFIG_FIELDS
+        + [
+            config_field(
+                "variant",
+                "str",
+                "One of resnet18, resnet34, resnet50, or resnet101.",
+                default="resnet18",
+            ),
+            config_field(
+                "pretrained",
+                "bool",
+                "Initialize from torchvision ImageNet weights.",
+                default=False,
+            ),
+        ]
+    )
+
+    def __init__(self, config: dict[str, Any], **kwargs: Any):
+        super().__init__(config, **kwargs)
+        variant = str(config.get("variant", "resnet18"))
+        pretrained = bool(config.get("pretrained", False))
+        if variant == "resnet18":
+            weights = ResNet18_Weights.DEFAULT if pretrained else None
+            self.module = resnet18(weights=weights)
+            self.feature_dim = 512
+        elif variant == "resnet34":
+            weights = ResNet34_Weights.DEFAULT if pretrained else None
+            self.module = resnet34(weights=weights)
+            self.feature_dim = 512
+        elif variant == "resnet50":
+            weights = ResNet50_Weights.DEFAULT if pretrained else None
+            self.module = resnet50(weights=weights)
+            self.feature_dim = 2048
+        elif variant == "resnet101":
+            weights = ResNet101_Weights.DEFAULT if pretrained else None
+            self.module = resnet101(weights=weights)
+            self.feature_dim = 2048
+        else:
+            raise ValueError(f"Unsupported ResNet variant: {{variant}}")
+        self.module.fc = Linear(self.feature_dim, self.num_classes)
+
+    def compute_forward(
+        self,
+        batch_data: dict[str, Tensor],
+        **kwargs: Any,
+    ) -> dict[str, Tensor]:
+        \"\"\"Return classification probabilities, logits, and features.\"\"\"
+        del kwargs
+        features = self.module.conv1(batch_data["image"])
+        features = self.module.bn1(features)
+        features = self.module.relu(features)
+        features = self.module.maxpool(features)
+        features = self.module.layer1(features)
+        features = self.module.layer2(features)
+        features = self.module.layer3(features)
+        features = self.module.layer4(features)
+        features = self.module.avgpool(features).flatten(1)
+        logits = self.module.fc(features)
+        return {{
+            "probabilities": torch.softmax(logits, dim=1),
+            "logits": logits,
+            "features": features,
+        }}
 """
 
 
