@@ -7,8 +7,8 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
-Current public release: `deep-learning-core==0.0.34`.
-Current development version: `0.0.34`.
+Current public release: `deep-learning-core==0.0.35`.
+Current development version: `0.0.35`.
 
 Compatible companion package floors:
 
@@ -17,18 +17,18 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.5,<0.1`
 - `deep-learning-wandb>=0.0.14,<0.1`
 
-## What's New in 0.0.34?
+## What's New in 0.0.35?
 
-- researcher extension hooks now use public names: `transform_transition()`,
-  `transform_transition_batch()`, `should_update()`, augmentation
-  `create_*_transforms()`, and metric metadata hooks
-- RL callback implementations override the public `on_episode_end()`,
-  `on_update_end()`, and `on_evaluation_end()` contract
-- `generate_epoch_logs()` is the direct public epoch-level customization point
-- migration: rename `_prepare_transition*` to `transform_transition*`,
-  `_should_update` to `should_update`, callback `_on_*` methods to `on_*`,
-  augmentation `_create_*` methods to `create_*`, and metric metadata hooks
-  without the leading underscore
+- `DreamerTrainer` adds recurrent, discrete-action model-based RL through a
+  categorical world model, latent imagination, and actor-critic learning
+- episode-safe `SequenceReplayBuffer` sampling supports burn-in, vector lanes,
+  ring overwrite, and exact checkpoint continuation
+- recurrent policy state is carried between real environment steps and reset
+  independently for completed vector lanes
+- public observation, action-distribution, reward-prediction, and continuation
+  hooks expose the main researcher customization boundaries
+- a complete vectorized CartPole configuration demonstrates the world model,
+  separate optimizers, sequence replay, evaluation, and checkpoint settings
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

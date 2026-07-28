@@ -4,16 +4,18 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.0.34`.
-Current development version: `0.0.34`.
+Current public release: `deep-learning-core==0.0.35`.
+Current development version: `0.0.35`.
 
-## What's New in 0.0.34?
+## What's New in 0.0.35?
 
-- researcher extension hooks use public names across RL transition shaping,
-  update schedules, augmentations, metric metadata, and epoch logs
-- RL callback integrations override the public `on_*()` contract
-- private methods are reserved for internal framework implementation
-- the README and RL guide list the old-to-new hook migration names
+- `DreamerTrainer` combines episode-safe sequence replay, a categorical
+  recurrent world model, and actor-critic learning from latent imagination
+- recurrent policy state resets completed vector lanes without discarding
+  active histories
+- public observation, action-distribution, reward-prediction, and continuation
+  hooks expose the intended research extension points
+- the runnable CartPole configuration demonstrates complete Dreamer wiring
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

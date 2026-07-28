@@ -3,6 +3,14 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.0.34
+
+- researcher extension hooks use public names across RL transition shaping,
+  update schedules, augmentations, metric metadata, and epoch logs
+- RL callback integrations override the public `on_*()` contract
+- private methods are reserved for internal framework implementation
+- the README and RL guide list the old-to-new hook migration names
+
 ## 0.0.33
 
 - RL trainers expose scalar and vector transition-preparation hooks for
