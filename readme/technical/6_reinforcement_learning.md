@@ -223,19 +223,26 @@ overwrites immediately invalidate windows whose first transition is no longer
 available. Uniform sampling is reproducible from the configured seed, and
 `state_dict()` preserves all lane cursors, partial episodes, stored transitions,
 and random-generator state for exact checkpoint continuation.
+`add()` returns whether its transition created a new sampleable window.
+`add_batch()` returns `SequenceReplayAddResult`, containing both new windows per
+lane and total sampleable-window availability after each ordered lane
+insertion. Trainers can therefore align the first eligible update with the
+exact transition boundary even when ring overwrites expire an earlier window.
 
 The initial buffer is optimized for compact vector observations and stores
 current and next observations separately. Account for both arrays when sizing
 memory. RGB replay requires a later frame-deduplicated storage phase before it
 is suitable for long, high-resolution runs.
 
-### Dreamer model foundations
+### Dreamer sequence learning
 
-The compact vector-observation foundation registers `dreamer_world_model`,
-`dreamer_actor`, and `dreamer_critic`. The world model contains an MLP encoder,
-categorical recurrent state-space model, observation decoder, reward predictor,
-and continuation predictor. It exposes typed `WorldModelState`,
-`WorldModelStep`, and `WorldModelOutput` objects instead of positional tuples.
+`DreamerTrainer` is registered as `dreamer` for discrete-action environments
+with `Box` or `Discrete` vector observations. It registers and uses the
+`dreamer_world_model`, `dreamer_actor`, and `dreamer_critic` model components.
+The world model contains an MLP encoder, categorical recurrent state-space
+model, observation decoder, reward predictor, and continuation predictor. It
+exposes typed `WorldModelState`, `WorldModelStep`, and `WorldModelOutput`
+objects instead of positional tuples.
 
 The RSSM uses deterministic recurrent state plus straight-through categorical
 latent variables with configurable uniform probability mixing. Observations
@@ -245,14 +252,102 @@ prior without reading the environment. Actor and critic models consume the
 same flattened RSSM feature. `WorldModelOutput.observation_targets` contains
 the exact flattened and optionally symlog-transformed decoder target, so the
 trainer cannot silently compare transformed predictions with raw observations.
+The public `predict_rewards()` and `predict_continue_logits()` methods expose
+the same prediction heads used by latent imagination.
 
-This is a DreamerV3-inspired compact foundation, not yet the complete trainer.
-The first trainer targets discrete actions and vector observations. Image
-encoders/decoders and DreamerV3 two-hot reward/value regression remain explicit
-later phases; the initial scalar heads make loss ownership and sequence
-correctness easier to validate before adding those components. The actor emits
-raw categorical logits; DreamerV3-style uniform action mixing belongs to the
-trainer's sampling policy and is also deferred until that phase.
+The trainer carries `DreamerPolicyState` between real observations and resets
+only completed vector lanes. Replay updates use `SequenceReplayBuffer`, exclude
+burn-in transitions from loss targets, and keep posterior/prior KL ownership
+explicit with separate dynamics and representation losses. Reconstruction,
+symlog reward regression, continuation prediction, and free-nat thresholds
+train the world model.
+
+Actor and critic learning begins from replay posterior states. The trainer
+samples categorical actions through the public
+`build_action_distribution()` hook, advances the frozen world model in latent
+space, and computes lambda returns with a slowly updated target critic. The
+actor uses a discrete REINFORCE objective with optional advantage
+normalization and entropy regularization. The critic regresses symlog imagined
+returns. True termination produces a zero continuation target; truncation
+preserves the bootstrap semantics but still ends sequence sampling at that
+environment boundary.
+
+Researchers can override `transform_observations()` to control the tensor sent
+to the world model during both acting and replay learning, and override
+`build_action_distribution()` to change action sampling without replacing the
+trainer loop. Both hooks are public; observation transformation is shared by
+collection and replay, while distribution construction is shared by real and
+imagined policy steps. The built-in observation transform one-hot encodes a
+`Discrete` space and flattens a `Box` space; the world model then applies its
+configured symlog target transform.
+
+```yaml
+environment:
+  name: gymnasium_vector
+  id: CartPole-v1
+  num_envs: 8
+  vectorization_mode: async
+
+evaluation_environment:
+  name: gymnasium
+  id: CartPole-v1
+
+models:
+  world_model:
+    name: dreamer_world_model
+    deterministic_size: 128
+    stochastic_size: 16
+    classes: 16
+  actor:
+    name: dreamer_actor
+  critic:
+    name: dreamer_critic
+
+optimizers:
+  world_model:
+    name: adam
+    lr: 0.0001
+  actor:
+    name: adam
+    lr: 0.00003
+  critic:
+    name: adam
+    lr: 0.00003
+
+trainer:
+  dreamer:
+    total_timesteps: 1000000
+    buffer_size: 100000
+    batch_size: 16
+    sequence_length: 50
+    burn_in: 5
+    learning_starts: 1000
+    train_frequency: 16
+    gradient_steps: 1
+    imagination_horizon: 15
+    gamma: 0.997
+    lambda_: 0.95
+    actor_unimix: 0.01
+```
+
+`buffer_size` is divided between vector-environment lanes, so every lane must
+hold at least `sequence_length + burn_in` transitions. Each crossed
+`train_frequency` boundary samples `batch_size` sequences and runs
+`gradient_steps` updates. Sequence replay is checkpointed by default, including
+partial episodes and its sampling generator. Resume also validates the
+training-defining replay, loss, imagination, discount, and target-update
+parameters, preventing a checkpoint from silently continuing with different
+algorithm semantics. Gradient accumulation is currently rejected because the
+world model, actor, and critic have independent optimizers.
+
+This implementation is deliberately described as DreamerV3-inspired rather
+than exact DreamerV3. The current vector-first model uses scalar symlog
+reward/value regression, normalized imagined advantages, and no return
+percentile statistics. Image encoders/decoders, frame-deduplicated RGB replay,
+two-hot reward/value distributions, and actor-model copies remain later
+phases. These boundaries keep the initial recurrent, replay, checkpoint, and
+gradient ownership contracts testable before adding high-memory visual
+training.
 
 ### Preparing transitions before replay
 

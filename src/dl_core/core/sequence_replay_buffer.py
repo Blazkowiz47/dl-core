@@ -27,6 +27,14 @@ class SequenceBatch:
     burn_in: int
 
 
+@dataclass(slots=True)
+class SequenceReplayAddResult:
+    """Sequence-window changes across one ordered vector insertion."""
+
+    added_per_environment: np.ndarray
+    available_after_environment: np.ndarray
+
+
 class SequenceReplayBuffer:
     """Fixed-capacity replay that samples within individual episodes."""
 
@@ -161,16 +169,19 @@ class SequenceReplayBuffer:
         transition: Transition[Any, Any],
         *,
         environment_index: int = 0,
-    ) -> None:
-        """Append one transition to a specific environment lane."""
-        self._add(transition, environment_index=environment_index)
+    ) -> int:
+        """Append one transition and return the number of new sequence windows."""
+        return self._add(
+            transition,
+            environment_index=environment_index,
+        )
 
     def _add(
         self,
         transition: Transition[Any, Any],
         *,
         environment_index: int,
-    ) -> None:
+    ) -> int:
         if not 0 <= environment_index < self.num_environments:
             raise IndexError("Sequence replay environment index is out of range")
         lane_capacity = int(self.lane_capacities[environment_index])
@@ -203,10 +214,11 @@ class SequenceReplayBuffer:
         )
         self.insertion_ids[environment_index][position] = self.insertion_count
 
-        if (
+        sequence_added = int(
             int(self.current_episode_steps[environment_index]) + 1
             >= self.total_sequence_length
-        ):
+        )
+        if sequence_added:
             self.candidate_starts[environment_index].append(
                 serial - self.total_sequence_length + 1
             )
@@ -236,18 +248,19 @@ class SequenceReplayBuffer:
             self.next_episode_id += 1
         else:
             self.current_episode_steps[environment_index] += 1
+        return sequence_added
 
     def add_batch(
         self,
         transitions: TransitionBatch[Any, Any],
-    ) -> None:
-        """Append one synchronized transition from every environment lane."""
-        self._add_batch(transitions)
+    ) -> SequenceReplayAddResult:
+        """Append a vector step and report per-lane window availability."""
+        return self._add_batch(transitions)
 
     def _add_batch(
         self,
         transitions: TransitionBatch[Any, Any],
-    ) -> None:
+    ) -> SequenceReplayAddResult:
         observations = np.asarray(transitions.observations)
         actions = np.asarray(transitions.actions)
         rewards = np.asarray(transitions.rewards)
@@ -283,8 +296,21 @@ class SequenceReplayBuffer:
                     f"{values[name].shape} does not match {expected_shape}"
                 )
 
+        added_sequences = np.zeros(
+            self.num_environments,
+            dtype=np.int64,
+        )
+        available_sequences = np.zeros(
+            self.num_environments,
+            dtype=np.int64,
+        )
+        total_available = self.num_sequences
         for environment_index in range(self.num_environments):
-            self._add(
+            previous_lane_count = (
+                len(self.candidate_starts[environment_index])
+                - int(self.candidate_offsets[environment_index])
+            )
+            added_sequences[environment_index] = self._add(
                 Transition(
                     observation=observations[environment_index],
                     action=actions[environment_index],
@@ -295,6 +321,16 @@ class SequenceReplayBuffer:
                 ),
                 environment_index=environment_index,
             )
+            current_lane_count = (
+                len(self.candidate_starts[environment_index])
+                - int(self.candidate_offsets[environment_index])
+            )
+            total_available += current_lane_count - previous_lane_count
+            available_sequences[environment_index] = total_available
+        return SequenceReplayAddResult(
+            added_per_environment=added_sequences,
+            available_after_environment=available_sequences,
+        )
 
     def sample(
         self,

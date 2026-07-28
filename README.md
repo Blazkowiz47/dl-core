@@ -112,6 +112,7 @@ pip install deep-learning-wandb
 - Base abstractions and registries
 - Built-in accelerators, callbacks, criterions, metrics, and schedulers
 - The standard trainer and standard dataset flow
+- Episode-driven tabular, DQN, PPO, SAC, and Dreamer training
 - Built-in augmentations
 - Local execution and sweep orchestration
 - Local sweep analysis from saved artifact summaries

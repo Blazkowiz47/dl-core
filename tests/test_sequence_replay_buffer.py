@@ -74,27 +74,31 @@ def test_sequence_replay_tracks_vector_episode_boundaries_independently() -> Non
         action_dtype=np.int64,
         seed=11,
     )
+    added_windows: list[list[int]] = []
     for step in range(4):
-        buffer.add_batch(
-            TransitionBatch(
-                observations=np.asarray(
-                    [[step], [100 + step]],
-                    dtype=np.float32,
-                ),
-                actions=np.asarray([0, 1], dtype=np.int64),
-                rewards=np.asarray([0.0, 1.0], dtype=np.float32),
-                next_observations=np.asarray(
-                    [[step + 1], [101 + step]],
-                    dtype=np.float32,
-                ),
-                terminated=np.asarray(
-                    [step == 0, False],
-                    dtype=np.bool_,
-                ),
-                truncated=np.asarray([False, False], dtype=np.bool_),
-            )
+        added_windows.append(
+            buffer.add_batch(
+                TransitionBatch(
+                    observations=np.asarray(
+                        [[step], [100 + step]],
+                        dtype=np.float32,
+                    ),
+                    actions=np.asarray([0, 1], dtype=np.int64),
+                    rewards=np.asarray([0.0, 1.0], dtype=np.float32),
+                    next_observations=np.asarray(
+                        [[step + 1], [101 + step]],
+                        dtype=np.float32,
+                    ),
+                    terminated=np.asarray(
+                        [step == 0, False],
+                        dtype=np.bool_,
+                    ),
+                    truncated=np.asarray([False, False], dtype=np.bool_),
+                )
+            ).added_per_environment.tolist()
         )
 
+    assert added_windows == [[0, 0], [0, 1], [1, 1], [1, 1]]
     assert buffer.num_sequences == 5
     batch = buffer.sample(100, torch.device("cpu"))
 
@@ -128,6 +132,53 @@ def test_sequence_replay_discards_windows_overwritten_by_ring_storage() -> None:
         batch.observations[:, 0, 0].long(),
         batch.start_steps,
     )
+
+
+def test_vector_add_reports_availability_after_expiry_and_replacement() -> None:
+    buffer = SequenceReplayBuffer(
+        capacity=4,
+        num_environments=2,
+        observation_shape=(1,),
+        action_shape=(),
+        sequence_length=2,
+        action_dtype=np.int64,
+    )
+    buffer.add_batch(
+        TransitionBatch(
+            observations=np.asarray([[0], [10]], dtype=np.float32),
+            actions=np.asarray([0, 0]),
+            rewards=np.zeros(2, dtype=np.float32),
+            next_observations=np.asarray([[1], [11]], dtype=np.float32),
+            terminated=np.asarray([False, True]),
+            truncated=np.zeros(2, dtype=np.bool_),
+        )
+    )
+    second_result = buffer.add_batch(
+        TransitionBatch(
+            observations=np.asarray([[1], [20]], dtype=np.float32),
+            actions=np.asarray([0, 0]),
+            rewards=np.zeros(2, dtype=np.float32),
+            next_observations=np.asarray([[2], [21]], dtype=np.float32),
+            terminated=np.asarray([True, False]),
+            truncated=np.zeros(2, dtype=np.bool_),
+        )
+    )
+    replacement_result = buffer.add_batch(
+        TransitionBatch(
+            observations=np.asarray([[30], [21]], dtype=np.float32),
+            actions=np.asarray([0, 0]),
+            rewards=np.zeros(2, dtype=np.float32),
+            next_observations=np.asarray([[31], [22]], dtype=np.float32),
+            terminated=np.zeros(2, dtype=np.bool_),
+            truncated=np.zeros(2, dtype=np.bool_),
+        )
+    )
+
+    assert second_result.added_per_environment.tolist() == [1, 0]
+    assert second_result.available_after_environment.tolist() == [1, 1]
+    assert replacement_result.added_per_environment.tolist() == [0, 1]
+    assert replacement_result.available_after_environment.tolist() == [0, 1]
+    assert buffer.num_sequences == 1
 
 
 def test_sequence_replay_checkpoint_restores_contents_and_sampling() -> None:

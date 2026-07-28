@@ -256,6 +256,26 @@ class DreamerWorldModel(nn.Module):
             dim=-1,
         )
 
+    def predict_rewards(self, features: torch.Tensor) -> torch.Tensor:
+        """Predict symlog rewards from RSSM features."""
+        return self._predict_rewards(features)
+
+    def _predict_rewards(self, features: torch.Tensor) -> torch.Tensor:
+        return self.reward_head(features).squeeze(-1)
+
+    def predict_continue_logits(
+        self,
+        features: torch.Tensor,
+    ) -> torch.Tensor:
+        """Predict continuation logits from RSSM features."""
+        return self._predict_continue_logits(features)
+
+    def _predict_continue_logits(
+        self,
+        features: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.continue_head(features).squeeze(-1)
+
     def _categorical_logits(
         self,
         raw_logits: torch.Tensor,
@@ -503,8 +523,8 @@ class DreamerWorldModel(nn.Module):
         )
         features = self.features(states)
         reconstructions = self.decoder(features)
-        reward_predictions = self.reward_head(features[:, 1:]).squeeze(-1)
-        continue_logits = self.continue_head(features[:, 1:]).squeeze(-1)
+        reward_predictions = self.predict_rewards(features[:, 1:])
+        continue_logits = self.predict_continue_logits(features[:, 1:])
         return WorldModelOutput(
             states=states,
             prior_logits=torch.stack(prior_logits, dim=1),
