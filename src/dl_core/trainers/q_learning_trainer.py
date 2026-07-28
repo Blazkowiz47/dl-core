@@ -178,6 +178,10 @@ class QLearningTrainer(RLTrainer):
             raise ValueError("Transition next observation is outside the configured space")
         if not action_space.contains(transition.action):
             raise ValueError("Transition action is outside the configured space")
+        if not np.isfinite(transition.reward):
+            raise FloatingPointError(
+                "Q-learning transition reward must be finite"
+            )
 
         state_index = int(transition.observation) - int(observation_space.start)
         next_state_index = int(transition.next_observation) - int(

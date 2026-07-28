@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import MappingProxyType, MethodType, SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -89,6 +90,14 @@ class _TestSACCritics(torch.nn.Module):
             "q1": self.critics[0](inputs).squeeze(1),
             "q2": self.critics[1](inputs).squeeze(1),
         }
+
+
+@register_model("test_sac_non_module")
+class _TestSACNonModule:
+    """Invalid project registration used to verify setup diagnostics."""
+
+    def __init__(self, config: dict[str, object]):
+        del config
 
 
 def _config(tmp_path: Path, **overrides: object) -> dict:
@@ -189,14 +198,6 @@ def test_sac_uses_registered_project_models(
             TypeError,
             "floating-point",
         ),
-        (
-            {
-                "mean": torch.full((2, 1), float("nan")),
-                "log_std": torch.zeros(2, 1),
-            },
-            FloatingPointError,
-            "must be finite",
-        ),
     ],
 )
 def test_sac_validates_project_actor_output_contract(
@@ -239,14 +240,6 @@ def test_sac_validates_project_actor_output_contract(
             },
             TypeError,
             "floating-point",
-        ),
-        (
-            {
-                "q1": torch.full((2,), float("nan")),
-                "q2": torch.zeros(2),
-            },
-            FloatingPointError,
-            "must be finite",
         ),
     ],
 )
@@ -354,6 +347,116 @@ def test_sac_requires_explicit_project_models(
 
     with pytest.raises(ValueError, match=message):
         trainer.setup()
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    ("model_key", "message"),
+    [
+        ("actor", "actor must be a torch module"),
+        ("critics", "critics must be a torch module"),
+    ],
+)
+def test_sac_requires_torch_module_project_models(
+    tmp_path: Path,
+    model_key: str,
+    message: str,
+) -> None:
+    config = _config(tmp_path)
+    config["models"][model_key]["name"] = "test_sac_non_module"
+    trainer = SACTrainer(config)
+
+    with pytest.raises(TypeError, match=message):
+        trainer.setup()
+    trainer.close()
+
+
+def test_sac_rejects_nonfinite_rewards_before_replay(
+    tmp_path: Path,
+) -> None:
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+    trainer.global_step = 1
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.process_transition(
+            Transition(
+                observation=np.zeros(3, dtype=np.float32),
+                action=np.zeros(1, dtype=np.float32),
+                reward=float("nan"),
+                next_observation=np.zeros(3, dtype=np.float32),
+                terminated=False,
+                truncated=False,
+            )
+        )
+    assert len(trainer.replay_buffer) == 0
+    trainer.close()
+
+
+def test_sac_rejects_nonfinite_sampled_actions_after_transfer(
+    tmp_path: Path,
+) -> None:
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+    observation, _ = trainer.environment.reset(seed=29)
+
+    def nonfinite_actor(
+        observations: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        return {
+            "mean": torch.full(
+                (observations.shape[0], 1),
+                float("nan"),
+            ),
+            "log_std": torch.zeros(observations.shape[0], 1),
+        }
+
+    trainer.models["actor"].forward = nonfinite_actor
+    with pytest.raises(FloatingPointError, match="actions must be finite"):
+        trainer.select_action(observation, deterministic=True)
+    trainer.close()
+
+
+def test_sac_rejects_nonfinite_critic_loss_before_optimizer_step(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+    optimizer_step = Mock(wraps=trainer.accelerator.optimizer_step)
+    monkeypatch.setattr(
+        trainer.accelerator,
+        "optimizer_step",
+        optimizer_step,
+    )
+    original_forward = trainer.models["critics"].forward
+
+    def nonfinite_critics(
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        output = original_forward(observations, actions)
+        return {
+            "q1": output["q1"] * float("nan"),
+            "q2": output["q2"],
+        }
+
+    trainer.models["critics"].forward = nonfinite_critics
+    trainer.global_step = 1
+    observation, _ = trainer.environment.reset(seed=29)
+
+    with pytest.raises(FloatingPointError, match="critic.*finite"):
+        trainer.process_transition(
+            Transition(
+                observation=observation,
+                action=np.zeros(1, dtype=np.float32),
+                reward=0.0,
+                next_observation=observation,
+                terminated=False,
+                truncated=False,
+            )
+        )
+    optimizer_step.assert_not_called()
     trainer.close()
 
 

@@ -100,6 +100,29 @@ def test_q_learning_uses_terminal_aware_td_targets(tmp_path: Path) -> None:
     trainer.close()
 
 
+def test_q_learning_rejects_nonfinite_rewards_before_table_update(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = QLearningTrainer(_config(tmp_path))
+    trainer.setup()
+    table_before = trainer.q_table.copy()
+
+    with pytest.raises(FloatingPointError, match="reward must be finite"):
+        trainer.process_transition(
+            Transition(
+                observation=0,
+                action=1,
+                reward=float("nan"),
+                next_observation=1,
+                terminated=False,
+                truncated=False,
+            )
+        )
+    assert np.array_equal(trainer.q_table, table_before)
+    trainer.close()
+
+
 def test_q_learning_epsilon_decay_and_checkpoint_round_trip(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = QLearningTrainer(_config(tmp_path))

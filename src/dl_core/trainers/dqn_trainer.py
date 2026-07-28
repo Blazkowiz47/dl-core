@@ -221,7 +221,10 @@ class DQNTrainer(RLTrainer):
         model_name = model_name.strip()
         q_network_config["input_dim"] = input_dim
         q_network_config["action_dim"] = int(self.environment.action_space.n)
-        self.models["online"] = MODEL_REGISTRY.get(model_name, q_network_config)
+        online_model = MODEL_REGISTRY.get(model_name, q_network_config)
+        if not isinstance(online_model, nn.Module):
+            raise TypeError("DQN q_network must be a torch module")
+        self.models["online"] = online_model
         self.models["target"] = copy.deepcopy(self.models["online"])
         self.models["target"].eval()
         for parameter in self.models["target"].parameters():
@@ -259,6 +262,15 @@ class DQNTrainer(RLTrainer):
         )
         self.epsilon = self.epsilon_start
         self.random_generator = np.random.default_rng(self.seed)
+        compile_models = getattr(self.accelerator, "compile_models", False)
+        online_is_compiled = compile_models is True or (
+            isinstance(compile_models, set) and "online" in compile_models
+        )
+        self.eager_online_model = (
+            copy.deepcopy(self.models["online"])
+            if online_is_compiled
+            else None
+        )
         self.actor_models: list[nn.Module] = []
         self.actor_model_streams: list[torch.cuda.Stream] = []
         self.actor_policy_version = 0
@@ -311,12 +323,33 @@ class DQNTrainer(RLTrainer):
             size=int(explore.sum()),
         )
         greedy = ~explore
+        if self.eager_online_model is not None:
+            eager_parameter = next(
+                self.eager_online_model.parameters(),
+                None,
+            )
+            if (
+                eager_parameter is not None
+                and eager_parameter.device
+                != self.accelerator.get_device()
+            ):
+                self.eager_online_model.to(
+                    self.accelerator.get_device()
+                )
         if greedy.any() and self.actor_model_copies > 0 and not deterministic:
             if not self.actor_models:
-                online_model = self.accelerator.unwrap_model(self.models["online"])
+                online_model = (
+                    self.eager_online_model
+                    if self.eager_online_model is not None
+                    else self.accelerator.unwrap_model(self.models["online"])
+                )
                 device = self.accelerator.get_device()
+                online_state = self.accelerator.unwrap_model(
+                    self.models["online"]
+                ).state_dict()
                 for _ in range(self.actor_model_copies):
                     actor_model = copy.deepcopy(online_model).to(device)
+                    actor_model.load_state_dict(online_state)
                     actor_model.eval()
                     actor_model.requires_grad_(False)
                     self.actor_models.append(actor_model)
@@ -388,17 +421,21 @@ class DQNTrainer(RLTrainer):
                         torch.argmax(q_values, dim=1).detach().cpu().numpy()
                     )
         elif greedy.any():
-            was_training = self.models["online"].training
+            inference_model = (
+                self.eager_online_model
+                if self.eager_online_model is not None
+                else self.models["online"]
+            )
+            was_training = inference_model.training
             try:
-                self.models["online"].eval()
+                inference_model.eval()
                 with torch.no_grad(), self.accelerator.autocast_context():
                     q_values = self._q_values(
-                        self.models["online"],
+                        inference_model,
                         self._observations_to_tensor(observation_batch[greedy]),
-                        eager=True,
                     )
             finally:
-                self.models["online"].train(was_training)
+                inference_model.train(was_training)
             action_indices[greedy] = (
                 torch.argmax(q_values, dim=1).detach().cpu().numpy()
             )
@@ -463,6 +500,8 @@ class DQNTrainer(RLTrainer):
             for action in np.asarray(transitions.actions)
         ):
             raise ValueError("Transition action is outside the configured space")
+        if not np.isfinite(transitions.rewards).all():
+            raise FloatingPointError("DQN transition rewards must be finite")
         transition_validation_ms = (
             perf_counter() - transition_validation_start
         ) * 1000.0
@@ -555,9 +594,12 @@ class DQNTrainer(RLTrainer):
                         if self.double_dqn:
                             online_next_actions = torch.argmax(
                                 self._q_values(
-                                    self.models["online"],
+                                    (
+                                        self.eager_online_model
+                                        if self.eager_online_model is not None
+                                        else self.models["online"]
+                                    ),
                                     next_observations,
-                                    eager=True,
                                 ),
                                 dim=1,
                                 keepdim=True,
@@ -585,6 +627,12 @@ class DQNTrainer(RLTrainer):
                     self.optimizers["q_network"],
                     self.models["online"],
                 )
+                if optimizer_stepped and self.eager_online_model is not None:
+                    self.eager_online_model.load_state_dict(
+                        self.accelerator.unwrap_model(
+                            self.models["online"]
+                        ).state_dict()
+                    )
                 losses.append(loss_value)
                 q_means.append(float(current_q_values.detach().mean().item()))
                 target_means.append(float(targets.detach().mean().item()))
@@ -665,11 +713,8 @@ class DQNTrainer(RLTrainer):
         self,
         model: nn.Module,
         observations: torch.Tensor,
-        *,
-        eager: bool = False,
     ) -> torch.Tensor:
-        # Bypass Module.compile without skipping the module's registered hooks.
-        output = model._call_impl(observations) if eager else model(observations)
+        output = model(observations)
         if isinstance(output, Mapping):
             output = output.get("q_values")
         if not isinstance(output, torch.Tensor) or output.ndim != 2:
@@ -733,3 +778,10 @@ class DQNTrainer(RLTrainer):
         self.actor_model_streams = []
         self.actor_policy_version = actor_policy_version
         self.actor_updates_since_sync = 0
+        if self.eager_online_model is not None:
+            self.eager_online_model.to(self.accelerator.get_device())
+            self.eager_online_model.load_state_dict(
+                self.accelerator.unwrap_model(
+                    self.models["online"]
+                ).state_dict()
+            )

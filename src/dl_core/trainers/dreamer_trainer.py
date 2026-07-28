@@ -25,7 +25,9 @@ from dl_core.core import (
     SequenceReplayBuffer,
     Transition,
     TransitionBatch,
+    WorldModelOutput,
     WorldModelState,
+    WorldModelStep,
     config_field,
     register_trainer,
 )
@@ -459,6 +461,86 @@ class DreamerTrainer(RLTrainer):
             seed=self.seed,
         )
 
+    def _validate_float_tensor(
+        self,
+        value: Any,
+        *,
+        shape: tuple[int, ...],
+        name: str,
+    ) -> torch.Tensor:
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(f"{name} must be a tensor")
+        if tuple(value.shape) != shape:
+            raise ValueError(
+                f"{name} must have shape {list(shape)}, got "
+                f"{list(value.shape)}"
+            )
+        if not value.is_floating_point():
+            raise TypeError(f"{name} must use a floating-point dtype")
+        return value
+
+    def _validate_world_state(
+        self,
+        state: Any,
+        *,
+        leading_shape: tuple[int, ...],
+        name: str,
+    ) -> WorldModelState:
+        if not isinstance(state, WorldModelState):
+            raise TypeError(f"{name} must be a WorldModelState")
+        expected_dimensions = len(leading_shape)
+        if (
+            not isinstance(state.deterministic, torch.Tensor)
+            or state.deterministic.ndim != expected_dimensions + 1
+            or tuple(state.deterministic.shape[:expected_dimensions])
+            != leading_shape
+            or state.deterministic.shape[-1] <= 0
+        ):
+            raise ValueError(
+                f"{name}.deterministic has an invalid latent shape"
+            )
+        if (
+            not isinstance(state.stochastic, torch.Tensor)
+            or state.stochastic.ndim != expected_dimensions + 2
+            or tuple(state.stochastic.shape[:expected_dimensions])
+            != leading_shape
+            or min(state.stochastic.shape[-2:]) <= 0
+        ):
+            raise ValueError(
+                f"{name}.stochastic has an invalid categorical shape"
+            )
+        if (
+            not isinstance(state.logits, torch.Tensor)
+            or state.logits.shape != state.stochastic.shape
+        ):
+            raise ValueError(
+                f"{name}.logits must match its stochastic state"
+            )
+        for field_name, tensor in (
+            ("deterministic", state.deterministic),
+            ("stochastic", state.stochastic),
+            ("logits", state.logits),
+        ):
+            if not tensor.is_floating_point():
+                raise TypeError(
+                    f"{name}.{field_name} must use a floating-point dtype"
+                )
+        return state
+
+    def _world_features(
+        self,
+        world_model: DreamerWorldModelProtocol,
+        state: WorldModelState,
+        *,
+        leading_shape: tuple[int, ...],
+        name: str,
+    ) -> torch.Tensor:
+        return self._validate_float_tensor(
+            world_model.features(state),
+            shape=(*leading_shape, world_model.feature_size),
+            name=name,
+        )
+
     def initialize_policy_state(
         self,
         batch_size: int,
@@ -484,11 +566,16 @@ class DreamerTrainer(RLTrainer):
         world_model: DreamerWorldModelProtocol = self.accelerator.unwrap_model(
             self.models["world_model"]
         )
-        return DreamerPolicyState(
-            world_state=world_model.initial_state(
+        world_state = self._validate_world_state(
+            world_model.initial_state(
                 batch_size,
                 device=device,
             ),
+            leading_shape=(batch_size,),
+            name="Dreamer initial state",
+        )
+        return DreamerPolicyState(
+            world_state=world_state,
             previous_actions=torch.zeros(
                 batch_size,
                 self.environment.action_space.n,
@@ -562,8 +649,18 @@ class DreamerTrainer(RLTrainer):
         self,
         logits: torch.Tensor,
     ) -> torch.distributions.Categorical:
+        if not isinstance(logits, torch.Tensor):
+            raise TypeError("Dreamer actor logits must be a tensor")
+        if logits.ndim < 2:
+            raise ValueError(
+                "Dreamer actor logits must include batch and action dimensions"
+            )
         if logits.shape[-1] != self.environment.action_space.n:
             raise ValueError("Dreamer actor action dimension is invalid")
+        if not logits.is_floating_point():
+            raise TypeError(
+                "Dreamer actor logits must use a floating-point dtype"
+            )
         log_probabilities = functional.log_softmax(logits, dim=-1)
         if self.actor_unimix > 0.0:
             log_probabilities = torch.logaddexp(
@@ -576,7 +673,10 @@ class DreamerTrainer(RLTrainer):
                     ),
                 ),
             )
-        return torch.distributions.Categorical(logits=log_probabilities)
+        return torch.distributions.Categorical(
+            logits=log_probabilities,
+            validate_args=False,
+        )
 
     def select_action(
         self,
@@ -715,6 +815,20 @@ class DreamerTrainer(RLTrainer):
                 )
                 world_model = self.models["world_model"]
                 embeddings = world_model.encode(observations_tensor)
+                if (
+                    not isinstance(embeddings, torch.Tensor)
+                    or embeddings.ndim < 2
+                    or embeddings.shape[0] != observation_batch.shape[0]
+                ):
+                    raise ValueError(
+                        "Dreamer encoded observations must preserve the "
+                        "batch dimension"
+                    )
+                if not embeddings.is_floating_point():
+                    raise TypeError(
+                        "Dreamer encoded observations must use a "
+                        "floating-point dtype"
+                    )
                 world_step = world_model.observe_step(
                     policy_state.world_state,
                     policy_state.previous_actions,
@@ -722,8 +836,34 @@ class DreamerTrainer(RLTrainer):
                     policy_state.is_first,
                     deterministic=deterministic,
                 )
-                features = world_model.features(world_step.state)
-                logits = self.models["actor"](features)
+                if not isinstance(world_step, WorldModelStep):
+                    raise TypeError(
+                        "Dreamer observe_step must return WorldModelStep"
+                    )
+                world_state = self._validate_world_state(
+                    world_step.state,
+                    leading_shape=(observation_batch.shape[0],),
+                    name="Dreamer posterior state",
+                )
+                self._validate_float_tensor(
+                    world_step.prior_logits,
+                    shape=tuple(world_state.logits.shape),
+                    name="Dreamer posterior-step prior logits",
+                )
+                features = self._world_features(
+                    world_model,
+                    world_state,
+                    leading_shape=(observation_batch.shape[0],),
+                    name="Dreamer posterior features",
+                )
+                logits = self._validate_float_tensor(
+                    self.models["actor"](features),
+                    shape=(
+                        observation_batch.shape[0],
+                        self.environment.action_space.n,
+                    ),
+                    name="Dreamer actor logits",
+                )
                 distribution = self.build_action_distribution(logits)
                 if deterministic:
                     action_indices = distribution.logits.argmax(dim=-1)
@@ -732,9 +872,9 @@ class DreamerTrainer(RLTrainer):
                 entropy = distribution.entropy()
                 next_state = DreamerPolicyState(
                     world_state=WorldModelState(
-                        deterministic=world_step.state.deterministic.detach(),
-                        stochastic=world_step.state.stochastic.detach(),
-                        logits=world_step.state.logits.detach(),
+                        deterministic=world_state.deterministic.detach(),
+                        stochastic=world_state.stochastic.detach(),
+                        logits=world_state.logits.detach(),
                     ),
                     previous_actions=functional.one_hot(
                         action_indices,
@@ -823,7 +963,9 @@ class DreamerTrainer(RLTrainer):
         ):
             raise ValueError("Transition action is outside the configured space")
         if not np.isfinite(transitions.rewards).all():
-            raise ValueError("Transition reward must be finite")
+            raise FloatingPointError(
+                "Dreamer transition rewards must be finite"
+            )
 
         previous_global_step = self.global_step - transitions.size
         replay_add_start = perf_counter()
@@ -949,6 +1091,59 @@ class DreamerTrainer(RLTrainer):
                 action_indices,
                 sequences.is_first,
             )
+            if not isinstance(world_output, WorldModelOutput):
+                raise TypeError(
+                    "Dreamer world models must return WorldModelOutput"
+                )
+            batch_size, observation_steps = observations.shape[:2]
+            transition_steps = action_indices.shape[1]
+            if observation_steps != transition_steps + 1:
+                raise ValueError(
+                    "Dreamer replay must contain one more observation "
+                    "than action"
+                )
+            world_states = self._validate_world_state(
+                world_output.states,
+                leading_shape=(batch_size, observation_steps),
+                name="Dreamer observed states",
+            )
+            self._validate_float_tensor(
+                world_output.prior_logits,
+                shape=tuple(world_states.logits.shape),
+                name="Dreamer prior logits",
+            )
+            flattened_observation_shape = (
+                batch_size,
+                observation_steps,
+                int(np.prod(observations.shape[2:])),
+            )
+            self._validate_float_tensor(
+                world_output.observation_targets,
+                shape=flattened_observation_shape,
+                name="Dreamer observation targets",
+            )
+            self._validate_float_tensor(
+                world_output.reconstructions,
+                shape=flattened_observation_shape,
+                name="Dreamer reconstructions",
+            )
+            transition_shape = (batch_size, transition_steps)
+            self._validate_float_tensor(
+                world_output.reward_predictions,
+                shape=transition_shape,
+                name="Dreamer reward predictions",
+            )
+            self._validate_float_tensor(
+                world_output.continue_logits,
+                shape=transition_shape,
+                name="Dreamer continuation logits",
+            )
+            self._world_features(
+                world_model,
+                world_states,
+                leading_shape=(batch_size, observation_steps),
+                name="Dreamer observed features",
+            )
             transition_slice = slice(self.burn_in, None)
             observation_slice = slice(self.burn_in + 1, None)
             reconstruction_loss = functional.mse_loss(
@@ -977,9 +1172,13 @@ class DreamerTrainer(RLTrainer):
             prior_logits = world_output.prior_logits[:, observation_slice]
             dynamics_kl = torch.distributions.kl_divergence(
                 torch.distributions.Categorical(
-                    logits=posterior_logits.detach()
+                    logits=posterior_logits.detach(),
+                    validate_args=False,
                 ),
-                torch.distributions.Categorical(logits=prior_logits),
+                torch.distributions.Categorical(
+                    logits=prior_logits,
+                    validate_args=False,
+                ),
             )
             dynamics_kl = (
                 dynamics_kl.sum(dim=-1)
@@ -987,9 +1186,13 @@ class DreamerTrainer(RLTrainer):
                 .mean()
             )
             representation_kl = torch.distributions.kl_divergence(
-                torch.distributions.Categorical(logits=posterior_logits),
                 torch.distributions.Categorical(
-                    logits=prior_logits.detach()
+                    logits=posterior_logits,
+                    validate_args=False,
+                ),
+                torch.distributions.Categorical(
+                    logits=prior_logits.detach(),
+                    validate_args=False,
                 ),
             )
             representation_kl = (
@@ -1043,9 +1246,27 @@ class DreamerTrainer(RLTrainer):
         imagined_next_values: list[torch.Tensor] = []
         imagined_state = start_state
         for _ in range(self.imagination_horizon):
-            features = world_model.features(imagined_state).detach()
+            imagined_batch_size = imagined_state.deterministic.shape[0]
+            imagined_state = self._validate_world_state(
+                imagined_state,
+                leading_shape=(imagined_batch_size,),
+                name="Dreamer imagined state",
+            )
+            features = self._world_features(
+                world_model,
+                imagined_state,
+                leading_shape=(imagined_batch_size,),
+                name="Dreamer imagined features",
+            ).detach()
             with self.accelerator.autocast_context():
-                action_logits = actor(features)
+                action_logits = self._validate_float_tensor(
+                    actor(features),
+                    shape=(
+                        imagined_batch_size,
+                        self.environment.action_space.n,
+                    ),
+                    name="Dreamer actor logits",
+                )
                 distribution = self.build_action_distribution(action_logits)
                 action_indices = distribution.sample()
             imagined_features.append(features)
@@ -1062,18 +1283,38 @@ class DreamerTrainer(RLTrainer):
                     imagined_state,
                     imagined_actions,
                 )
-                next_features = world_model.features(imagined_state)
-                predicted_rewards = world_model.predict_rewards(
-                    next_features
+                imagined_state = self._validate_world_state(
+                    imagined_state,
+                    leading_shape=(imagined_batch_size,),
+                    name="Dreamer next imagined state",
+                )
+                next_features = self._world_features(
+                    world_model,
+                    imagined_state,
+                    leading_shape=(imagined_batch_size,),
+                    name="Dreamer next imagined features",
+                )
+                predicted_rewards = self._validate_float_tensor(
+                    world_model.predict_rewards(next_features),
+                    shape=(imagined_batch_size,),
+                    name="Dreamer imagined rewards",
                 )
                 predicted_rewards = (
                     torch.sign(predicted_rewards)
                     * torch.expm1(predicted_rewards.abs())
                 )
                 predicted_continues = torch.sigmoid(
-                    world_model.predict_continue_logits(next_features)
+                    self._validate_float_tensor(
+                        world_model.predict_continue_logits(next_features),
+                        shape=(imagined_batch_size,),
+                        name="Dreamer imagined continuation logits",
+                    )
                 )
-                next_values = target_critic(next_features)
+                next_values = self._validate_float_tensor(
+                    target_critic(next_features),
+                    shape=(imagined_batch_size,),
+                    name="Dreamer target-critic predictions",
+                )
                 next_values = (
                     torch.sign(next_values)
                     * torch.expm1(next_values.abs())
@@ -1120,7 +1361,11 @@ class DreamerTrainer(RLTrainer):
             )
 
         with torch.no_grad(), self.accelerator.autocast_context():
-            baseline = target_critic(trajectory.features)
+            baseline = self._validate_float_tensor(
+                target_critic(trajectory.features),
+                shape=tuple(returns.shape),
+                name="Dreamer target-critic baseline",
+            )
             baseline = torch.sign(baseline) * torch.expm1(baseline.abs())
             advantages = returns - baseline
             if self.normalize_advantages:
@@ -1144,7 +1389,11 @@ class DreamerTrainer(RLTrainer):
         )
 
         with self.accelerator.autocast_context():
-            value_predictions = critic(trajectory.features.detach())
+            value_predictions = self._validate_float_tensor(
+                critic(trajectory.features.detach()),
+                shape=tuple(returns.shape),
+                name="Dreamer critic predictions",
+            )
             value_targets = torch.sign(returns.detach()) * torch.log1p(
                 returns.detach().abs()
             )

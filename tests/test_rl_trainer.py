@@ -567,6 +567,80 @@ def test_default_transition_preparation_is_a_zero_copy_noop(
     trainer.close()
 
 
+@pytest.mark.parametrize("reward", [float("nan"), float("inf")])
+def test_transition_preparation_rejects_nonfinite_rewards(
+    tmp_path: Path,
+    reward: float,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(tmp_path, evaluation_episodes=0)
+    )
+    trainer.setup()
+    transition = Transition(
+        observation=0,
+        action=1,
+        reward=reward,
+        next_observation=1,
+        terminated=False,
+        truncated=False,
+    )
+    transitions = TransitionBatch(
+        observations=np.asarray([[0]]),
+        actions=np.asarray([1]),
+        rewards=np.asarray([reward], dtype=np.float32),
+        next_observations=np.asarray([[1]]),
+        terminated=np.asarray([False]),
+        truncated=np.asarray([False]),
+    )
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.prepare_transition(transition)
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.prepare_transition_batch(transitions)
+    trainer.close()
+
+
+def test_transition_preparation_validates_transformed_rewards(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(tmp_path, evaluation_episodes=0)
+    )
+    trainer.setup()
+    transition = Transition(
+        observation=0,
+        action=1,
+        reward=1.0,
+        next_observation=1,
+        terminated=False,
+        truncated=False,
+    )
+    transitions = TransitionBatch(
+        observations=np.asarray([[0]]),
+        actions=np.asarray([1]),
+        rewards=np.asarray([1.0], dtype=np.float32),
+        next_observations=np.asarray([[1]]),
+        terminated=np.asarray([False]),
+        truncated=np.asarray([False]),
+    )
+    trainer.transform_transition = lambda value: replace(
+        value,
+        reward=float("nan"),
+    )
+    trainer.transform_transition_batch = lambda values: replace(
+        values,
+        rewards=np.asarray([float("nan")], dtype=np.float32),
+    )
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.prepare_transition(transition)
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.prepare_transition_batch(transitions)
+    trainer.close()
+
+
 def test_private_rl_hooks_raise_actionable_migration_errors(
     tmp_path: Path,
 ) -> None:

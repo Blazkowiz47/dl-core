@@ -237,8 +237,14 @@ class SACTrainer(RLTrainer):
         critic_name = critic_name.strip()
         actor_config.update({"input_dim": input_dim, "action_dim": action_dim})
         critic_config.update({"input_dim": input_dim, "action_dim": action_dim})
-        self.models["actor"] = MODEL_REGISTRY.get(actor_name, actor_config)
-        self.models["critics"] = MODEL_REGISTRY.get(critic_name, critic_config)
+        actor = MODEL_REGISTRY.get(actor_name, actor_config)
+        if not isinstance(actor, nn.Module):
+            raise TypeError("SAC actor must be a torch module")
+        critics = MODEL_REGISTRY.get(critic_name, critic_config)
+        if not isinstance(critics, nn.Module):
+            raise TypeError("SAC critics must be a torch module")
+        self.models["actor"] = actor
+        self.models["critics"] = critics
         self.models["target_critics"] = copy.deepcopy(self.models["critics"])
         self.models["target_critics"].eval()
         for parameter in self.models["target_critics"].parameters():
@@ -418,13 +424,18 @@ class SACTrainer(RLTrainer):
                     )
             finally:
                 actor.train(was_training)
-            action_batch[policy] = (
+            policy_actions = (
                 actions.reshape(-1, *action_space.shape)
                 .detach()
                 .cpu()
                 .numpy()
                 .astype(action_space.dtype)
             )
+            if not np.isfinite(policy_actions).all():
+                raise FloatingPointError(
+                    "SAC sampled actions must be finite"
+                )
+            action_batch[policy] = policy_actions
         action_batch = np.clip(
             action_batch,
             action_space.low,
@@ -493,7 +504,7 @@ class SACTrainer(RLTrainer):
         ):
             raise ValueError("Transition action is outside the configured space")
         if not np.isfinite(transitions.rewards).all():
-            raise ValueError("Transition reward must be finite")
+            raise FloatingPointError("SAC transition rewards must be finite")
         previous_global_step = self.global_step - transitions.size
         previous_replay_size = len(self.replay_buffer)
         added_per_environment = self.replay_buffer.add_batch(transitions)
@@ -567,8 +578,6 @@ class SACTrainer(RLTrainer):
                     targets = batch.rewards + (
                         batch.discounts * (~batch.terminated).float() * next_q
                     )
-                    if not torch.isfinite(targets).all():
-                        raise FloatingPointError("SAC critic targets must be finite")
                 current_q1, current_q2 = self._q_values(
                     self.models["critics"],
                     observations,
@@ -578,10 +587,30 @@ class SACTrainer(RLTrainer):
                     current_q1,
                     targets,
                 ) + functional.mse_loss(current_q2, targets)
-                if not torch.isfinite(critic_loss):
-                    raise FloatingPointError("SAC critic loss must be finite")
             self.optimizers["critics"].zero_grad(set_to_none=True)
             self.accelerator.backward(critic_loss, self.models["critics"])
+            critic_statistics = (
+                torch.stack(
+                    (
+                        critic_loss.detach(),
+                        torch.minimum(
+                            current_q1,
+                            current_q2,
+                        ).detach().mean(),
+                        targets.detach().mean(),
+                    )
+                )
+                .float()
+                .cpu()
+                .tolist()
+            )
+            if not all(
+                math.isfinite(value) for value in critic_statistics
+            ):
+                self.optimizers["critics"].zero_grad(set_to_none=True)
+                raise FloatingPointError(
+                    "SAC critic loss and targets must be finite"
+                )
             self.accelerator.optimizer_step(
                 self.optimizers["critics"],
                 self.models["critics"],
@@ -610,10 +639,12 @@ class SACTrainer(RLTrainer):
                         self._alpha().detach() * log_probabilities
                         - torch.minimum(policy_q1, policy_q2)
                     ).mean()
-                    if not torch.isfinite(actor_loss):
-                        raise FloatingPointError("SAC actor loss must be finite")
                 self.optimizers["actor"].zero_grad(set_to_none=True)
                 self.accelerator.backward(actor_loss, self.models["actor"])
+                actor_loss_value = float(actor_loss.detach().item())
+                if not math.isfinite(actor_loss_value):
+                    self.optimizers["actor"].zero_grad(set_to_none=True)
+                    raise FloatingPointError("SAC actor loss must be finite")
                 self.accelerator.optimizer_step(
                     self.optimizers["actor"],
                     self.models["actor"],
@@ -633,14 +664,22 @@ class SACTrainer(RLTrainer):
                 alpha_loss = -(
                     log_alpha * (log_probabilities.detach() + self.target_entropy)
                 ).mean()
-                if not torch.isfinite(alpha_loss):
-                    raise FloatingPointError("SAC temperature loss must be finite")
                 self.optimizers["temperature"].zero_grad(set_to_none=True)
                 self.accelerator.backward(alpha_loss, temperature)
+                alpha_loss_value = float(alpha_loss.detach().item())
+                if not math.isfinite(alpha_loss_value):
+                    self.optimizers["temperature"].zero_grad(
+                        set_to_none=True
+                    )
+                    raise FloatingPointError(
+                        "SAC temperature loss must be finite"
+                    )
                 self.accelerator.optimizer_step(
                     self.optimizers["temperature"],
                     temperature,
                 )
+            else:
+                alpha_loss_value = 0.0
 
             source_critics = self.accelerator.unwrap_model(self.models["critics"])
             target_critics = self.accelerator.unwrap_model(
@@ -661,15 +700,14 @@ class SACTrainer(RLTrainer):
                 ):
                     target_buffer.copy_(source_buffer)
 
-            critic_losses.append(float(critic_loss.detach().item()))
-            actor_losses.append(float(actor_loss.detach().item()))
-            alpha_losses.append(float(alpha_loss.detach().item()))
-            q_means.append(
-                float(
-                    torch.minimum(current_q1, current_q2).detach().mean().item()
-                )
+            critic_loss_value, q_mean_value, target_q_mean_value = (
+                critic_statistics
             )
-            target_q_means.append(float(targets.detach().mean().item()))
+            critic_losses.append(critic_loss_value)
+            actor_losses.append(actor_loss_value)
+            alpha_losses.append(alpha_loss_value)
+            q_means.append(q_mean_value)
+            target_q_means.append(target_q_mean_value)
 
             if (gradient_update + 1) % self.gradient_steps == 0:
                 update_logs.append(
@@ -722,13 +760,15 @@ class SACTrainer(RLTrainer):
             raise ValueError("SAC actor outputs must have shape [batch, action_dimensions]")
         if not mean.is_floating_point() or not log_std.is_floating_point():
             raise TypeError("SAC actor outputs must use floating-point dtypes")
-        if not torch.isfinite(mean).all() or not torch.isfinite(log_std).all():
-            raise FloatingPointError("SAC actor outputs must be finite")
         # Gaussian statistics and the change-of-variables correction are kept in
         # float32 because exp(-20) underflows in fp16 under autocast.
         mean = mean.float()
         log_std = log_std.float().clamp(self.log_std_min, self.log_std_max)
-        distribution = Normal(mean, log_std.exp())
+        distribution = Normal(
+            mean,
+            log_std.exp(),
+            validate_args=False,
+        )
         raw_actions = mean if deterministic else distribution.rsample()
         squashed_actions = torch.tanh(raw_actions)
         scale = self.action_scale.to(dtype=squashed_actions.dtype)
@@ -744,10 +784,6 @@ class SACTrainer(RLTrainer):
             - log_tanh_jacobian
             - torch.log(scale)
         ).sum(dim=1)
-        if not torch.isfinite(actions).all() or not torch.isfinite(
-            log_probabilities
-        ).all():
-            raise FloatingPointError("SAC actions and log probabilities must be finite")
         return actions, log_probabilities
 
     def _q_values(
@@ -768,8 +804,6 @@ class SACTrainer(RLTrainer):
             raise ValueError("SAC critic outputs must have shape [batch]")
         if not q1.is_floating_point() or not q2.is_floating_point():
             raise TypeError("SAC critic outputs must use floating-point dtypes")
-        if not torch.isfinite(q1).all() or not torch.isfinite(q2).all():
-            raise FloatingPointError("SAC critic outputs must be finite")
         return q1, q2
 
     def _alpha(self) -> torch.Tensor:
@@ -777,14 +811,17 @@ class SACTrainer(RLTrainer):
             alpha = self.models["temperature"]()
         else:
             alpha = self.fixed_alpha
-        if not torch.isfinite(alpha) or alpha <= 0.0:
-            raise FloatingPointError("SAC entropy temperature must be finite and positive")
         return alpha
 
     def algorithm_state_dict(self) -> dict[str, Any]:
         """Return entropy, exploration, and optional replay state."""
+        alpha = float(self._alpha().detach().item())
+        if not math.isfinite(alpha) or alpha <= 0.0:
+            raise FloatingPointError(
+                "SAC entropy temperature must be finite and positive"
+            )
         return {
-            "alpha": float(self._alpha().detach().item()),
+            "alpha": alpha,
             "automatic_entropy_tuning": self.automatic_entropy_tuning,
             "target_entropy": self.target_entropy,
             "random_generator_state": self.random_generator.bit_generator.state,

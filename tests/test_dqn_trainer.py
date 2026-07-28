@@ -43,6 +43,14 @@ class _TestDQNQNetwork(torch.nn.Module):
         return self.network(observations.reshape(observations.shape[0], -1))
 
 
+@register_model("test_dqn_non_module")
+class _TestDQNNonModule:
+    """Invalid project registration used to verify setup diagnostics."""
+
+    def __init__(self, config: dict[str, object]):
+        del config
+
+
 def _config(tmp_path: Path, **overrides: object) -> dict:
     trainer_config = {
         "total_timesteps": 10,
@@ -340,6 +348,38 @@ def test_dqn_requires_an_explicit_project_model(
     trainer.close()
 
 
+def test_dqn_requires_a_torch_module_project_model(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config["models"]["q_network"]["name"] = "test_dqn_non_module"
+    trainer = DQNTrainer(config)
+
+    with pytest.raises(TypeError, match="q_network must be a torch module"):
+        trainer.setup()
+    trainer.close()
+
+
+def test_dqn_rejects_nonfinite_rewards_before_replay(
+    tmp_path: Path,
+) -> None:
+    trainer = DQNTrainer(_config(tmp_path))
+    trainer.setup()
+    trainer.global_step = 1
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.process_transition(
+            Transition(
+                observation=0,
+                action=0,
+                reward=float("nan"),
+                next_observation=1,
+                terminated=False,
+                truncated=False,
+            )
+        )
+    assert len(trainer.replay_buffer) == 0
+    trainer.close()
+
+
 @pytest.mark.parametrize(
     ("output", "error", "message"),
     [
@@ -437,6 +477,7 @@ def test_dqn_compiles_only_gradient_enabled_online_forwards(
     load_builtin_components()
     compiled_grad_modes: list[bool] = []
     forward_hook_grad_modes: list[bool] = []
+    eager_hook_grad_modes: list[bool] = []
 
     def compile_with_grad_guard(
         model: torch.nn.Module,
@@ -456,7 +497,11 @@ def test_dqn_compiles_only_gradient_enabled_online_forwards(
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(torch.nn.Module, "compile", compile_with_grad_guard)
-    config = _config(tmp_path, total_timesteps=4)
+    config = _config(
+        tmp_path,
+        total_timesteps=4,
+        actor_model_copies=2,
+    )
     config["accelerator"] = {
         "type": "single_gpu",
         "compile_models": ["online"],
@@ -464,18 +509,45 @@ def test_dqn_compiles_only_gradient_enabled_online_forwards(
     trainer = DQNTrainer(config)
 
     trainer.setup()
+    trainer.select_actions(np.asarray([0]), deterministic=False)
     hook = trainer.models["online"].register_forward_hook(
         lambda _model, _inputs, _output: forward_hook_grad_modes.append(
             torch.is_grad_enabled()
         )
     )
+    assert trainer.eager_online_model is not None
+    eager_hook = trainer.eager_online_model.register_forward_hook(
+        lambda _model, _inputs, _output: eager_hook_grad_modes.append(
+            torch.is_grad_enabled()
+        )
+    )
+    actor_hook_grad_modes: list[bool] = []
+    actor_hooks = [
+        actor_model.register_forward_hook(
+            lambda _model, _inputs, _output: (
+                actor_hook_grad_modes.append(torch.is_grad_enabled())
+            )
+        )
+        for actor_model in trainer.actor_models
+    ]
     trainer.perform_training()
 
     assert compiled_grad_modes
     assert all(compiled_grad_modes)
     assert any(forward_hook_grad_modes)
-    assert any(not grad_enabled for grad_enabled in forward_hook_grad_modes)
+    assert all(forward_hook_grad_modes)
+    assert eager_hook_grad_modes
+    assert all(not grad_enabled for grad_enabled in eager_hook_grad_modes)
+    assert actor_hook_grad_modes
+    assert all(not grad_enabled for grad_enabled in actor_hook_grad_modes)
+    assert all(
+        actor_model._compiled_call_impl is None
+        for actor_model in trainer.actor_models
+    )
     hook.remove()
+    eager_hook.remove()
+    for actor_hook in actor_hooks:
+        actor_hook.remove()
     trainer.close()
 
 
@@ -795,12 +867,10 @@ def test_dqn_batches_vector_inference_replay_and_update_schedules(
     def recording_q_values(
         model: torch.nn.Module,
         observations: torch.Tensor,
-        *,
-        eager: bool = False,
     ) -> torch.Tensor:
         if not model.training:
             inference_batches.append(int(observations.shape[0]))
-        return original_q_values(model, observations, eager=eager)
+        return original_q_values(model, observations)
 
     def recording_step_batch_async(actions: list[int]) -> None:
         events.append("dispatch")

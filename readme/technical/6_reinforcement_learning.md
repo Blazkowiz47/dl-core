@@ -246,16 +246,30 @@ architecture. `DreamerWorldModelProtocol` describes the operations an
 experiment-owned world model must implement without inheriting from a package
 model.
 
-The RSSM uses deterministic recurrent state plus straight-through categorical
-latent variables with configurable uniform probability mixing. Observations
-are symlog-transformed by default. `observe_step()` infers posterior state from
-real observations, while `imagine_step()` advances the action-conditioned
-prior without reading the environment. Actor and critic models consume the
-same flattened RSSM feature. `WorldModelOutput.observation_targets` contains
-the exact flattened and optionally symlog-transformed decoder target, so the
-trainer cannot silently compare transformed predictions with raw observations.
-The public `predict_rewards()` and `predict_continue_logits()` methods expose
-the same prediction heads used by latent imagination.
+The experiment decides how its recurrent state, categorical sampling,
+encoder, decoder, and observation targets are implemented. The trainer only
+requires the explicit protocol. `observe_step()` infers posterior state from
+real observations, while `imagine_step()` advances an action-conditioned prior
+without reading the environment. `features()` provides the shared
+`feature_size` representation consumed by the actor and critic.
+
+For a replay batch with `B` sequences, `T` observations, flattened observation
+size `O`, `K` categorical variables, and `C` classes, the world-model call must
+return:
+
+- deterministic state `[B, T, D]`
+- stochastic state, posterior logits, and prior logits `[B, T, K, C]`
+- observation targets and reconstructions `[B, T, O]`
+- reward predictions and continuation logits `[B, T - 1]`
+
+State features must preserve all leading dimensions and append
+`feature_size`. Actor logits must be `[N, actions]`; reward, continuation, and
+critic predictions must preserve their input leading dimensions without an
+extra singleton axis. These shapes are checked before loss computation so
+malformed project models cannot silently broadcast against trainer targets.
+Any straight-through estimator, latent probability mixing, or observation
+target transform is an experiment-owned model choice. The trainer's
+`actor_unimix` setting only affects its categorical action distribution.
 
 The trainer carries `DreamerPolicyState` between real observations and resets
 only completed vector lanes. Replay updates use `SequenceReplayBuffer`, exclude
@@ -280,8 +294,8 @@ to the world model during both acting and replay learning, and override
 trainer loop. Both hooks are public; observation transformation is shared by
 collection and replay, while distribution construction is shared by real and
 imagined policy steps. The default observation transform one-hot encodes a
-`Discrete` space and flattens a `Box` space; the world model then applies its
-configured symlog target transform.
+`Discrete` space and flattens a `Box` space. Any additional observation or
+target transform belongs to the experiment-owned world model.
 
 ```yaml
 environment:

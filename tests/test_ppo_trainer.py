@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -57,6 +58,14 @@ class _TestPPOPolicy(torch.nn.Module):
         else:
             output["logits"] = policy_output
         return output
+
+
+@register_model("test_ppo_non_module")
+class _TestPPONonModule:
+    """Invalid project registration used to verify setup diagnostics."""
+
+    def __init__(self, config: dict[str, object]):
+        del config
 
 
 def _config(tmp_path: Path, **overrides: object) -> dict:
@@ -283,6 +292,16 @@ def test_ppo_requires_an_explicit_project_model(
     trainer.close()
 
 
+def test_ppo_requires_a_torch_module_project_model(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config["models"]["policy"]["name"] = "test_ppo_non_module"
+    trainer = PPOTrainer(config)
+
+    with pytest.raises(TypeError, match="policy must be a torch module"):
+        trainer.setup()
+    trainer.close()
+
+
 def test_ppo_rejects_nonfinite_project_model_output(tmp_path: Path) -> None:
     trainer = PPOTrainer(_config(tmp_path))
     trainer.setup()
@@ -301,8 +320,79 @@ def test_ppo_rejects_nonfinite_project_model_output(tmp_path: Path) -> None:
             }
 
     trainer.models["policy"] = _NonfinitePolicy()
-    with pytest.raises(FloatingPointError, match="logits must be finite"):
-        trainer._distribution_and_value(torch.zeros(2, 16))
+    with pytest.raises(FloatingPointError, match="must be finite"):
+        trainer.select_actions(
+            np.asarray([0, 1]),
+            deterministic=True,
+        )
+    trainer.close()
+
+
+def test_ppo_rejects_nonfinite_rewards_before_rollout(
+    tmp_path: Path,
+) -> None:
+    trainer = PPOTrainer(_config(tmp_path))
+    trainer.setup()
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.process_transition(
+            Transition(
+                observation=0,
+                action=0,
+                reward=float("nan"),
+                next_observation=1,
+                terminated=False,
+                truncated=False,
+                action_info={
+                    "policy_action": 0,
+                    "log_probability": 0.0,
+                    "value": 0.0,
+                },
+            )
+        )
+    assert len(trainer.rollout_buffer) == 0
+    trainer.close()
+
+
+def test_ppo_rejects_nonfinite_update_before_optimizer_step(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trainer = PPOTrainer(
+        _config(
+            tmp_path,
+            total_timesteps=1,
+            rollout_steps=1,
+            update_epochs=1,
+            minibatch_size=1,
+        )
+    )
+    trainer.setup()
+    optimizer_step = Mock(wraps=trainer.accelerator.optimizer_step)
+    monkeypatch.setattr(
+        trainer.accelerator,
+        "optimizer_step",
+        optimizer_step,
+    )
+    trainer.global_step = 1
+
+    with pytest.raises(FloatingPointError, match="must be finite"):
+        trainer.process_transition(
+            Transition(
+                observation=0,
+                action=0,
+                reward=1.0,
+                next_observation=1,
+                terminated=True,
+                truncated=False,
+                action_info={
+                    "policy_action": 0,
+                    "log_probability": -1000.0,
+                    "value": 0.0,
+                },
+            )
+        )
+    optimizer_step.assert_not_called()
     trainer.close()
 
 

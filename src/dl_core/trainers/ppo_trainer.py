@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
 import numpy as np
 import torch
 from gymnasium.spaces import Box, Discrete
+from torch import nn
 from torch.distributions import Categorical, Distribution, Normal
 
 from dl_core.core import (
@@ -188,7 +190,10 @@ class PPOTrainer(RLTrainer):
                 "continuous_actions": isinstance(action_space, Box),
             }
         )
-        self.models["policy"] = MODEL_REGISTRY.get(model_name, policy_config)
+        policy = MODEL_REGISTRY.get(model_name, policy_config)
+        if not isinstance(policy, nn.Module):
+            raise TypeError("PPO policy must be a torch module")
+        self.models["policy"] = policy
         trainable_parameters = [
             parameter
             for parameter in self.models["policy"].parameters()
@@ -327,6 +332,15 @@ class PPOTrainer(RLTrainer):
             policy.train(was_training)
         log_probabilities = log_probability.detach().cpu().numpy()
         values = value.detach().cpu().numpy()
+        if (
+            not np.isfinite(log_probabilities).all()
+            or not np.isfinite(values).all()
+            or not np.isfinite(np.asarray(environment_actions)).all()
+            or not np.isfinite(np.asarray(stored_actions)).all()
+        ):
+            raise FloatingPointError(
+                "PPO policy outputs and sampled actions must be finite"
+            )
         return BatchActionOutput(
             actions=environment_actions,
             action_info=[
@@ -382,6 +396,8 @@ class PPOTrainer(RLTrainer):
     ) -> list[dict[str, float]]:
         if len(transitions.action_info) != transitions.size:
             raise ValueError("PPO action metadata must align with transitions")
+        if not np.isfinite(transitions.rewards).all():
+            raise FloatingPointError("PPO transition rewards must be finite")
         for action_info in transitions.action_info:
             for field_name in ("policy_action", "log_probability", "value"):
                 if field_name not in action_info:
@@ -506,20 +522,50 @@ class PPOTrainer(RLTrainer):
 
                 self.optimizers["policy"].zero_grad(set_to_none=True)
                 self.accelerator.backward(loss, self.models["policy"])
+                with torch.no_grad():
+                    approximate_kl = ((ratio - 1.0) - log_ratio).mean()
+                    clip_fraction = (
+                        (torch.abs(ratio - 1.0) > self.clip_range)
+                        .float()
+                        .mean()
+                    )
+                    statistics = (
+                        torch.stack(
+                            (
+                                loss.detach(),
+                                policy_loss.detach(),
+                                value_loss.detach(),
+                                entropy_mean.detach(),
+                                approximate_kl,
+                                clip_fraction,
+                            )
+                        )
+                        .float()
+                        .cpu()
+                        .tolist()
+                    )
+                if not all(math.isfinite(value) for value in statistics):
+                    self.optimizers["policy"].zero_grad(set_to_none=True)
+                    raise FloatingPointError(
+                        "PPO loss and update statistics must be finite"
+                    )
                 self.accelerator.optimizer_step(
                     self.optimizers["policy"],
                     self.models["policy"],
                 )
-                with torch.no_grad():
-                    approximate_kl = ((ratio - 1.0) - log_ratio).mean()
-                    clip_fraction = (
-                        (torch.abs(ratio - 1.0) > self.clip_range).float().mean()
-                    )
-                policy_losses.append(float(policy_loss.detach().item()))
-                value_losses.append(float(value_loss.detach().item()))
-                entropies.append(float(entropy_mean.detach().item()))
-                approximate_kls.append(float(approximate_kl.item()))
-                clip_fractions.append(float(clip_fraction.item()))
+                (
+                    _,
+                    policy_loss_value,
+                    value_loss_value,
+                    entropy_value,
+                    approximate_kl_value,
+                    clip_fraction_value,
+                ) = statistics
+                policy_losses.append(policy_loss_value)
+                value_losses.append(value_loss_value)
+                entropies.append(entropy_value)
+                approximate_kls.append(approximate_kl_value)
+                clip_fractions.append(clip_fraction_value)
 
         self.rollout_buffer.clear()
         return [
@@ -559,8 +605,6 @@ class PPOTrainer(RLTrainer):
             raise ValueError("PPO value output must have shape [batch]")
         if not value.is_floating_point():
             raise TypeError("PPO value output must use a floating-point dtype")
-        if not torch.isfinite(value).all():
-            raise FloatingPointError("PPO value output must be finite")
         if isinstance(self.environment.action_space, Discrete):
             logits = output.get("logits")
             if not isinstance(logits, torch.Tensor) or logits.shape != (
@@ -570,9 +614,7 @@ class PPOTrainer(RLTrainer):
                 raise ValueError("PPO discrete policy logits have an invalid shape")
             if not logits.is_floating_point():
                 raise TypeError("PPO policy logits must use a floating-point dtype")
-            if not torch.isfinite(logits).all():
-                raise FloatingPointError("PPO policy logits must be finite")
-            return Categorical(logits=logits), value
+            return Categorical(logits=logits, validate_args=False), value
         mean = output.get("mean")
         log_std = output.get("log_std")
         action_dim = int(np.prod(self.environment.action_space.shape))
@@ -586,11 +628,16 @@ class PPOTrainer(RLTrainer):
             raise ValueError("PPO continuous policy parameters have an invalid shape")
         if not mean.is_floating_point() or not log_std.is_floating_point():
             raise TypeError("PPO policy parameters must use floating-point dtypes")
-        if not torch.isfinite(mean).all() or not torch.isfinite(log_std).all():
-            raise FloatingPointError("PPO policy parameters must be finite")
         mean = mean.float()
         log_std = log_std.float()
-        return Normal(mean, torch.exp(log_std.clamp(-20.0, 2.0))), value
+        return (
+            Normal(
+                mean,
+                torch.exp(log_std.clamp(-20.0, 2.0)),
+                validate_args=False,
+            ),
+            value,
+        )
 
     def algorithm_state_dict(self) -> dict[str, Any]:
         """Return partial rollout and minibatch-generator state."""

@@ -647,6 +647,7 @@ class RLTrainer(ABC):
             ) * 1000.0
             self.collector_step += 1
             transition_processing_start = perf_counter()
+            self._validate_rewards(rewards, source="Environment")
             episode_lengths += 1
             episode_returns += rewards
             trainer_truncated = episode_lengths >= self.max_episode_steps
@@ -1062,6 +1063,7 @@ class RLTrainer(ABC):
                 self.collector_step += 1
             next_observation = final_observations[0]
             reward = float(rewards[0])
+            self._validate_rewards(reward, source="Environment")
             terminated = bool(terminated_batch[0])
             truncated = bool(truncated_batch[0])
             final_info = lane_infos[0]
@@ -1552,16 +1554,21 @@ class RLTrainer(ABC):
                 "rename it to transform_transition()"
             )
         elif not public_override:
-            return transition
-        prepared_transition = preparation_hook(
-            replace(
-                transition,
-                info=deepcopy(transition.info),
-                action_info=deepcopy(transition.action_info),
+            prepared_transition = transition
+        else:
+            prepared_transition = preparation_hook(
+                replace(
+                    transition,
+                    info=deepcopy(transition.info),
+                    action_info=deepcopy(transition.action_info),
+                )
             )
-        )
         if not isinstance(prepared_transition, Transition):
             raise TypeError("transform_transition must return a Transition")
+        self._validate_rewards(
+            prepared_transition.reward,
+            source="Prepared transition",
+        )
         return prepared_transition
 
     def transform_transition(
@@ -1588,21 +1595,22 @@ class RLTrainer(ABC):
                 "rename it to transform_transition_batch()"
             )
         elif not public_override:
-            return transitions
-        original_size = transitions.size
-        prepared_transitions = preparation_hook(
-            replace(
-                transitions,
-                terminated=np.asarray(transitions.terminated).copy(),
-                truncated=np.asarray(transitions.truncated).copy(),
-                infos=deepcopy(transitions.infos),
-                action_info=deepcopy(transitions.action_info),
+            prepared_transitions = transitions
+        else:
+            prepared_transitions = preparation_hook(
+                replace(
+                    transitions,
+                    terminated=np.asarray(transitions.terminated).copy(),
+                    truncated=np.asarray(transitions.truncated).copy(),
+                    infos=deepcopy(transitions.infos),
+                    action_info=deepcopy(transitions.action_info),
+                )
             )
-        )
         if not isinstance(prepared_transitions, TransitionBatch):
             raise TypeError(
                 "transform_transition_batch must return a TransitionBatch"
             )
+        original_size = transitions.size
         if prepared_transitions.size != original_size:
             raise ValueError(
                 "Prepared transition batch must preserve its environment lanes"
@@ -1622,7 +1630,18 @@ class RLTrainer(ABC):
                     f"Prepared transition batch {name} must contain one "
                     "mapping per environment lane"
                 )
+        self._validate_rewards(
+            prepared_transitions.rewards,
+            source="Prepared transition",
+        )
         return prepared_transitions
+
+    def _validate_rewards(self, rewards: Any, *, source: str) -> None:
+        values = np.asarray(rewards)
+        if not np.issubdtype(values.dtype, np.number):
+            raise TypeError(f"{source} rewards must be numeric")
+        if not np.isfinite(values).all():
+            raise FloatingPointError(f"{source} rewards must be finite")
 
     def transform_transition_batch(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +11,12 @@ import pytest
 import torch
 
 from dl_core import load_builtin_components
-from dl_core.core import MODEL_REGISTRY, TRAINER_REGISTRY, TransitionBatch
+from dl_core.core import (
+    MODEL_REGISTRY,
+    TRAINER_REGISTRY,
+    SequenceBatch,
+    TransitionBatch,
+)
 from dl_core.trainers import (
     DreamerPolicyState,
     DreamerTrainer,
@@ -77,6 +83,21 @@ def _config(tmp_path: Path, **overrides: object) -> dict:
         "runtime": {"output_dir": str(tmp_path / "artifacts")},
         "experiment": {"name": "dreamer-tests", "run_name": "dreamer"},
     }
+
+
+def _sample_sequences(trainer: DreamerTrainer) -> SequenceBatch:
+    for step in range(2):
+        trainer.replay_buffer.add_batch(
+            TransitionBatch(
+                observations=np.asarray([step]),
+                actions=np.asarray([1]),
+                rewards=np.asarray([1.0], dtype=np.float32),
+                next_observations=np.asarray([step + 1]),
+                terminated=np.asarray([False]),
+                truncated=np.asarray([False]),
+            )
+        )
+    return trainer.replay_buffer.sample(1, torch.device("cpu"))
 
 
 def test_dreamer_trainer_is_registered_with_public_types() -> None:
@@ -424,7 +445,10 @@ def test_dreamer_rejects_nonfinite_rewards_before_replay(
     trainer.setup()
     try:
         trainer.global_step = 1
-        with pytest.raises(ValueError, match="reward must be finite"):
+        with pytest.raises(
+            FloatingPointError,
+            match="rewards must be finite",
+        ):
             trainer.process_transition_batch(
                 TransitionBatch(
                     observations=np.asarray([0]),
@@ -494,6 +518,129 @@ def test_dreamer_rejects_nonfinite_world_loss_before_update(
         )
     finally:
         trainer.close()
+
+
+def test_dreamer_requires_world_model_output_dataclass(
+    tmp_path: Path,
+) -> None:
+    trainer = DreamerTrainer(_config(tmp_path))
+    trainer.setup()
+    sequences = _sample_sequences(trainer)
+
+    with (
+        patch.object(
+            trainer.models["world_model"],
+            "forward",
+            return_value={},
+        ),
+        pytest.raises(TypeError, match="return WorldModelOutput"),
+    ):
+        trainer.update_model(sequences)
+    trainer.close()
+
+
+def test_dreamer_rejects_broadcasting_world_model_predictions(
+    tmp_path: Path,
+) -> None:
+    trainer = DreamerTrainer(_config(tmp_path))
+    trainer.setup()
+    sequences = _sample_sequences(trainer)
+    world_model = trainer.models["world_model"]
+    forward = world_model.forward
+
+    def malformed_forward(
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        output = forward(*args, **kwargs)
+        return replace(
+            output,
+            reward_predictions=output.reward_predictions.unsqueeze(-1),
+        )
+
+    with (
+        patch.object(world_model, "forward", side_effect=malformed_forward),
+        pytest.raises(
+            ValueError,
+            match="reward predictions must have shape",
+        ),
+    ):
+        trainer.update_model(sequences)
+    trainer.close()
+
+
+def test_dreamer_rejects_invalid_project_actor_shape(
+    tmp_path: Path,
+) -> None:
+    trainer = DreamerTrainer(_config(tmp_path))
+    trainer.setup()
+    sequences = _sample_sequences(trainer)
+    actor = trainer.models["actor"]
+    forward = actor.forward
+
+    with (
+        patch.object(
+            actor,
+            "forward",
+            side_effect=lambda features: forward(features).unsqueeze(1),
+        ),
+        pytest.raises(ValueError, match="actor logits must have shape"),
+    ):
+        trainer.update_model(sequences)
+    trainer.close()
+
+
+def test_dreamer_rejects_invalid_imagined_prediction_shape(
+    tmp_path: Path,
+) -> None:
+    trainer = DreamerTrainer(_config(tmp_path))
+    trainer.setup()
+    sequences = _sample_sequences(trainer)
+    world_model = trainer.models["world_model"]
+    predict_rewards = world_model.predict_rewards
+
+    def malformed_rewards(features: torch.Tensor) -> torch.Tensor:
+        predictions = predict_rewards(features)
+        return (
+            predictions.unsqueeze(-1)
+            if features.ndim == 2
+            else predictions
+        )
+
+    with (
+        patch.object(
+            world_model,
+            "predict_rewards",
+            side_effect=malformed_rewards,
+        ),
+        pytest.raises(ValueError, match="imagined rewards must have shape"),
+    ):
+        trainer.update_model(sequences)
+    trainer.close()
+
+
+def test_dreamer_rejects_invalid_project_critic_shape(
+    tmp_path: Path,
+) -> None:
+    trainer = DreamerTrainer(_config(tmp_path))
+    trainer.setup()
+    sequences = _sample_sequences(trainer)
+    target_critic = trainer.models["target_critic"]
+    forward = target_critic.forward
+
+    with (
+        patch.object(
+            target_critic,
+            "forward",
+            side_effect=lambda features: forward(features).unsqueeze(-1),
+        ),
+        pytest.raises(
+            ValueError,
+            match="target-critic predictions must have shape",
+        ),
+    ):
+        trainer.update_model(sequences)
+    trainer.close()
 
 
 def test_dreamer_aggregates_gradient_steps_per_scheduled_update(
