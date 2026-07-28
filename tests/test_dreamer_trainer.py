@@ -17,6 +17,8 @@ from dl_core.trainers import (
     ImaginedTrajectory,
 )
 from dreamer_test_models import (  # noqa: F401
+    IncompleteDreamerWorldModel,
+    InvalidFeatureSizeDreamerWorldModel,
     ProjectDreamerActor,
     ProjectDreamerCritic,
     ProjectDreamerWorldModel,
@@ -150,6 +152,36 @@ def test_dreamer_requires_explicit_project_models(
     trainer = DreamerTrainer(config)
 
     with pytest.raises(ValueError, match=message):
+        trainer.setup()
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    ("model_name", "error", "message"),
+    [
+        (
+            "test_incomplete_dreamer_world_model",
+            TypeError,
+            "DreamerWorldModelProtocol",
+        ),
+        (
+            "test_invalid_dreamer_feature_size",
+            ValueError,
+            "feature_size must be positive",
+        ),
+    ],
+)
+def test_dreamer_validates_project_world_model_contract(
+    tmp_path: Path,
+    model_name: str,
+    error: type[Exception],
+    message: str,
+) -> None:
+    config = _config(tmp_path)
+    config["models"]["world_model"]["name"] = model_name
+    trainer = DreamerTrainer(config)
+
+    with pytest.raises(error, match=message):
         trainer.setup()
     trainer.close()
 

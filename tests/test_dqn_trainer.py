@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -393,9 +394,16 @@ def test_dqn_accepts_mapping_project_model_output(tmp_path: Path) -> None:
 
 def test_dqn_rejects_nonfinite_loss_before_optimizer_step(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     trainer = DQNTrainer(_config(tmp_path))
     trainer.setup()
+    optimizer_step = Mock(wraps=trainer.accelerator.optimizer_step)
+    monkeypatch.setattr(
+        trainer.accelerator,
+        "optimizer_step",
+        optimizer_step,
+    )
 
     def nonfinite_forward(
         observations: torch.Tensor,
@@ -418,6 +426,7 @@ def test_dqn_rejects_nonfinite_loss_before_optimizer_step(
                 truncated=False,
             )
         )
+    optimizer_step.assert_not_called()
     trainer.close()
 
 

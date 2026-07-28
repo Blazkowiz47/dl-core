@@ -241,6 +241,26 @@ class ProjectDreamerWorldModel(nn.Module):
         )
 
 
+@register_model("test_incomplete_dreamer_world_model")
+class IncompleteDreamerWorldModel(nn.Module):
+    """Registered module intentionally missing the world-model protocol."""
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__()
+        del config
+        self.feature_size = 1
+        self.parameter = nn.Parameter(torch.zeros(()))
+
+
+@register_model("test_invalid_dreamer_feature_size")
+class InvalidFeatureSizeDreamerWorldModel(ProjectDreamerWorldModel):
+    """Structurally valid world model with invalid feature metadata."""
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config)
+        self.feature_size = 0
+
+
 @register_model("test_dreamer_actor")
 class ProjectDreamerActor(nn.Module):
     """Project-style categorical actor used by trainer tests."""
@@ -271,6 +291,8 @@ class ProjectDreamerCritic(nn.Module):
 
 
 __all__ = [
+    "IncompleteDreamerWorldModel",
+    "InvalidFeatureSizeDreamerWorldModel",
     "ProjectDreamerActor",
     "ProjectDreamerCritic",
     "ProjectDreamerWorldModel",
