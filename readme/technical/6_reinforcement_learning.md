@@ -528,15 +528,16 @@ epsilon, and exploration-generator state before resuming.
 
 The standard configuration validator recognizes registered `RLTrainer`
 subclasses and reads their algorithm-specific required sections. Tabular
-Q-learning needs only `environment`; neural trainers also require experiment
-model configuration.
+Q-learning needs only `environment`; DQN, PPO, and SAC also require experiment
+model configuration. Dreamer follows the same contract after its migration
+away from the legacy package model.
 
 ## Deep Q-Networks
 
 `DQNTrainer` is registered as `dqn`. It supports `Discrete` actions with either
 `Discrete` or `Box` observations, including non-zero `Discrete` starts.
 The Q-network belongs to the experiment and must be registered explicitly.
-It returns finite floating-point `[batch, actions]` values directly or as
+It returns floating-point `[batch, actions]` values directly or as
 `{"q_values": tensor}`. Structured `Dict` and `Tuple` observation spaces are
 not currently supported. Project networks receive `Box` batches in their
 original shape and `Discrete` observations as one-hot batches. The trainer

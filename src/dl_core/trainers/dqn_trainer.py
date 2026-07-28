@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
+import math
 from time import perf_counter
 from typing import Any
 
@@ -580,7 +581,10 @@ class DQNTrainer(RLTrainer):
                     self.optimizers["q_network"],
                     self.models["online"],
                 )
-                losses.append(float(loss.detach().item()))
+                loss_value = float(loss.detach().item())
+                if not math.isfinite(loss_value):
+                    raise FloatingPointError("DQN loss must be finite")
+                losses.append(loss_value)
                 q_means.append(float(current_q_values.detach().mean().item()))
                 target_means.append(float(targets.detach().mean().item()))
                 model_update_ms += (
@@ -677,8 +681,6 @@ class DQNTrainer(RLTrainer):
             raise ValueError("DQN model action dimension does not match the environment")
         if not output.is_floating_point():
             raise TypeError("DQN model Q-values must use a floating-point dtype")
-        if not torch.isfinite(output).all():
-            raise FloatingPointError("DQN model Q-values must be finite")
         return output
 
     def algorithm_state_dict(self) -> dict[str, Any]:

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -338,23 +339,55 @@ def test_dqn_requires_an_explicit_project_model(
     trainer.close()
 
 
-def test_dqn_rejects_nonfinite_project_model_output(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("output", "error", "message"),
+    [
+        (torch.zeros(2), TypeError, r"\[batch, actions\]"),
+        (torch.zeros(1, 4), ValueError, "batch dimension"),
+        (torch.zeros(2, 3), ValueError, "action dimension"),
+        (torch.zeros(2, 4, dtype=torch.int64), TypeError, "floating-point"),
+        ({"other": torch.zeros(2, 4)}, TypeError, r"\[batch, actions\]"),
+    ],
+)
+def test_dqn_validates_project_model_output_contract(
+    tmp_path: Path,
+    output: object,
+    error: type[Exception],
+    message: str,
+) -> None:
     trainer = DQNTrainer(_config(tmp_path))
     trainer.setup()
 
-    class _NonfiniteQNetwork(torch.nn.Module):
-        def forward(self, observations: torch.Tensor) -> torch.Tensor:
-            return torch.full(
-                (observations.shape[0], 4),
-                float("nan"),
-                device=observations.device,
-            )
+    class _ContractQNetwork(torch.nn.Module):
+        def forward(self, observations: torch.Tensor) -> Any:
+            del observations
+            return output
 
-    with pytest.raises(FloatingPointError, match="must be finite"):
+    with pytest.raises(error, match=message):
         trainer._q_values(
-            _NonfiniteQNetwork(),
+            _ContractQNetwork(),
             torch.zeros(2, 16),
         )
+    trainer.close()
+
+
+def test_dqn_accepts_mapping_project_model_output(tmp_path: Path) -> None:
+    trainer = DQNTrainer(_config(tmp_path))
+    trainer.setup()
+
+    class _MappingQNetwork(torch.nn.Module):
+        def forward(
+            self,
+            observations: torch.Tensor,
+        ) -> Mapping[str, torch.Tensor]:
+            return {"q_values": torch.zeros(observations.shape[0], 4)}
+
+    q_values = trainer._q_values(
+        _MappingQNetwork(),
+        torch.zeros(2, 16),
+    )
+
+    assert q_values.shape == (2, 4)
     trainer.close()
 
 
