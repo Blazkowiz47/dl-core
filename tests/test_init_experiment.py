@@ -215,9 +215,11 @@ def test_scaffold_model_helper_executes_name_less_binary_model(
         "resnet_example",
         config["models"]["resnet_example"],
     )
-    model.module.fc.weight.data.zero_()
-    model.module.fc.bias.data.zero_()
-    outputs = model({"image": torch.zeros(2, 3, 64, 64)})
+    model.eval()
+    with torch.no_grad():
+        model.module.fc.weight.zero_()
+        model.module.fc.bias.zero_()
+        outputs = model({"image": torch.zeros(2, 3, 64, 64)})
     assert torch.equal(
         outputs["probabilities"],
         torch.full((2, 1), 0.5),
