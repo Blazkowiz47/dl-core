@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
@@ -28,6 +29,8 @@ from dl_core.core import (
 @register_trainer("dqn")
 class DQNTrainer(RLTrainer):
     """Replay-based DQN with target networks and optional Double-DQN targets."""
+
+    REQUIRED_CONFIG_SECTIONS = ("environment", "models")
 
     CONFIG_FIELDS = RLTrainer.CONFIG_FIELDS + [
         config_field("gamma", "float", "Reward discount factor.", default=0.99),
@@ -195,14 +198,26 @@ class DQNTrainer(RLTrainer):
         if self.accelerator.gradient_accumulation_steps != 1:
             raise ValueError("DQNTrainer requires gradient_accumulation_steps=1")
 
-        model_section = self.config.get("models", {})
+        model_section = self.config.get("models")
         if not isinstance(model_section, dict):
-            raise TypeError("models must be a mapping")
-        q_network_config = model_section.get("q_network", {})
+            raise ValueError(
+                "DQNTrainer requires models.q_network.name; dl-core does "
+                "not provide a default Q-network"
+            )
+        q_network_config = model_section.get("q_network")
         if not isinstance(q_network_config, dict):
-            raise TypeError("models.q_network must be a mapping")
+            raise ValueError(
+                "DQNTrainer requires models.q_network.name; dl-core does "
+                "not provide a default Q-network"
+            )
         q_network_config = dict(q_network_config)
-        model_name = str(q_network_config.pop("name", "dqn_mlp"))
+        model_name = q_network_config.pop("name", None)
+        if not isinstance(model_name, str) or not model_name.strip():
+            raise ValueError(
+                "DQNTrainer requires models.q_network.name; dl-core does "
+                "not provide a default Q-network"
+            )
+        model_name = model_name.strip()
         q_network_config["input_dim"] = input_dim
         q_network_config["action_dim"] = int(self.environment.action_space.n)
         self.models["online"] = MODEL_REGISTRY.get(model_name, q_network_config)
@@ -650,7 +665,7 @@ class DQNTrainer(RLTrainer):
     ) -> torch.Tensor:
         # Bypass Module.compile without skipping the module's registered hooks.
         output = model._call_impl(observations) if eager else model(observations)
-        if isinstance(output, dict):
+        if isinstance(output, Mapping):
             output = output.get("q_values")
         if not isinstance(output, torch.Tensor) or output.ndim != 2:
             raise TypeError(
@@ -662,6 +677,8 @@ class DQNTrainer(RLTrainer):
             raise ValueError("DQN model action dimension does not match the environment")
         if not output.is_floating_point():
             raise TypeError("DQN model Q-values must use a floating-point dtype")
+        if not torch.isfinite(output).all():
+            raise FloatingPointError("DQN model Q-values must be finite")
         return output
 
     def algorithm_state_dict(self) -> dict[str, Any]:

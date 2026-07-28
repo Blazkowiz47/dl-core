@@ -48,6 +48,8 @@ from .rl_types import (
 class RLTrainer(ABC):
     """Base class for episode-driven reinforcement-learning trainers."""
 
+    REQUIRED_CONFIG_SECTIONS = ("environment",)
+
     CONFIG_FIELDS = [
         config_field(
             "total_timesteps",

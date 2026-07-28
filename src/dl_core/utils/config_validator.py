@@ -101,12 +101,12 @@ class ConfigValidator:
             except NotImplementedError:
                 trainer_class = None
             if trainer_class is not None and issubclass(trainer_class, RLTrainer):
-                required_sections = ("environment",)
+                required_sections = trainer_class.REQUIRED_CONFIG_SECTIONS
 
         for section in required_sections:
             if section not in self.config:
                 self.errors.append(f"Missing required section: '{section}'")
-        if required_sections == ("environment",):
+        if "environment" in required_sections:
             environment = self.config.get("environment")
             if environment is not None and not isinstance(environment, dict):
                 self.errors.append("'environment' must be a dict")

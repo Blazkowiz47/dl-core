@@ -527,24 +527,26 @@ and starts. Checkpoint loading validates both space definitions, the Q-table,
 epsilon, and exploration-generator state before resuming.
 
 The standard configuration validator recognizes registered `RLTrainer`
-subclasses and requires `environment` in place of the supervised `dataset`,
-`models`, and `optimizers` sections.
+subclasses and reads their algorithm-specific required sections. Tabular
+Q-learning needs only `environment`; neural trainers also require experiment
+model configuration.
 
 ## Deep Q-Networks
 
 `DQNTrainer` is registered as `dqn`. It supports `Discrete` actions with either
-`Discrete` or `Box` observations, including non-zero `Discrete` starts. The
-built-in `dqn_mlp` model flattens `Box` observations; image-shaped observations
-can instead use a registered custom Q-network returning a floating-point
-`[batch, actions]` tensor or `{"q_values": tensor}`. Structured `Dict` and
-`Tuple` observation spaces are not currently supported. Custom networks receive
-`Box` batches in their original shape and `Discrete` observations as one-hot
-batches.
+`Discrete` or `Box` observations, including non-zero `Discrete` starts.
+The Q-network belongs to the experiment and must be registered explicitly.
+It returns finite floating-point `[batch, actions]` values directly or as
+`{"q_values": tensor}`. Structured `Dict` and `Tuple` observation spaces are
+not currently supported. Project networks receive `Box` batches in their
+original shape and `Discrete` observations as one-hot batches. The trainer
+adds environment-derived `input_dim` and `action_dim` values to the registered
+model's configuration.
 
 ```yaml
 models:
   q_network:
-    name: dqn_mlp
+    name: my_q_network
     hidden_sizes: [128, 128]
 
 optimizers:

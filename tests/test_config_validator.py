@@ -122,3 +122,26 @@ def test_validator_accepts_environment_instead_of_supervised_components_for_rl(
 
     assert validator.validate() is True
     assert validator.errors == []
+
+
+def test_validator_requires_models_for_neural_rl_trainers(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config_path = tmp_path / "dqn.yaml"
+    config_path.write_text(
+        (
+            "environment:\n"
+            "  name: gymnasium\n"
+            "  id: FrozenLake-v1\n"
+            "trainer:\n"
+            "  dqn:\n"
+            "    total_timesteps: 100\n"
+            "accelerator: cpu\n"
+        ),
+        encoding="utf-8",
+    )
+    validator = ConfigValidator(str(config_path))
+
+    assert validator.validate() is False
+    assert "Missing required section: 'models'" in validator.errors

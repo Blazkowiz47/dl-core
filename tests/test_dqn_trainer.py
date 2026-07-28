@@ -14,13 +14,31 @@ from gymnasium.spaces import Box, Discrete
 
 from dl_core import load_builtin_components
 from dl_core.core import (
+    MODEL_REGISTRY,
     ReplayBuffer,
     TRAINER_REGISTRY,
     Transition,
     TransitionBatch,
+    register_model,
 )
-from dl_core.models import DQNMLP
 from dl_core.trainers import DQNTrainer
+
+
+@register_model("test_dqn_q_network")
+class _TestDQNQNetwork(torch.nn.Module):
+    """Small project-style Q-network used only by trainer tests."""
+
+    def __init__(self, config: dict[str, object]):
+        super().__init__()
+        input_dim = int(config["input_dim"])
+        action_dim = int(config["action_dim"])
+        self.network = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, action_dim)
+        )
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        """Return one Q-value per action."""
+        return self.network(observations.reshape(observations.shape[0], -1))
 
 
 def _config(tmp_path: Path, **overrides: object) -> dict:
@@ -49,7 +67,7 @@ def _config(tmp_path: Path, **overrides: object) -> dict:
             "id": "FrozenLake-v1",
             "kwargs": {"is_slippery": False},
         },
-        "models": {"q_network": {"name": "dqn_mlp", "hidden_sizes": []}},
+        "models": {"q_network": {"name": "test_dqn_q_network"}},
         "optimizers": {"name": "sgd", "lr": 0.01},
         "trainer": {"dqn": trainer_config},
         "accelerator": {"type": "cpu"},
@@ -272,11 +290,12 @@ def test_replay_buffer_rejects_inconsistent_state(
         ReplayBuffer(3, (2,), (), action_dtype=np.int64).load_state_dict(state)
 
 
-def test_dqn_is_registered_and_builtin_model_has_expected_shape(tmp_path: Path) -> None:
+def test_dqn_uses_a_registered_project_model(tmp_path: Path) -> None:
     load_builtin_components()
 
     assert TRAINER_REGISTRY.get_class("dqn") is DQNTrainer
-    model = DQNMLP({"input_dim": 3, "action_dim": 2, "hidden_sizes": [4]})
+    assert not MODEL_REGISTRY.is_registered("dqn_mlp")
+    model = _TestDQNQNetwork({"input_dim": 3, "action_dim": 2})
     assert model(torch.zeros(5, 3)).shape == (5, 2)
     assert model(torch.zeros(5, 1, 3)).shape == (5, 2)
 
@@ -288,6 +307,54 @@ def test_dqn_is_registered_and_builtin_model_has_expected_shape(tmp_path: Path) 
         not parameter.requires_grad
         for parameter in trainer.models["target"].parameters()
     )
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    "models",
+    [
+        None,
+        {},
+        {"q_network": {}},
+        {"q_network": {"name": ""}},
+    ],
+)
+def test_dqn_requires_an_explicit_project_model(
+    tmp_path: Path,
+    models: object,
+) -> None:
+    config = _config(tmp_path)
+    if models is None:
+        config.pop("models")
+    else:
+        config["models"] = models
+    trainer = DQNTrainer(config)
+
+    with pytest.raises(
+        ValueError,
+        match=r"requires models\.q_network\.name",
+    ):
+        trainer.setup()
+    trainer.close()
+
+
+def test_dqn_rejects_nonfinite_project_model_output(tmp_path: Path) -> None:
+    trainer = DQNTrainer(_config(tmp_path))
+    trainer.setup()
+
+    class _NonfiniteQNetwork(torch.nn.Module):
+        def forward(self, observations: torch.Tensor) -> torch.Tensor:
+            return torch.full(
+                (observations.shape[0], 4),
+                float("nan"),
+                device=observations.device,
+            )
+
+    with pytest.raises(FloatingPointError, match="must be finite"):
+        trainer._q_values(
+            _NonfiniteQNetwork(),
+            torch.zeros(2, 16),
+        )
     trainer.close()
 
 
