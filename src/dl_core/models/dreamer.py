@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 from typing import Any
 
@@ -10,36 +9,13 @@ import torch
 from torch import nn
 from torch.nn import functional
 
-from dl_core.core import config_field, register_model
-
-
-@dataclass(slots=True)
-class WorldModelState:
-    """Deterministic and categorical stochastic RSSM state."""
-
-    deterministic: torch.Tensor
-    stochastic: torch.Tensor
-    logits: torch.Tensor
-
-
-@dataclass(slots=True)
-class WorldModelStep:
-    """One posterior RSSM state and its action-conditioned prior logits."""
-
-    state: WorldModelState
-    prior_logits: torch.Tensor
-
-
-@dataclass(slots=True)
-class WorldModelOutput:
-    """Observed latent sequence and world-model predictions."""
-
-    states: WorldModelState
-    prior_logits: torch.Tensor
-    observation_targets: torch.Tensor
-    reconstructions: torch.Tensor
-    reward_predictions: torch.Tensor
-    continue_logits: torch.Tensor
+from dl_core.core import (
+    WorldModelOutput,
+    WorldModelState,
+    WorldModelStep,
+    config_field,
+    register_model,
+)
 
 
 @register_model("dreamer_world_model")

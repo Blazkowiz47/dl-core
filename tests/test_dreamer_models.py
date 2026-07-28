@@ -8,7 +8,11 @@ import pytest
 import torch
 
 from dl_core import load_builtin_components
-from dl_core.core import MODEL_REGISTRY
+from dl_core.core import (
+    MODEL_REGISTRY,
+    DreamerWorldModelProtocol,
+    WorldModelState as CoreWorldModelState,
+)
 from dl_core.models import (
     DreamerActor,
     DreamerCritic,
@@ -311,5 +315,7 @@ def test_dreamer_models_are_registered() -> None:
     )
 
     assert isinstance(world_model, DreamerWorldModel)
+    assert isinstance(world_model, DreamerWorldModelProtocol)
     assert isinstance(actor, DreamerActor)
     assert isinstance(critic, DreamerCritic)
+    assert WorldModelState is CoreWorldModelState

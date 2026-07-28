@@ -240,9 +240,11 @@ is suitable for long, high-resolution runs.
 with `Box` or `Discrete` vector observations. It registers and uses the
 `dreamer_world_model`, `dreamer_actor`, and `dreamer_critic` model components.
 The world model contains an MLP encoder, categorical recurrent state-space
-model, observation decoder, reward predictor, and continuation predictor. It
-exposes typed `WorldModelState`, `WorldModelStep`, and `WorldModelOutput`
-objects instead of positional tuples.
+model, observation decoder, reward predictor, and continuation predictor.
+`WorldModelState`, `WorldModelStep`, and `WorldModelOutput` are neutral
+trainer contracts defined in `dl_core.core`, rather than types owned by that
+architecture. They define the sequence-learning boundary that experiment-owned
+world models will use once the trainer's legacy concrete-model check is removed.
 
 The RSSM uses deterministic recurrent state plus straight-through categorical
 latent variables with configurable uniform probability mixing. Observations

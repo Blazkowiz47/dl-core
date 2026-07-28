@@ -36,6 +36,7 @@ from .rl_trainer import RLTrainer
 from .rl_types import (
     ActionOutput,
     BatchActionOutput,
+    DreamerWorldModelProtocol,
     Environment,
     EpisodeContext,
     EpisodeRecord,
@@ -43,6 +44,9 @@ from .rl_types import (
     Transition,
     TransitionBatch,
     VectorEnvironment,
+    WorldModelOutput,
+    WorldModelState,
+    WorldModelStep,
 )
 from .replay_buffer import ReplayBatch, ReplayBuffer
 from .sequence_replay_buffer import (
@@ -133,8 +137,12 @@ __all__ = [
     "VectorEnvironment",
     "ActionOutput",
     "BatchActionOutput",
+    "DreamerWorldModelProtocol",
     "Transition",
     "TransitionBatch",
+    "WorldModelOutput",
+    "WorldModelState",
+    "WorldModelStep",
     "EpisodeContext",
     "EpisodeRecord",
     "EpisodeResult",

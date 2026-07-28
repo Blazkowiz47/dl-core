@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
+import torch
 from gymnasium import Space
 
 
@@ -205,3 +206,100 @@ class BatchActionOutput(Generic[ActionT]):
             self.action_info = [{} for _ in self.actions]
         if len(self.action_info) != len(self.actions):
             raise ValueError("Batch action metadata must align with actions")
+
+
+@dataclass(slots=True)
+class WorldModelState:
+    """Deterministic and categorical stochastic state used by Dreamer."""
+
+    deterministic: torch.Tensor
+    stochastic: torch.Tensor
+    logits: torch.Tensor
+
+
+@dataclass(slots=True)
+class WorldModelStep:
+    """One posterior state and its action-conditioned prior logits."""
+
+    state: WorldModelState
+    prior_logits: torch.Tensor
+
+
+@dataclass(slots=True)
+class WorldModelOutput:
+    """Observed latent sequence and world-model training predictions."""
+
+    states: WorldModelState
+    prior_logits: torch.Tensor
+    observation_targets: torch.Tensor
+    reconstructions: torch.Tensor
+    reward_predictions: torch.Tensor
+    continue_logits: torch.Tensor
+
+
+@runtime_checkable
+class DreamerWorldModelProtocol(Protocol):
+    """Structural model operations required by :class:`DreamerTrainer`."""
+
+    feature_size: int
+
+    def initial_state(
+        self,
+        batch_size: int,
+        *,
+        device: torch.device,
+    ) -> WorldModelState:
+        """Create an empty latent state for a batch."""
+        ...
+
+    def encode(self, observations: torch.Tensor) -> torch.Tensor:
+        """Encode observations for posterior-state inference."""
+        ...
+
+    def observe_step(
+        self,
+        previous_state: WorldModelState,
+        previous_actions: torch.Tensor,
+        embedding: torch.Tensor,
+        is_first: torch.Tensor,
+        *,
+        deterministic: bool = False,
+    ) -> WorldModelStep:
+        """Infer one posterior state from an observation embedding."""
+        ...
+
+    def imagine_step(
+        self,
+        previous_state: WorldModelState,
+        actions: torch.Tensor,
+        *,
+        deterministic: bool = False,
+    ) -> WorldModelState:
+        """Predict one prior state from a latent state and action."""
+        ...
+
+    def features(self, state: WorldModelState) -> torch.Tensor:
+        """Flatten a latent state into actor and critic features."""
+        ...
+
+    def predict_rewards(self, features: torch.Tensor) -> torch.Tensor:
+        """Predict symlog rewards from latent features."""
+        ...
+
+    def predict_continue_logits(
+        self,
+        features: torch.Tensor,
+    ) -> torch.Tensor:
+        """Predict episode-continuation logits from latent features."""
+        ...
+
+    def __call__(
+        self,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+        is_first: torch.Tensor,
+        *,
+        deterministic: bool = False,
+    ) -> WorldModelOutput:
+        """Observe a sequence and return world-model training predictions."""
+        ...

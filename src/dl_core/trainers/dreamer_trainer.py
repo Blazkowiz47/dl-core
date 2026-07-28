@@ -16,6 +16,7 @@ from torch.nn import functional
 from dl_core.core import (
     ActionOutput,
     BatchActionOutput,
+    DreamerWorldModelProtocol,
     MODEL_REGISTRY,
     OPTIMIZER_REGISTRY,
     RLTrainer,
@@ -23,10 +24,11 @@ from dl_core.core import (
     SequenceReplayBuffer,
     Transition,
     TransitionBatch,
+    WorldModelState,
     config_field,
     register_trainer,
 )
-from dl_core.models import DreamerWorldModel, WorldModelState
+from dl_core.models import DreamerWorldModel
 
 
 @dataclass(slots=True)
@@ -430,7 +432,7 @@ class DreamerTrainer(RLTrainer):
             raise ValueError("Policy-state batch size must be positive")
         del evaluation
         device = self.accelerator.get_device()
-        world_model = self.accelerator.unwrap_model(
+        world_model: DreamerWorldModelProtocol = self.accelerator.unwrap_model(
             self.models["world_model"]
         )
         if not isinstance(world_model, DreamerWorldModel):
