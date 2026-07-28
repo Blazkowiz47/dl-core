@@ -671,14 +671,14 @@ learners remain outside the current RL runtime.
 `PPOTrainer` is registered as `ppo`. It supports `Discrete` and finite,
 floating-point `Box` actions with `Discrete` or `Box` observations. Integer and
 boolean `Box` actions are rejected because they do not define a continuous
-policy. The built-in
-`ppo_actor_critic` model uses a shared MLP encoder, categorical logits for
-discrete actions, and a diagonal Gaussian for continuous actions.
+policy. The policy architecture belongs to the experiment. It must return a
+mapping containing finite `value` tensors plus `logits` for discrete actions
+or `mean` and `log_std` for continuous actions.
 
 ```yaml
 models:
   policy:
-    name: ppo_actor_critic
+    name: my_ppo_policy
     hidden_sizes: [64, 64]
 
 optimizers:

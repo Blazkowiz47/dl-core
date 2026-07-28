@@ -11,9 +11,52 @@ import torch
 from gymnasium.spaces import Box, Discrete
 
 from dl_core import load_builtin_components
-from dl_core.core import RolloutBuffer, TRAINER_REGISTRY, Transition
-from dl_core.models import PPOActorCritic
+from dl_core.core import (
+    MODEL_REGISTRY,
+    RolloutBuffer,
+    TRAINER_REGISTRY,
+    Transition,
+    register_model,
+)
 from dl_core.trainers import PPOTrainer
+
+
+@register_model("test_ppo_policy")
+class _TestPPOPolicy(torch.nn.Module):
+    """Small project-style policy used only by PPO trainer tests."""
+
+    def __init__(self, config: dict[str, object]):
+        super().__init__()
+        input_dim = int(config["input_dim"])
+        action_dim = int(config["action_dim"])
+        self.continuous_actions = bool(config["continuous_actions"])
+        self.encoder = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, 8),
+            torch.nn.Tanh(),
+        )
+        self.policy_head = torch.nn.Linear(8, action_dim)
+        self.value_head = torch.nn.Linear(8, 1)
+        if self.continuous_actions:
+            self.log_std = torch.nn.Parameter(torch.zeros(action_dim))
+        else:
+            self.register_parameter("log_std", None)
+
+    def forward(
+        self,
+        observations: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Return policy parameters and state values."""
+        features = self.encoder(
+            observations.reshape(observations.shape[0], -1)
+        )
+        policy_output = self.policy_head(features)
+        output = {"value": self.value_head(features).squeeze(1)}
+        if self.continuous_actions:
+            output["mean"] = policy_output
+            output["log_std"] = self.log_std.expand_as(policy_output)
+        else:
+            output["logits"] = policy_output
+        return output
 
 
 def _config(tmp_path: Path, **overrides: object) -> dict:
@@ -41,8 +84,7 @@ def _config(tmp_path: Path, **overrides: object) -> dict:
         },
         "models": {
             "policy": {
-                "name": "ppo_actor_critic",
-                "hidden_sizes": [8],
+                "name": "test_ppo_policy",
             }
         },
         "optimizers": {"name": "adam", "lr": 1e-3},
@@ -181,26 +223,25 @@ def test_rollout_buffer_computes_gae_per_environment_stream() -> None:
     assert batch.observations[:, 0].tolist() == [0.0, 10.0, 1.0, 11.0]
 
 
-def test_ppo_is_registered_and_builtin_model_supports_both_policy_types(
+def test_ppo_uses_a_registered_project_model_for_both_policy_types(
     tmp_path: Path,
 ) -> None:
     load_builtin_components()
 
     assert TRAINER_REGISTRY.get_class("ppo") is PPOTrainer
-    discrete_model = PPOActorCritic(
+    assert not MODEL_REGISTRY.is_registered("ppo_actor_critic")
+    discrete_model = _TestPPOPolicy(
         {
             "input_dim": 3,
             "action_dim": 2,
             "continuous_actions": False,
-            "hidden_sizes": [4],
         }
     )
-    continuous_model = PPOActorCritic(
+    continuous_model = _TestPPOPolicy(
         {
             "input_dim": 3,
             "action_dim": 2,
             "continuous_actions": True,
-            "hidden_sizes": [4],
         }
     )
     discrete_output = discrete_model(torch.zeros(5, 3))
@@ -214,6 +255,54 @@ def test_ppo_is_registered_and_builtin_model_supports_both_policy_types(
     trainer = PPOTrainer(_config(tmp_path))
     trainer.setup()
     assert set(trainer.models) == {"policy"}
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    "models",
+    [
+        None,
+        {},
+        {"policy": {}},
+        {"policy": {"name": ""}},
+    ],
+)
+def test_ppo_requires_an_explicit_project_model(
+    tmp_path: Path,
+    models: object,
+) -> None:
+    config = _config(tmp_path)
+    if models is None:
+        config.pop("models")
+    else:
+        config["models"] = models
+    trainer = PPOTrainer(config)
+
+    with pytest.raises(ValueError, match=r"requires models\.policy\.name"):
+        trainer.setup()
+    trainer.close()
+
+
+def test_ppo_rejects_nonfinite_project_model_output(tmp_path: Path) -> None:
+    trainer = PPOTrainer(_config(tmp_path))
+    trainer.setup()
+
+    class _NonfinitePolicy(torch.nn.Module):
+        def forward(
+            self,
+            observations: torch.Tensor,
+        ) -> dict[str, torch.Tensor]:
+            return {
+                "logits": torch.full(
+                    (observations.shape[0], 4),
+                    float("nan"),
+                ),
+                "value": torch.zeros(observations.shape[0]),
+            }
+
+    trainer.models["policy"] = _NonfinitePolicy()
+    with pytest.raises(FloatingPointError, match="logits must be finite"):
+        trainer._distribution_and_value(torch.zeros(2, 16))
     trainer.close()
 
 

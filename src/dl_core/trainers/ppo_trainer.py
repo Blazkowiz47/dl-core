@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -26,6 +27,8 @@ from dl_core.core import (
 @register_trainer("ppo")
 class PPOTrainer(RLTrainer):
     """Clipped PPO with generalized advantage estimation."""
+
+    REQUIRED_CONFIG_SECTIONS = ("environment", "models")
 
     CONFIG_FIELDS = RLTrainer.CONFIG_FIELDS + [
         config_field("gamma", "float", "Reward discount factor.", default=0.99),
@@ -158,14 +161,26 @@ class PPOTrainer(RLTrainer):
         if self.accelerator.gradient_accumulation_steps != 1:
             raise ValueError("PPOTrainer requires gradient_accumulation_steps=1")
 
-        model_section = self.config.get("models", {})
+        model_section = self.config.get("models")
         if not isinstance(model_section, dict):
-            raise TypeError("models must be a mapping")
-        policy_config = model_section.get("policy", {})
+            raise ValueError(
+                "PPOTrainer requires models.policy.name; dl-core does not "
+                "provide a default policy"
+            )
+        policy_config = model_section.get("policy")
         if not isinstance(policy_config, dict):
-            raise TypeError("models.policy must be a mapping")
+            raise ValueError(
+                "PPOTrainer requires models.policy.name; dl-core does not "
+                "provide a default policy"
+            )
         policy_config = dict(policy_config)
-        model_name = str(policy_config.pop("name", "ppo_actor_critic"))
+        model_name = policy_config.pop("name", None)
+        if not isinstance(model_name, str) or not model_name.strip():
+            raise ValueError(
+                "PPOTrainer requires models.policy.name; dl-core does not "
+                "provide a default policy"
+            )
+        model_name = model_name.strip()
         policy_config.update(
             {
                 "input_dim": input_dim,
@@ -533,15 +548,19 @@ class PPOTrainer(RLTrainer):
         observations: torch.Tensor,
     ) -> tuple[Distribution, torch.Tensor]:
         output = self.models["policy"](observations)
-        if not isinstance(output, dict) or not isinstance(
+        if not isinstance(output, Mapping) or not isinstance(
             output.get("value"), torch.Tensor
         ):
-            raise TypeError("PPO policy must return a dict containing a value tensor")
+            raise TypeError(
+                "PPO policy must return a mapping containing a value tensor"
+            )
         value = output["value"]
         if value.shape != (observations.shape[0],):
             raise ValueError("PPO value output must have shape [batch]")
         if not value.is_floating_point():
             raise TypeError("PPO value output must use a floating-point dtype")
+        if not torch.isfinite(value).all():
+            raise FloatingPointError("PPO value output must be finite")
         if isinstance(self.environment.action_space, Discrete):
             logits = output.get("logits")
             if not isinstance(logits, torch.Tensor) or logits.shape != (
@@ -551,6 +570,8 @@ class PPOTrainer(RLTrainer):
                 raise ValueError("PPO discrete policy logits have an invalid shape")
             if not logits.is_floating_point():
                 raise TypeError("PPO policy logits must use a floating-point dtype")
+            if not torch.isfinite(logits).all():
+                raise FloatingPointError("PPO policy logits must be finite")
             return Categorical(logits=logits), value
         mean = output.get("mean")
         log_std = output.get("log_std")
@@ -565,6 +586,8 @@ class PPOTrainer(RLTrainer):
             raise ValueError("PPO continuous policy parameters have an invalid shape")
         if not mean.is_floating_point() or not log_std.is_floating_point():
             raise TypeError("PPO policy parameters must use floating-point dtypes")
+        if not torch.isfinite(mean).all() or not torch.isfinite(log_std).all():
+            raise FloatingPointError("PPO policy parameters must be finite")
         return Normal(mean, torch.exp(log_std.clamp(-20.0, 2.0))), value
 
     def algorithm_state_dict(self) -> dict[str, Any]:
