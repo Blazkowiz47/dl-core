@@ -391,6 +391,36 @@ def test_dqn_accepts_mapping_project_model_output(tmp_path: Path) -> None:
     trainer.close()
 
 
+def test_dqn_rejects_nonfinite_loss_before_optimizer_step(
+    tmp_path: Path,
+) -> None:
+    trainer = DQNTrainer(_config(tmp_path))
+    trainer.setup()
+
+    def nonfinite_forward(
+        observations: torch.Tensor,
+    ) -> torch.Tensor:
+        return (
+            trainer.models["online"].network(observations.float())
+            * float("nan")
+        )
+
+    trainer.models["online"].forward = nonfinite_forward
+    trainer.global_step = 1
+    with pytest.raises(FloatingPointError, match="DQN loss must be finite"):
+        trainer.process_transition(
+            Transition(
+                observation=0,
+                action=1,
+                reward=1.0,
+                next_observation=1,
+                terminated=False,
+                truncated=False,
+            )
+        )
+    trainer.close()
+
+
 def test_dqn_compiles_only_gradient_enabled_online_forwards(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

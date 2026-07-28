@@ -588,6 +588,8 @@ class PPOTrainer(RLTrainer):
             raise TypeError("PPO policy parameters must use floating-point dtypes")
         if not torch.isfinite(mean).all() or not torch.isfinite(log_std).all():
             raise FloatingPointError("PPO policy parameters must be finite")
+        mean = mean.float()
+        log_std = log_std.float()
         return Normal(mean, torch.exp(log_std.clamp(-20.0, 2.0))), value
 
     def algorithm_state_dict(self) -> dict[str, Any]:

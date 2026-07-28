@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import MethodType, SimpleNamespace
+from types import MappingProxyType, MethodType, SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -167,6 +168,160 @@ def test_sac_uses_registered_project_models(
         not parameter.requires_grad
         for parameter in trainer.models["target_critics"].parameters()
     )
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    ("output", "error", "message"),
+    [
+        (torch.zeros(2, 1), TypeError, "return a mapping"),
+        ({"mean": torch.zeros(2, 1)}, TypeError, "mean.*log_std"),
+        (
+            {"mean": torch.zeros(1, 1), "log_std": torch.zeros(1, 1)},
+            ValueError,
+            r"\[batch, action_dimensions\]",
+        ),
+        (
+            {
+                "mean": torch.zeros(2, 1, dtype=torch.int64),
+                "log_std": torch.zeros(2, 1),
+            },
+            TypeError,
+            "floating-point",
+        ),
+        (
+            {
+                "mean": torch.full((2, 1), float("nan")),
+                "log_std": torch.zeros(2, 1),
+            },
+            FloatingPointError,
+            "must be finite",
+        ),
+    ],
+)
+def test_sac_validates_project_actor_output_contract(
+    tmp_path: Path,
+    output: object,
+    error: type[Exception],
+    message: str,
+) -> None:
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+
+    class _ContractActor(torch.nn.Module):
+        def forward(self, observations: torch.Tensor) -> Any:
+            del observations
+            return output
+
+    trainer.models["actor"] = _ContractActor()
+    with pytest.raises(error, match=message):
+        trainer._sample_action_and_log_probability(
+            torch.zeros(2, 3),
+            deterministic=True,
+        )
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    ("output", "error", "message"),
+    [
+        (torch.zeros(2), TypeError, "return a mapping"),
+        ({"q1": torch.zeros(2)}, TypeError, "q1.*q2"),
+        (
+            {"q1": torch.zeros(1), "q2": torch.zeros(1)},
+            ValueError,
+            r"\[batch\]",
+        ),
+        (
+            {
+                "q1": torch.zeros(2, dtype=torch.int64),
+                "q2": torch.zeros(2),
+            },
+            TypeError,
+            "floating-point",
+        ),
+        (
+            {
+                "q1": torch.full((2,), float("nan")),
+                "q2": torch.zeros(2),
+            },
+            FloatingPointError,
+            "must be finite",
+        ),
+    ],
+)
+def test_sac_validates_project_critic_output_contract(
+    tmp_path: Path,
+    output: object,
+    error: type[Exception],
+    message: str,
+) -> None:
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+
+    class _ContractCritics(torch.nn.Module):
+        def forward(
+            self,
+            observations: torch.Tensor,
+            actions: torch.Tensor,
+        ) -> Any:
+            del observations, actions
+            return output
+
+    with pytest.raises(error, match=message):
+        trainer._q_values(
+            _ContractCritics(),
+            torch.zeros(2, 3),
+            torch.zeros(2, 1),
+        )
+    trainer.close()
+
+
+def test_sac_accepts_general_mapping_model_outputs(tmp_path: Path) -> None:
+    trainer = SACTrainer(_config(tmp_path))
+    trainer.setup()
+
+    class _MappingActor(torch.nn.Module):
+        def forward(
+            self,
+            observations: torch.Tensor,
+        ) -> MappingProxyType:
+            return MappingProxyType(
+                {
+                    "mean": torch.zeros(observations.shape[0], 1),
+                    "log_std": torch.zeros(observations.shape[0], 1),
+                }
+            )
+
+    class _MappingCritics(torch.nn.Module):
+        def forward(
+            self,
+            observations: torch.Tensor,
+            actions: torch.Tensor,
+        ) -> MappingProxyType:
+            del actions
+            return MappingProxyType(
+                {
+                    "q1": torch.zeros(observations.shape[0]),
+                    "q2": torch.ones(observations.shape[0]),
+                }
+            )
+
+    trainer.models["actor"] = _MappingActor()
+    actions, log_probabilities = trainer._sample_action_and_log_probability(
+        torch.zeros(2, 3),
+        deterministic=True,
+    )
+    q1, q2 = trainer._q_values(
+        _MappingCritics(),
+        torch.zeros(2, 3),
+        actions,
+    )
+
+    assert actions.shape == (2, 1)
+    assert log_probabilities.shape == (2,)
+    assert q1.tolist() == [0.0, 0.0]
+    assert q2.tolist() == [1.0, 1.0]
     trainer.close()
 
 

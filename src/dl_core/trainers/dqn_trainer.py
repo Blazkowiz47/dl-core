@@ -577,13 +577,14 @@ class DQNTrainer(RLTrainer):
                     loss = functional.smooth_l1_loss(current_q_values, targets)
                 self.optimizers["q_network"].zero_grad(set_to_none=True)
                 self.accelerator.backward(loss, self.models["online"])
+                loss_value = float(loss.detach().item())
+                if not math.isfinite(loss_value):
+                    self.optimizers["q_network"].zero_grad(set_to_none=True)
+                    raise FloatingPointError("DQN loss must be finite")
                 optimizer_stepped = self.accelerator.optimizer_step(
                     self.optimizers["q_network"],
                     self.models["online"],
                 )
-                loss_value = float(loss.detach().item())
-                if not math.isfinite(loss_value):
-                    raise FloatingPointError("DQN loss must be finite")
                 losses.append(loss_value)
                 q_means.append(float(current_q_values.detach().mean().item()))
                 target_means.append(float(targets.detach().mean().item()))

@@ -383,6 +383,35 @@ def test_ppo_updates_continuous_vector_rollouts(tmp_path: Path) -> None:
     trainer.close()
 
 
+def test_ppo_builds_continuous_distribution_in_stable_float32(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config["environment"] = {"name": "gymnasium", "id": "Pendulum-v1"}
+    trainer = PPOTrainer(config)
+    trainer.setup()
+
+    class _HalfPrecisionPolicy(torch.nn.Module):
+        def forward(
+            self,
+            observations: torch.Tensor,
+        ) -> dict[str, torch.Tensor]:
+            batch_size = observations.shape[0]
+            return {
+                "mean": torch.zeros(batch_size, 1).half(),
+                "log_std": torch.full((batch_size, 1), -20.0).half(),
+                "value": torch.zeros(batch_size).half(),
+            }
+
+    trainer.models["policy"] = _HalfPrecisionPolicy()
+    distribution, _ = trainer._distribution_and_value(torch.zeros(2, 3))
+
+    assert distribution.mean.dtype == torch.float32
+    assert distribution.scale.dtype == torch.float32
+    assert torch.all(distribution.scale > 0.0)
+    trainer.close()
+
+
 def test_ppo_updates_from_a_terminal_rollout(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = PPOTrainer(_config(tmp_path, total_timesteps=1, rollout_steps=10))
