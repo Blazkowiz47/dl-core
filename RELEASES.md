@@ -3,6 +3,19 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.0.35
+
+- `DreamerTrainer` adds recurrent, discrete-action model-based RL through a
+  categorical world model, latent imagination, and actor-critic learning
+- episode-safe `SequenceReplayBuffer` sampling supports burn-in, vector lanes,
+  ring overwrite, and exact checkpoint continuation
+- recurrent policy state is carried between real environment steps and reset
+  independently for completed vector lanes
+- public observation, action-distribution, reward-prediction, and continuation
+  hooks expose the main researcher customization boundaries
+- a complete vectorized CartPole configuration demonstrates the world model,
+  separate optimizers, sequence replay, evaluation, and checkpoint settings
+
 ## 0.0.34
 
 - researcher extension hooks use public names across RL transition shaping,

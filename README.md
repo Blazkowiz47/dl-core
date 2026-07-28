@@ -11,28 +11,28 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.0.35`.
-Current development version: `0.0.35`.
+Current public release: `deep-learning-core==0.1.0`.
+Current development version: `0.1.0`.
 
 Compatible companion package floors:
 
-- `deep-learning-azure>=0.0.18,<0.1`
-- `deep-learning-mlflow>=0.0.13,<0.1`
-- `deep-learning-robotics>=0.0.5,<0.1`
-- `deep-learning-wandb>=0.0.14,<0.1`
+- `deep-learning-azure>=0.0.20,<0.1`
+- `deep-learning-mlflow>=0.0.14,<0.1`
+- `deep-learning-robotics>=0.0.6,<0.1`
+- `deep-learning-wandb>=0.0.15,<0.1`
 
-## What's New in 0.0.35?
+## What's New in 0.1.0?
 
-- `DreamerTrainer` adds recurrent, discrete-action model-based RL through a
-  categorical world model, latent imagination, and actor-critic learning
-- episode-safe `SequenceReplayBuffer` sampling supports burn-in, vector lanes,
-  ring overwrite, and exact checkpoint continuation
-- recurrent policy state is carried between real environment steps and reset
-  independently for completed vector lanes
-- public observation, action-distribution, reward-prediction, and continuation
-  hooks expose the main researcher customization boundaries
-- a complete vectorized CartPole configuration demonstrates the world model,
-  separate optimizers, sequence replay, evaluation, and checkpoint settings
+- neural architectures now belong exclusively to experiment repositories;
+  `deep-learning-core` ships reusable training-loop patterns and registries
+- DQN, PPO, SAC, and Dreamer require explicit project-owned model roles and
+  validate their tensor or protocol contracts during setup and updates
+- neutral Dreamer state/output types let researchers implement arbitrary world
+  models without inheriting a package architecture
+- `dl-init` generates a complete local ResNet example and declares
+  `torchvision` in the experiment instead of the core runtime
+- migration errors and docs identify older `dl_core.models` imports and the
+  project-local replacement path
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
