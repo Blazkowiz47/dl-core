@@ -330,6 +330,15 @@ trainer:
     actor_unimix: 0.01
 ```
 
+A complete runnable version is available in
+[`readme/examples/dreamer_cartpole.yaml`](../examples/dreamer_cartpole.yaml).
+Validate its component wiring before a full run:
+
+```bash
+dl-run --config readme/examples/dreamer_cartpole.yaml --validate-only
+dl-run --config readme/examples/dreamer_cartpole.yaml
+```
+
 `buffer_size` is divided between vector-environment lanes, so every lane must
 hold at least `sequence_length + burn_in` transitions. Each crossed
 `train_frequency` boundary samples `batch_size` sequences and runs

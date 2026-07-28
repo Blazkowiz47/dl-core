@@ -57,6 +57,7 @@ mechanics.
 - [Local Component Loading](./technical/4_local_component_loading.md)
 - [Testing](./technical/5_testing.md)
 - [Reinforcement Learning](./technical/6_reinforcement_learning.md)
+- [Dreamer CartPole Example](./examples/dreamer_cartpole.yaml)
 
 ## Common Tasks
 
