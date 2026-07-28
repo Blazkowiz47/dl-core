@@ -5,12 +5,56 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import torch
 from gymnasium.spaces import Box
 from pytest import MonkeyPatch
 import yaml
 
 from dl_core import load_builtin_components
+from dl_core.core import register_model
 from dl_core.single_run import main as run_main
+
+
+@register_model("preflight_sac_actor")
+class _PreflightSACActor(torch.nn.Module):
+    """Project actor used to prove preflight resolves local registrations."""
+
+    def __init__(self, config: dict[str, object]):
+        super().__init__()
+        self.linear = torch.nn.Linear(
+            int(config["input_dim"]),
+            2 * int(config["action_dim"]),
+        )
+
+    def forward(
+        self,
+        observations: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        statistics = self.linear(observations)
+        mean, log_std = statistics.chunk(2, dim=1)
+        return {"mean": mean, "log_std": log_std}
+
+
+@register_model("preflight_sac_critics")
+class _PreflightSACCritics(torch.nn.Module):
+    """Project critics used to prove preflight resolves local registrations."""
+
+    def __init__(self, config: dict[str, object]):
+        super().__init__()
+        input_dim = int(config["input_dim"]) + int(config["action_dim"])
+        self.q1 = torch.nn.Linear(input_dim, 1)
+        self.q2 = torch.nn.Linear(input_dim, 1)
+
+    def forward(
+        self,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        inputs = torch.cat((observations, actions), dim=1)
+        return {
+            "q1": self.q1(inputs).squeeze(1),
+            "q2": self.q2(inputs).squeeze(1),
+        }
 
 
 def test_rl_preflight_resolves_algorithm_components_without_stepping(
@@ -56,8 +100,8 @@ def test_rl_preflight_resolves_algorithm_components_without_stepping(
         "seed": 31,
         "environment": {"name": "gymnasium", "id": "Pendulum-v1"},
         "models": {
-            "actor": {"name": "sac_gaussian_actor", "hidden_sizes": [8]},
-            "critics": {"name": "sac_twin_q_network", "hidden_sizes": [8]},
+            "actor": {"name": "preflight_sac_actor"},
+            "critics": {"name": "preflight_sac_critics"},
         },
         "optimizers": {"name": "adam", "lr": 1e-3},
         "trainer": {
@@ -82,8 +126,8 @@ def test_rl_preflight_resolves_algorithm_components_without_stepping(
     output = capsys.readouterr().out
     assert "RL preflight complete" in output
     assert "Environment: gymnasium" in output
-    assert "actor -> dl_core.models.sac.SACGaussianActor" in output
-    assert "critics -> dl_core.models.sac.SACTwinQNetwork" in output
+    assert "actor -> test_rl_preflight._PreflightSACActor" in output
+    assert "critics -> test_rl_preflight._PreflightSACCritics" in output
     assert "No environment steps or training updates were run." in output
     assert len(environments) == 2
     assert all(environment.closed for environment in environments)

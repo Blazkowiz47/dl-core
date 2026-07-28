@@ -732,18 +732,18 @@ fragment.
 ## Soft Actor-Critic
 
 `SACTrainer` is registered as `sac`. It supports finite, floating-point `Box`
-actions with `Discrete` or `Box` observations. Its built-in
-`sac_gaussian_actor` uses a state-dependent diagonal Gaussian, while
-`sac_twin_q_network` maintains two independent observation-action value
-estimates to reduce overestimation bias.
+actions with `Discrete` or `Box` observations. The experiment supplies an
+actor mapping observations to finite `mean` and `log_std` tensors and twin
+critics returning finite `q1` and `q2` tensors. SAC sampling, entropy tuning,
+target critics, and Polyak updates remain trainer-owned.
 
 ```yaml
 models:
   actor:
-    name: sac_gaussian_actor
+    name: my_sac_actor
     hidden_sizes: [256, 256]
   critics:
-    name: sac_twin_q_network
+    name: my_sac_critics
     hidden_sizes: [256, 256]
 
 optimizers:

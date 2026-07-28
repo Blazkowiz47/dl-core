@@ -9,15 +9,12 @@ from dl_core.models.dreamer import (
     WorldModelStep,
 )
 from dl_core.models.resnet import ResNet
-from dl_core.models.sac import SACGaussianActor, SACTwinQNetwork
 
 __all__ = [
     "DreamerActor",
     "DreamerCritic",
     "DreamerWorldModel",
     "ResNet",
-    "SACGaussianActor",
-    "SACTwinQNetwork",
     "WorldModelOutput",
     "WorldModelState",
     "WorldModelStep",

@@ -13,9 +13,81 @@ from torch.distributions import Normal
 from torch.nn import functional
 
 from dl_core import load_builtin_components
-from dl_core.core import TRAINER_REGISTRY, Transition, TransitionBatch
-from dl_core.models import SACGaussianActor, SACTwinQNetwork
+from dl_core.core import (
+    MODEL_REGISTRY,
+    TRAINER_REGISTRY,
+    Transition,
+    TransitionBatch,
+    register_model,
+)
 from dl_core.trainers import SACTrainer
+
+
+@register_model("test_sac_actor")
+class _TestSACActor(torch.nn.Module):
+    """Small project-style Gaussian actor used by trainer tests."""
+
+    def __init__(self, config: dict[str, object]):
+        super().__init__()
+        input_dim = int(config["input_dim"])
+        action_dim = int(config["action_dim"])
+        self.encoder = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, 8),
+            torch.nn.ReLU(),
+        )
+        self.mean_head = torch.nn.Linear(8, action_dim)
+        self.log_std_head = torch.nn.Linear(8, action_dim)
+
+    def forward(
+        self,
+        observations: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Return raw Gaussian policy parameters."""
+        features = self.encoder(
+            observations.reshape(observations.shape[0], -1)
+        )
+        return {
+            "mean": self.mean_head(features),
+            "log_std": self.log_std_head(features),
+        }
+
+
+@register_model("test_sac_critics")
+class _TestSACCritics(torch.nn.Module):
+    """Small project-style twin critic used by trainer tests."""
+
+    def __init__(self, config: dict[str, object]):
+        super().__init__()
+        input_dim = int(config["input_dim"])
+        action_dim = int(config["action_dim"])
+        self.critics = torch.nn.ModuleList(
+            [
+                torch.nn.Sequential(
+                    torch.nn.Linear(input_dim + action_dim, 8),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(8, 1),
+                )
+                for _ in range(2)
+            ]
+        )
+
+    def forward(
+        self,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """Return the two independent action-value estimates."""
+        inputs = torch.cat(
+            (
+                observations.reshape(observations.shape[0], -1),
+                actions.reshape(actions.shape[0], -1),
+            ),
+            dim=1,
+        )
+        return {
+            "q1": self.critics[0](inputs).squeeze(1),
+            "q2": self.critics[1](inputs).squeeze(1),
+        }
 
 
 def _config(tmp_path: Path, **overrides: object) -> dict:
@@ -40,8 +112,8 @@ def _config(tmp_path: Path, **overrides: object) -> dict:
         "seed": 29,
         "environment": {"name": "gymnasium", "id": "Pendulum-v1"},
         "models": {
-            "actor": {"name": "sac_gaussian_actor", "hidden_sizes": [8]},
-            "critics": {"name": "sac_twin_q_network", "hidden_sizes": [8]},
+            "actor": {"name": "test_sac_actor"},
+            "critics": {"name": "test_sac_critics"},
         },
         "optimizers": {"name": "sgd", "lr": 0.0},
         "trainer": {"sac": trainer_config},
@@ -69,16 +141,16 @@ def _use_zero_policy_statistics(trainer: SACTrainer) -> None:
     )
 
 
-def test_sac_is_registered_and_builtin_models_have_expected_shapes(
+def test_sac_uses_registered_project_models(
     tmp_path: Path,
 ) -> None:
     load_builtin_components()
 
     assert TRAINER_REGISTRY.get_class("sac") is SACTrainer
-    actor = SACGaussianActor({"input_dim": 3, "action_dim": 2, "hidden_sizes": [4]})
-    critics = SACTwinQNetwork(
-        {"input_dim": 3, "action_dim": 2, "hidden_sizes": [4]}
-    )
+    assert not MODEL_REGISTRY.is_registered("sac_gaussian_actor")
+    assert not MODEL_REGISTRY.is_registered("sac_twin_q_network")
+    actor = _TestSACActor({"input_dim": 3, "action_dim": 2})
+    critics = _TestSACCritics({"input_dim": 3, "action_dim": 2})
     actor_output = actor(torch.zeros(5, 3))
     critic_output = critics(torch.zeros(5, 3), torch.zeros(5, 2))
 
@@ -95,6 +167,38 @@ def test_sac_is_registered_and_builtin_models_have_expected_shapes(
         not parameter.requires_grad
         for parameter in trainer.models["target_critics"].parameters()
     )
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    ("models", "message"),
+    [
+        (None, r"requires models\.actor\.name and models\.critics\.name"),
+        ({}, r"requires models\.actor\.name"),
+        (
+            {"actor": {}, "critics": {"name": "test_sac_critics"}},
+            r"requires models\.actor\.name",
+        ),
+        (
+            {"actor": {"name": "test_sac_actor"}, "critics": {}},
+            r"requires models\.critics\.name",
+        ),
+    ],
+)
+def test_sac_requires_explicit_project_models(
+    tmp_path: Path,
+    models: object,
+    message: str,
+) -> None:
+    config = _config(tmp_path)
+    if models is None:
+        config.pop("models")
+    else:
+        config["models"] = models
+    trainer = SACTrainer(config)
+
+    with pytest.raises(ValueError, match=message):
+        trainer.setup()
     trainer.close()
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 import math
 from typing import Any
 
@@ -43,6 +44,8 @@ class _EntropyTemperature(nn.Module):
 @register_trainer("sac")
 class SACTrainer(RLTrainer):
     """Replay-based SAC with twin critics and optional entropy tuning."""
+
+    REQUIRED_CONFIG_SECTIONS = ("environment", "models")
 
     CONFIG_FIELDS = RLTrainer.CONFIG_FIELDS + [
         config_field("gamma", "float", "Reward discount factor.", default=0.99),
@@ -198,19 +201,40 @@ class SACTrainer(RLTrainer):
         if self.accelerator.gradient_accumulation_steps != 1:
             raise ValueError("SACTrainer requires gradient_accumulation_steps=1")
 
-        model_section = self.config.get("models", {})
+        model_section = self.config.get("models")
         if not isinstance(model_section, dict):
-            raise TypeError("models must be a mapping")
-        actor_config = model_section.get("actor", {})
-        critic_config = model_section.get("critics", {})
+            raise ValueError(
+                "SACTrainer requires models.actor.name and "
+                "models.critics.name; dl-core does not provide default models"
+            )
+        actor_config = model_section.get("actor")
+        critic_config = model_section.get("critics")
         if not isinstance(actor_config, dict):
-            raise TypeError("models.actor must be a mapping")
+            raise ValueError(
+                "SACTrainer requires models.actor.name; dl-core does not "
+                "provide a default actor"
+            )
         if not isinstance(critic_config, dict):
-            raise TypeError("models.critics must be a mapping")
+            raise ValueError(
+                "SACTrainer requires models.critics.name; dl-core does not "
+                "provide default critics"
+            )
         actor_config = dict(actor_config)
         critic_config = dict(critic_config)
-        actor_name = str(actor_config.pop("name", "sac_gaussian_actor"))
-        critic_name = str(critic_config.pop("name", "sac_twin_q_network"))
+        actor_name = actor_config.pop("name", None)
+        critic_name = critic_config.pop("name", None)
+        if not isinstance(actor_name, str) or not actor_name.strip():
+            raise ValueError(
+                "SACTrainer requires models.actor.name; dl-core does not "
+                "provide a default actor"
+            )
+        if not isinstance(critic_name, str) or not critic_name.strip():
+            raise ValueError(
+                "SACTrainer requires models.critics.name; dl-core does not "
+                "provide default critics"
+            )
+        actor_name = actor_name.strip()
+        critic_name = critic_name.strip()
         actor_config.update({"input_dim": input_dim, "action_dim": action_dim})
         critic_config.update({"input_dim": input_dim, "action_dim": action_dim})
         self.models["actor"] = MODEL_REGISTRY.get(actor_name, actor_config)
@@ -684,7 +708,7 @@ class SACTrainer(RLTrainer):
         deterministic: bool,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         output = self.models["actor"](observations)
-        if not isinstance(output, dict):
+        if not isinstance(output, Mapping):
             raise TypeError("SAC actors must return a mapping")
         mean = output.get("mean")
         log_std = output.get("log_std")
@@ -699,7 +723,7 @@ class SACTrainer(RLTrainer):
         if not mean.is_floating_point() or not log_std.is_floating_point():
             raise TypeError("SAC actor outputs must use floating-point dtypes")
         if not torch.isfinite(mean).all() or not torch.isfinite(log_std).all():
-            raise ValueError("SAC actor outputs must be finite")
+            raise FloatingPointError("SAC actor outputs must be finite")
         # Gaussian statistics and the change-of-variables correction are kept in
         # float32 because exp(-20) underflows in fp16 under autocast.
         mean = mean.float()
@@ -733,7 +757,7 @@ class SACTrainer(RLTrainer):
         actions: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         output = model(observations, actions)
-        if not isinstance(output, dict):
+        if not isinstance(output, Mapping):
             raise TypeError("SAC critics must return a mapping")
         q1 = output.get("q1")
         q2 = output.get("q2")
@@ -745,7 +769,7 @@ class SACTrainer(RLTrainer):
         if not q1.is_floating_point() or not q2.is_floating_point():
             raise TypeError("SAC critic outputs must use floating-point dtypes")
         if not torch.isfinite(q1).all() or not torch.isfinite(q2).all():
-            raise ValueError("SAC critic outputs must be finite")
+            raise FloatingPointError("SAC critic outputs must be finite")
         return q1, q2
 
     def _alpha(self) -> torch.Tensor:
