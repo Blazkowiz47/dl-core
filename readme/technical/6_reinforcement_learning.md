@@ -229,6 +229,31 @@ current and next observations separately. Account for both arrays when sizing
 memory. RGB replay requires a later frame-deduplicated storage phase before it
 is suitable for long, high-resolution runs.
 
+### Dreamer model foundations
+
+The compact vector-observation foundation registers `dreamer_world_model`,
+`dreamer_actor`, and `dreamer_critic`. The world model contains an MLP encoder,
+categorical recurrent state-space model, observation decoder, reward predictor,
+and continuation predictor. It exposes typed `WorldModelState`,
+`WorldModelStep`, and `WorldModelOutput` objects instead of positional tuples.
+
+The RSSM uses deterministic recurrent state plus straight-through categorical
+latent variables with configurable uniform probability mixing. Observations
+are symlog-transformed by default. `observe_step()` infers posterior state from
+real observations, while `imagine_step()` advances the action-conditioned
+prior without reading the environment. Actor and critic models consume the
+same flattened RSSM feature. `WorldModelOutput.observation_targets` contains
+the exact flattened and optionally symlog-transformed decoder target, so the
+trainer cannot silently compare transformed predictions with raw observations.
+
+This is a DreamerV3-inspired compact foundation, not yet the complete trainer.
+The first trainer targets discrete actions and vector observations. Image
+encoders/decoders and DreamerV3 two-hot reward/value regression remain explicit
+later phases; the initial scalar heads make loss ownership and sequence
+correctness easier to validate before adding those components. The actor emits
+raw categorical logits; DreamerV3-style uniform action mixing belongs to the
+trainer's sampling policy and is also deferred until that phase.
+
 ### Preparing transitions before replay
 
 The environment remains the primary place to define observations, actions,
