@@ -6,12 +6,12 @@ datasets, and loss functions, eliminating the need for manual registration in
 __init__.py files.
 
 Example usage:
-    @MODEL_REGISTRY.register("resnet")
-    class Resnet(BaseModel):
+    @MODEL_REGISTRY.register("my_model")
+    class MyModel(BaseModel):
         # ... implementation ...
 
     # Later, get the model:
-    model = MODEL_REGISTRY.get("resnet18", model_name, config, log)
+    model = MODEL_REGISTRY.get("my_model", config)
 """
 
 from logging import Logger, getLogger

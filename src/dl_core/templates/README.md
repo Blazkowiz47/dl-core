@@ -6,7 +6,7 @@ They are intentionally generic:
 
 - standard trainer
 - standard dataset
-- resnet baseline
+- project-owned ResNet baseline
 - local executor defaults
 - root-level reproducibility defaults in `base.yaml` via `seed` and `deterministic`
 
