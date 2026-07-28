@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import torch
 from gymnasium.spaces import Box, Discrete
+from torch import nn
 from torch.nn import functional
 
 from dl_core.core import (
@@ -28,7 +29,6 @@ from dl_core.core import (
     config_field,
     register_trainer,
 )
-from dl_core.models import DreamerWorldModel
 
 
 @dataclass(slots=True)
@@ -55,6 +55,8 @@ class ImaginedTrajectory:
 @register_trainer("dreamer")
 class DreamerTrainer(RLTrainer):
     """Learn a categorical world model and policy through latent imagination."""
+
+    REQUIRED_CONFIG_SECTIONS = ("environment", "models")
 
     CONFIG_FIELDS = RLTrainer.CONFIG_FIELDS + [
         config_field(
@@ -315,23 +317,43 @@ class DreamerTrainer(RLTrainer):
                 "DreamerTrainer requires gradient_accumulation_steps=1"
             )
 
-        model_section = self.config.get("models", {})
+        model_section = self.config.get("models")
         if not isinstance(model_section, dict):
-            raise TypeError("models must be a mapping")
-        world_model_config = model_section.get("world_model", {})
-        actor_config = model_section.get("actor", {})
-        critic_config = model_section.get("critic", {})
+            raise ValueError(
+                "DreamerTrainer requires models.world_model.name, "
+                "models.actor.name, and models.critic.name; dl-core does not "
+                "provide default models"
+            )
+        world_model_config = model_section.get("world_model")
+        actor_config = model_section.get("actor")
+        critic_config = model_section.get("critic")
         if not isinstance(world_model_config, dict):
-            raise TypeError("models.world_model must be a mapping")
+            raise ValueError(
+                "DreamerTrainer requires models.world_model.name; dl-core "
+                "does not provide a default world model"
+            )
         if not isinstance(actor_config, dict):
-            raise TypeError("models.actor must be a mapping")
+            raise ValueError(
+                "DreamerTrainer requires models.actor.name; dl-core does not "
+                "provide a default actor"
+            )
         if not isinstance(critic_config, dict):
-            raise TypeError("models.critic must be a mapping")
+            raise ValueError(
+                "DreamerTrainer requires models.critic.name; dl-core does not "
+                "provide a default critic"
+            )
 
         world_model_config = dict(world_model_config)
-        world_model_name = str(
-            world_model_config.pop("name", "dreamer_world_model")
-        )
+        world_model_name = world_model_config.pop("name", None)
+        if (
+            not isinstance(world_model_name, str)
+            or not world_model_name.strip()
+        ):
+            raise ValueError(
+                "DreamerTrainer requires models.world_model.name; dl-core "
+                "does not provide a default world model"
+            )
+        world_model_name = world_model_name.strip()
         world_model_config["input_dim"] = input_dim
         world_model_config["action_dim"] = int(
             self.environment.action_space.n
@@ -340,25 +362,52 @@ class DreamerTrainer(RLTrainer):
             world_model_name,
             world_model_config,
         )
-        if not isinstance(world_model, DreamerWorldModel):
+        if not isinstance(world_model, nn.Module) or not isinstance(
+            world_model,
+            DreamerWorldModelProtocol,
+        ):
             raise TypeError(
-                "DreamerTrainer currently requires DreamerWorldModel"
+                "Dreamer world models must be torch modules implementing "
+                "DreamerWorldModelProtocol"
             )
+        if (
+            not isinstance(world_model.feature_size, int)
+            or world_model.feature_size <= 0
+        ):
+            raise ValueError("Dreamer world_model.feature_size must be positive")
         self.models["world_model"] = world_model
 
         actor_config = dict(actor_config)
-        actor_name = str(actor_config.pop("name", "dreamer_actor"))
+        actor_name = actor_config.pop("name", None)
+        if not isinstance(actor_name, str) or not actor_name.strip():
+            raise ValueError(
+                "DreamerTrainer requires models.actor.name; dl-core does not "
+                "provide a default actor"
+            )
+        actor_name = actor_name.strip()
         actor_config["feature_dim"] = world_model.feature_size
         actor_config["action_dim"] = int(self.environment.action_space.n)
-        self.models["actor"] = MODEL_REGISTRY.get(actor_name, actor_config)
+        actor = MODEL_REGISTRY.get(actor_name, actor_config)
+        if not isinstance(actor, nn.Module):
+            raise TypeError("Dreamer actors must be torch modules")
+        self.models["actor"] = actor
 
         critic_config = dict(critic_config)
-        critic_name = str(critic_config.pop("name", "dreamer_critic"))
+        critic_name = critic_config.pop("name", None)
+        if not isinstance(critic_name, str) or not critic_name.strip():
+            raise ValueError(
+                "DreamerTrainer requires models.critic.name; dl-core does not "
+                "provide a default critic"
+            )
+        critic_name = critic_name.strip()
         critic_config["feature_dim"] = world_model.feature_size
-        self.models["critic"] = MODEL_REGISTRY.get(
+        critic = MODEL_REGISTRY.get(
             critic_name,
             critic_config,
         )
+        if not isinstance(critic, nn.Module):
+            raise TypeError("Dreamer critics must be torch modules")
+        self.models["critic"] = critic
         self.models["target_critic"] = copy.deepcopy(self.models["critic"])
         self.models["target_critic"].eval()
         for parameter in self.models["target_critic"].parameters():
@@ -435,8 +484,6 @@ class DreamerTrainer(RLTrainer):
         world_model: DreamerWorldModelProtocol = self.accelerator.unwrap_model(
             self.models["world_model"]
         )
-        if not isinstance(world_model, DreamerWorldModel):
-            raise TypeError("Dreamer world model contract is invalid")
         return DreamerPolicyState(
             world_state=world_model.initial_state(
                 batch_size,
@@ -667,11 +714,6 @@ class DreamerTrainer(RLTrainer):
                     observation_batch
                 )
                 world_model = self.models["world_model"]
-                if not isinstance(
-                    self.accelerator.unwrap_model(world_model),
-                    DreamerWorldModel,
-                ):
-                    raise TypeError("Dreamer world model contract is invalid")
                 embeddings = world_model.encode(observations_tensor)
                 world_step = world_model.observe_step(
                     policy_state.world_state,
@@ -884,11 +926,6 @@ class DreamerTrainer(RLTrainer):
         actor = self.models["actor"]
         critic = self.models["critic"]
         target_critic = self.models["target_critic"]
-        if not isinstance(
-            self.accelerator.unwrap_model(world_model),
-            DreamerWorldModel,
-        ):
-            raise TypeError("Dreamer world model contract is invalid")
         if sequences.burn_in != self.burn_in:
             raise ValueError("Replay sequence burn-in does not match trainer")
 

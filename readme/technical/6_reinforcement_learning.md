@@ -38,7 +38,7 @@ environment = make_environment(
 The optional `action_history` wrapper appends the previous actions to each
 observation. Discrete observations and actions are one-hot encoded, while
 `Box` values are flattened, producing one flat floating-point `Box`
-observation that the built-in DQN and SAC models can consume directly. Empty
+observation that project-owned DQN and SAC models can consume directly. Empty
 history slots are zero-filled after reset. Vector environments keep independent
 histories per lane, clear a lane after same-step autoreset, and retain the
 completed history in that lane's `final_obs`.
@@ -237,14 +237,14 @@ is suitable for long, high-resolution runs.
 ### Dreamer sequence learning
 
 `DreamerTrainer` is registered as `dreamer` for discrete-action environments
-with `Box` or `Discrete` vector observations. It registers and uses the
-`dreamer_world_model`, `dreamer_actor`, and `dreamer_critic` model components.
-The world model contains an MLP encoder, categorical recurrent state-space
-model, observation decoder, reward predictor, and continuation predictor.
+with `Box` or `Discrete` vector observations. The experiment must register a
+world model, actor, and critic explicitly; dl-core does not provide any of
+those architectures.
 `WorldModelState`, `WorldModelStep`, and `WorldModelOutput` are neutral
 trainer contracts defined in `dl_core.core`, rather than types owned by that
-architecture. They define the sequence-learning boundary that experiment-owned
-world models will use once the trainer's legacy concrete-model check is removed.
+architecture. `DreamerWorldModelProtocol` describes the operations an
+experiment-owned world model must implement without inheriting from a package
+model.
 
 The RSSM uses deterministic recurrent state plus straight-through categorical
 latent variables with configurable uniform probability mixing. Observations
@@ -279,7 +279,7 @@ to the world model during both acting and replay learning, and override
 `build_action_distribution()` to change action sampling without replacing the
 trainer loop. Both hooks are public; observation transformation is shared by
 collection and replay, while distribution construction is shared by real and
-imagined policy steps. The built-in observation transform one-hot encodes a
+imagined policy steps. The default observation transform one-hot encodes a
 `Discrete` space and flattens a `Box` space; the world model then applies its
 configured symlog target transform.
 
@@ -296,14 +296,14 @@ evaluation_environment:
 
 models:
   world_model:
-    name: dreamer_world_model
+    name: my_dreamer_world_model
     deterministic_size: 128
     stochastic_size: 16
     classes: 16
   actor:
-    name: dreamer_actor
+    name: my_dreamer_actor
   critic:
-    name: dreamer_critic
+    name: my_dreamer_critic
 
 optimizers:
   world_model:
@@ -332,14 +332,9 @@ trainer:
     actor_unimix: 0.01
 ```
 
-A complete runnable version is available in
-[`readme/examples/dreamer_cartpole.yaml`](../examples/dreamer_cartpole.yaml).
-Validate its component wiring before a full run:
-
-```bash
-dl-run --config readme/examples/dreamer_cartpole.yaml --validate-only
-dl-run --config readme/examples/dreamer_cartpole.yaml
-```
+A complete model implementation and runnable MAPF configuration are maintained
+in the
+[MAPF RL example repository](https://github.com/Blazkowiz47/mapf-rl-example).
 
 `buffer_size` is divided between vector-environment lanes, so every lane must
 hold at least `sequence_length + burn_in` transitions. Each crossed

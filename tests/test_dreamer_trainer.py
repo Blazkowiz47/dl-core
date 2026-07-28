@@ -10,11 +10,16 @@ import pytest
 import torch
 
 from dl_core import load_builtin_components
-from dl_core.core import TRAINER_REGISTRY, TransitionBatch
+from dl_core.core import MODEL_REGISTRY, TRAINER_REGISTRY, TransitionBatch
 from dl_core.trainers import (
     DreamerPolicyState,
     DreamerTrainer,
     ImaginedTrajectory,
+)
+from dreamer_test_models import (  # noqa: F401
+    ProjectDreamerActor,
+    ProjectDreamerCritic,
+    ProjectDreamerWorldModel,
 )
 
 
@@ -44,7 +49,7 @@ def _config(tmp_path: Path, **overrides: object) -> dict:
         },
         "models": {
             "world_model": {
-                "name": "dreamer_world_model",
+                "name": "test_dreamer_world_model",
                 "embedding_size": 8,
                 "deterministic_size": 8,
                 "stochastic_size": 2,
@@ -52,11 +57,11 @@ def _config(tmp_path: Path, **overrides: object) -> dict:
                 "hidden_size": 16,
             },
             "actor": {
-                "name": "dreamer_actor",
+                "name": "test_dreamer_actor",
                 "hidden_size": 16,
             },
             "critic": {
-                "name": "dreamer_critic",
+                "name": "test_dreamer_critic",
                 "hidden_size": 16,
             },
         },
@@ -79,6 +84,74 @@ def test_dreamer_trainer_is_registered_with_public_types() -> None:
     assert DreamerTrainer is not None
     assert DreamerPolicyState is not None
     assert ImaginedTrajectory is not None
+
+
+def test_dreamer_accepts_a_structural_project_world_model(
+    tmp_path: Path,
+) -> None:
+    trainer = DreamerTrainer(_config(tmp_path))
+    trainer.setup()
+
+    assert isinstance(
+        trainer.models["world_model"],
+        ProjectDreamerWorldModel,
+    )
+    assert not MODEL_REGISTRY.is_registered("dreamer_world_model")
+    assert not MODEL_REGISTRY.is_registered("dreamer_actor")
+    assert not MODEL_REGISTRY.is_registered("dreamer_critic")
+    trainer.close()
+
+
+@pytest.mark.parametrize(
+    ("models", "message"),
+    [
+        (
+            None,
+            r"requires models\.world_model\.name, models\.actor\.name, "
+            r"and models\.critic\.name",
+        ),
+        ({}, r"requires models\.world_model\.name"),
+        (
+            {
+                "world_model": {},
+                "actor": {"name": "test_dreamer_actor"},
+                "critic": {"name": "test_dreamer_critic"},
+            },
+            r"requires models\.world_model\.name",
+        ),
+        (
+            {
+                "world_model": {"name": "test_dreamer_world_model"},
+                "actor": {},
+                "critic": {"name": "test_dreamer_critic"},
+            },
+            r"requires models\.actor\.name",
+        ),
+        (
+            {
+                "world_model": {"name": "test_dreamer_world_model"},
+                "actor": {"name": "test_dreamer_actor"},
+                "critic": {},
+            },
+            r"requires models\.critic\.name",
+        ),
+    ],
+)
+def test_dreamer_requires_explicit_project_models(
+    tmp_path: Path,
+    models: object,
+    message: str,
+) -> None:
+    config = _config(tmp_path)
+    if models is None:
+        config.pop("models")
+    else:
+        config["models"] = models
+    trainer = DreamerTrainer(config)
+
+    with pytest.raises(ValueError, match=message):
+        trainer.setup()
+    trainer.close()
 
 
 def test_dreamer_policy_state_tracks_and_resets_individual_lanes(

@@ -18,6 +18,11 @@ from dl_core import load_builtin_components
 from dl_core.single_run import main as run_main
 from dl_core.trainers import DreamerTrainer
 from dl_core.utils.config_validator import ConfigValidator
+from dreamer_test_models import (  # noqa: F401
+    ProjectDreamerActor,
+    ProjectDreamerCritic,
+    ProjectDreamerWorldModel,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -118,7 +123,7 @@ def _config(tmp_path: Path, *, total_timesteps: int = 8) -> dict:
         },
         "models": {
             "world_model": {
-                "name": "dreamer_world_model",
+                "name": "test_dreamer_world_model",
                 "embedding_size": 8,
                 "deterministic_size": 8,
                 "stochastic_size": 2,
@@ -126,11 +131,11 @@ def _config(tmp_path: Path, *, total_timesteps: int = 8) -> dict:
                 "hidden_size": 16,
             },
             "actor": {
-                "name": "dreamer_actor",
+                "name": "test_dreamer_actor",
                 "hidden_size": 16,
             },
             "critic": {
-                "name": "dreamer_critic",
+                "name": "test_dreamer_critic",
                 "hidden_size": 16,
             },
         },
@@ -165,21 +170,6 @@ def _config(tmp_path: Path, *, total_timesteps: int = 8) -> dict:
     }
 
 
-def test_documented_dreamer_example_is_valid() -> None:
-    load_builtin_components()
-    config_path = (
-        Path(__file__).parents[1]
-        / "readme/examples/dreamer_cartpole.yaml"
-    )
-
-    validator = ConfigValidator(str(config_path))
-
-    assert validator.validate()
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert config["trainer"]["dreamer"]["sequence_length"] == 50
-    assert config["environment"]["vectorization_mode"] == "async"
-
-
 def test_dreamer_config_validates_and_preflights(
     tmp_path: Path,
     monkeypatch,
@@ -204,9 +194,9 @@ def test_dreamer_config_validates_and_preflights(
     output = capsys.readouterr().out
     assert "RL preflight complete" in output
     assert "Trainer: dreamer" in output
-    assert "DreamerWorldModel" in output
-    assert "DreamerActor" in output
-    assert "DreamerCritic" in output
+    assert "ProjectDreamerWorldModel" in output
+    assert "ProjectDreamerActor" in output
+    assert "ProjectDreamerCritic" in output
     assert "No environment steps or training updates were run." in output
     assert not (tmp_path / "artifacts").exists()
 
