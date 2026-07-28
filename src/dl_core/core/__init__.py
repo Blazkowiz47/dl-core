@@ -45,6 +45,7 @@ from .rl_types import (
     VectorEnvironment,
 )
 from .replay_buffer import ReplayBatch, ReplayBuffer
+from .sequence_replay_buffer import SequenceBatch, SequenceReplayBuffer
 from .rollout_buffer import RolloutBatch, RolloutBuffer
 from .config_metadata import ConfigFieldSpec, config_field
 
@@ -136,6 +137,8 @@ __all__ = [
     "RLTrainer",
     "ReplayBatch",
     "ReplayBuffer",
+    "SequenceBatch",
+    "SequenceReplayBuffer",
     "RolloutBatch",
     "RolloutBuffer",
     # Registry system

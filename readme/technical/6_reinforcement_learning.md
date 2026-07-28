@@ -207,6 +207,28 @@ or `BatchActionOutput.policy_state`. Vector state must retain one leading entry
 per environment lane; only entries selected by the `done` mask should reset.
 Evaluation creates independent state and never reuses training state.
 
+### Sequence replay
+
+`SequenceReplayBuffer` is separate from the random-transition `ReplayBuffer`.
+It assigns independent episode and step identities to every vector lane and
+samples only fixed-length windows that remain inside one episode. The returned
+`SequenceBatch` uses `[batch, time, ...]` tensors, includes one additional
+bootstrap observation, and reports termination, truncation, first-observation,
+episode, start-step, and sample-age metadata.
+
+`sequence_length` is the learning portion of a sample. Set `burn_in` to prepend
+recurrent context; both portions are included in the returned time dimension,
+and `SequenceBatch.burn_in` tells the trainer where learning begins. Ring
+overwrites immediately invalidate windows whose first transition is no longer
+available. Uniform sampling is reproducible from the configured seed, and
+`state_dict()` preserves all lane cursors, partial episodes, stored transitions,
+and random-generator state for exact checkpoint continuation.
+
+The initial buffer is optimized for compact vector observations and stores
+current and next observations separately. Account for both arrays when sizing
+memory. RGB replay requires a later frame-deduplicated storage phase before it
+is suitable for long, high-resolution runs.
+
 ### Preparing transitions before replay
 
 The environment remains the primary place to define observations, actions,
