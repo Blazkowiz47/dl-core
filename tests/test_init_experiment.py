@@ -8,8 +8,11 @@ import subprocess
 import sys
 
 from pytest import MonkeyPatch
+import torch
 import yaml
 
+from dl_core import load_local_components
+from dl_core.core import MODEL_REGISTRY
 from dl_core.init_extensions import InitExtension, ScaffoldContext
 from dl_core.init_experiment import create_experiment_scaffold, main as init_main
 
@@ -207,35 +210,18 @@ def test_scaffold_model_helper_executes_name_less_binary_model(
     assert "Model key: resnet_example" in result.stdout
     assert "probabilities: tensor(shape=[2, 1]" in result.stdout
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            (
-                "from pathlib import Path; import torch; "
-                "from dl_core import load_local_components; "
-                "from dl_core.core import MODEL_REGISTRY; "
-                "from dl_core.utils.config import load_config; "
-                "path=Path('configs/base.yaml').resolve(); "
-                "load_local_components(str(path)); "
-                "config=load_config(str(path)); "
-                "model=MODEL_REGISTRY.get("
-                "'resnet_example', config['models']['resnet_example'] | "
-                "{'num_classes': 1}); "
-                "model.module.fc.weight.data.zero_(); "
-                "model.module.fc.bias.data.zero_(); "
-                "outputs=model({'image': torch.zeros(2, 3, 64, 64)}); "
-                "assert torch.equal("
-                "outputs['probabilities'], torch.full((2, 1), 0.5))"
-            ),
-        ],
-        cwd=target_dir,
-        check=False,
-        capture_output=True,
-        text=True,
+    load_local_components(str(config_path))
+    model = MODEL_REGISTRY.get(
+        "resnet_example",
+        config["models"]["resnet_example"],
     )
-
-    assert result.returncode == 0, result.stderr
+    model.module.fc.weight.data.zero_()
+    model.module.fc.bias.data.zero_()
+    outputs = model({"image": torch.zeros(2, 3, 64, 64)})
+    assert torch.equal(
+        outputs["probabilities"],
+        torch.full((2, 1), 0.5),
+    )
 
 
 def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> None:
