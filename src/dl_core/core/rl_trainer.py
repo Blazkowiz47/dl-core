@@ -522,6 +522,10 @@ class RLTrainer(ABC):
         next_episode_number = int(episode_numbers[-1]) + 1
         seeds = [self.seed + int(episode) for episode in episode_numbers]
         observations, reset_infos = self.environment.reset_batch(seeds)
+        policy_state = self.initialize_policy_state(
+            num_envs,
+            evaluation=False,
+        )
         episode_returns = np.zeros(num_envs, dtype=np.float64)
         episode_lengths = np.zeros(num_envs, dtype=np.int64)
         for environment_index in range(num_envs):
@@ -578,10 +582,12 @@ class RLTrainer(ABC):
                 break
 
             action_selection_start = perf_counter()
-            action_output = self.select_actions(
+            action_output = self.select_actions_with_state(
                 observations,
+                policy_state,
                 deterministic=False,
             )
+            policy_state = action_output.policy_state
             action_selection_ms = (
                 perf_counter() - action_selection_start
             ) * 1000.0
@@ -921,6 +927,12 @@ class RLTrainer(ABC):
                         "global_step": self.global_step,
                     },
                 )
+            if done.any():
+                policy_state = self.reset_policy_state(
+                    policy_state,
+                    done,
+                    evaluation=False,
+                )
             observations = next_observations
 
             if evaluation_due:
@@ -1023,14 +1035,19 @@ class RLTrainer(ABC):
         terminated = False
         truncated = False
         final_info: dict[str, Any] = {}
+        policy_state = self.initialize_policy_state(
+            1,
+            evaluation=not training,
+        )
         while not (terminated or truncated):
-            action_output = self.select_action(observation, deterministic=not training)
-            if isinstance(action_output, ActionOutput):
-                action = action_output.action
-                action_info = action_output.info
-            else:
-                action = action_output
-                action_info = {}
+            action_output = self.select_action_with_state(
+                observation,
+                policy_state,
+                deterministic=not training,
+            )
+            action = action_output.action
+            action_info = action_output.info
+            policy_state = action_output.policy_state
             (
                 next_observations,
                 rewards,
@@ -1383,6 +1400,131 @@ class RLTrainer(ABC):
                 actions.append(output)
                 action_info.append({})
         return BatchActionOutput(actions=actions, action_info=action_info)
+
+    def initialize_policy_state(
+        self,
+        batch_size: int,
+        *,
+        evaluation: bool,
+    ) -> Any:
+        """Create recurrent policy state for newly reset environment lanes."""
+        return self._initialize_policy_state(
+            batch_size,
+            evaluation=evaluation,
+        )
+
+    def _initialize_policy_state(
+        self,
+        batch_size: int,
+        *,
+        evaluation: bool,
+    ) -> Any:
+        if batch_size <= 0:
+            raise ValueError("Policy-state batch size must be positive")
+        del evaluation
+        return None
+
+    def reset_policy_state(
+        self,
+        policy_state: Any,
+        done: np.ndarray,
+        *,
+        evaluation: bool,
+    ) -> Any:
+        """Reset recurrent state for lanes whose episodes have ended."""
+        return self._reset_policy_state(
+            policy_state,
+            done,
+            evaluation=evaluation,
+        )
+
+    def _reset_policy_state(
+        self,
+        policy_state: Any,
+        done: np.ndarray,
+        *,
+        evaluation: bool,
+    ) -> Any:
+        done = np.asarray(done, dtype=np.bool_)
+        if done.ndim != 1:
+            raise ValueError("Policy-state done mask must be one-dimensional")
+        del evaluation
+        return policy_state
+
+    def select_action_with_state(
+        self,
+        observation: Any,
+        policy_state: Any,
+        *,
+        deterministic: bool,
+    ) -> ActionOutput[Any]:
+        """Select one action while carrying recurrent policy state."""
+        return self._select_action_with_state(
+            observation,
+            policy_state,
+            deterministic=deterministic,
+        )
+
+    def _select_action_with_state(
+        self,
+        observation: Any,
+        policy_state: Any,
+        *,
+        deterministic: bool,
+    ) -> ActionOutput[Any]:
+        output = self.select_action(
+            observation,
+            deterministic=deterministic,
+        )
+        if isinstance(output, ActionOutput):
+            return ActionOutput(
+                action=output.action,
+                info=output.info,
+                policy_state=(
+                    policy_state
+                    if output.policy_state is None
+                    else output.policy_state
+                ),
+            )
+        return ActionOutput(
+            action=output,
+            policy_state=policy_state,
+        )
+
+    def select_actions_with_state(
+        self,
+        observations: Any,
+        policy_state: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[Any]:
+        """Select a vector action while carrying per-lane policy state."""
+        return self._select_actions_with_state(
+            observations,
+            policy_state,
+            deterministic=deterministic,
+        )
+
+    def _select_actions_with_state(
+        self,
+        observations: Any,
+        policy_state: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[Any]:
+        output = self.select_actions(
+            observations,
+            deterministic=deterministic,
+        )
+        return BatchActionOutput(
+            actions=output.actions,
+            action_info=output.action_info,
+            policy_state=(
+                policy_state
+                if output.policy_state is None
+                else output.policy_state
+            ),
+        )
 
     def process_transition_batch(
         self,

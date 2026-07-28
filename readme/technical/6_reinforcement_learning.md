@@ -192,6 +192,21 @@ resumed environment begins at a new episode boundary.
 `ReplayBuffer.add()` returns the number of matured entries, while
 `add_batch()` returns that count per vector lane for custom update scheduling.
 
+### Recurrent policy state
+
+Stateful policies can carry latent or recurrent state without putting it into
+environment observations or transition metadata. `RLTrainer` initializes state
+at each scalar episode boundary and once for all vector lanes, passes it through
+`select_action_with_state()` or `select_actions_with_state()`, and calls
+`reset_policy_state()` with the exact vector-lane completion mask.
+
+The default implementations preserve `None`, so feed-forward Q-learning, DQN,
+PPO, and SAC trainers remain unchanged. A recurrent trainer overrides the
+public methods and returns the next state through `ActionOutput.policy_state`
+or `BatchActionOutput.policy_state`. Vector state must retain one leading entry
+per environment lane; only entries selected by the `done` mask should reset.
+Evaluation creates independent state and never reuses training state.
+
 ### Preparing transitions before replay
 
 The environment remains the primary place to define observations, actions,

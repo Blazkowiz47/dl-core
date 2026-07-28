@@ -12,7 +12,14 @@ import pytest
 from torch import nn
 
 from dl_core import load_builtin_components
-from dl_core.core import Callback, RLTrainer, Transition, TransitionBatch
+from dl_core.core import (
+    ActionOutput,
+    BatchActionOutput,
+    Callback,
+    RLTrainer,
+    Transition,
+    TransitionBatch,
+)
 
 
 class _RecordingCallback(Callback):
@@ -118,6 +125,64 @@ class _MutatingBatchRLTrainer(_TestRLTrainer):
         for info in transitions.infos:
             info.clear()
         return transitions
+
+
+class _StatefulRLTrainer(_TestRLTrainer):
+    def setup_algorithm(self) -> None:
+        super().setup_algorithm()
+        self.policy_state_initializations: list[bool] = []
+        self.policy_state_inputs: list[np.ndarray] = []
+        self.policy_state_reset_masks: list[np.ndarray] = []
+
+    def initialize_policy_state(
+        self,
+        batch_size: int,
+        *,
+        evaluation: bool,
+    ) -> np.ndarray:
+        self.policy_state_initializations.append(evaluation)
+        return np.zeros(batch_size, dtype=np.int64)
+
+    def select_action_with_state(
+        self,
+        observation: Any,
+        policy_state: Any,
+        *,
+        deterministic: bool,
+    ) -> ActionOutput[int]:
+        del observation, deterministic
+        state = np.asarray(policy_state)
+        self.policy_state_inputs.append(state.copy())
+        return ActionOutput(action=1, policy_state=state + 1)
+
+    def select_actions_with_state(
+        self,
+        observations: Any,
+        policy_state: Any,
+        *,
+        deterministic: bool,
+    ) -> BatchActionOutput[int]:
+        del observations, deterministic
+        state = np.asarray(policy_state)
+        self.policy_state_inputs.append(state.copy())
+        return BatchActionOutput(
+            actions=[1, 2],
+            policy_state=state + 1,
+        )
+
+    def reset_policy_state(
+        self,
+        policy_state: Any,
+        done: np.ndarray,
+        *,
+        evaluation: bool,
+    ) -> np.ndarray:
+        del evaluation
+        done = np.asarray(done, dtype=np.bool_)
+        self.policy_state_reset_masks.append(done.copy())
+        reset_state = np.asarray(policy_state).copy()
+        reset_state[done] = 0
+        return reset_state
 
 
 def _config(tmp_path: Path, **trainer_overrides: Any) -> dict[str, Any]:
@@ -253,6 +318,74 @@ def test_rl_trainer_collects_vector_environments_and_tracks_each_lane(
         0,
         1,
     }
+    trainer.close()
+
+
+def test_rl_trainer_resets_recurrent_policy_state_per_vector_lane(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=8,
+        max_episode_steps=10,
+        evaluation_episodes=0,
+        checkpoint_frequency=0,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "vectorization_mode": "sync",
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = _StatefulRLTrainer(config)
+    trainer.setup()
+
+    trainer.perform_training()
+
+    assert [state.tolist() for state in trainer.policy_state_inputs] == [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [0, 3],
+    ]
+    assert [mask.tolist() for mask in trainer.policy_state_reset_masks] == [
+        [True, False],
+    ]
+    trainer.close()
+
+
+def test_rl_trainer_creates_fresh_policy_state_for_evaluation_episodes(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _StatefulRLTrainer(
+        _config(
+            tmp_path,
+            total_timesteps=2,
+            max_episode_steps=2,
+            evaluation_episodes=0,
+            checkpoint_frequency=0,
+        )
+    )
+    trainer.setup()
+
+    trainer.run_episode(training=False, episode=0)
+    trainer.run_episode(training=False, episode=1)
+
+    assert trainer.policy_state_initializations == [True, True]
+    assert [state.tolist() for state in trainer.policy_state_inputs] == [
+        [0],
+        [1],
+        [0],
+        [1],
+    ]
     trainer.close()
 
 

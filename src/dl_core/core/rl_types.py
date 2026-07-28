@@ -185,18 +185,20 @@ class EpisodeRecord:
 
 @dataclass(slots=True)
 class ActionOutput(Generic[ActionT]):
-    """Action selected by a policy with optional algorithm-specific metadata."""
+    """Action, metadata, and recurrent state produced by one policy step."""
 
     action: ActionT
     info: dict[str, Any] = field(default_factory=dict)
+    policy_state: Any = None
 
 
 @dataclass(slots=True)
 class BatchActionOutput(Generic[ActionT]):
-    """Actions and per-lane policy metadata selected in one model call."""
+    """Batched actions, metadata, and recurrent state from one policy step."""
 
     actions: list[ActionT]
     action_info: list[dict[str, Any]] = field(default_factory=list)
+    policy_state: Any = None
 
     def __post_init__(self) -> None:
         if not self.action_info:
