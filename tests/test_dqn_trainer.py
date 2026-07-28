@@ -358,6 +358,21 @@ def test_dqn_requires_a_torch_module_project_model(tmp_path: Path) -> None:
     trainer.close()
 
 
+def test_compiled_dqn_places_eager_copy_on_accelerator_device(
+    tmp_path: Path,
+) -> None:
+    trainer = DQNTrainer(_config(tmp_path))
+    trainer.setup_accelerator()
+    trainer.accelerator.compile_models = {"online"}
+    trainer.accelerator.get_device = lambda: torch.device("meta")
+    trainer.setup_environment()
+    trainer.setup_algorithm()
+
+    assert trainer.eager_online_model is not None
+    assert next(trainer.eager_online_model.parameters()).device.type == "meta"
+    trainer.close()
+
+
 def test_dqn_rejects_nonfinite_rewards_before_replay(
     tmp_path: Path,
 ) -> None:

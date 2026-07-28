@@ -233,6 +233,31 @@ def test_rl_trainer_runs_episode_lifecycle_and_persists_artifacts(
     trainer.close()
 
 
+def test_scalar_collection_rejects_nonfinite_reward_before_state_mutation(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = _TestRLTrainer(
+        _config(tmp_path, evaluation_episodes=0)
+    )
+    trainer.setup()
+    trainer.environment.step_batch = lambda actions: (
+        np.asarray([0]),
+        np.asarray([float("nan")]),
+        np.asarray([False]),
+        np.asarray([False]),
+        [{}],
+        np.asarray([0]),
+    )
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.run_episode(training=True, episode=0)
+    assert trainer.collector_step == 0
+    assert trainer.global_step == 0
+    assert trainer.transition_count == 0
+    trainer.close()
+
+
 def test_rl_trainer_checkpoint_restores_common_and_algorithm_state(
     tmp_path: Path,
 ) -> None:
@@ -318,6 +343,47 @@ def test_rl_trainer_collects_vector_environments_and_tracks_each_lane(
         0,
         1,
     }
+    trainer.close()
+
+
+def test_vector_collection_rejects_nonfinite_reward_before_state_mutation(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    config = _config(
+        tmp_path,
+        total_timesteps=4,
+        evaluation_episodes=0,
+        checkpoint_frequency=0,
+    )
+    config["environment"] = {
+        "name": "gymnasium_vector",
+        "id": "FrozenLake-v1",
+        "num_envs": 2,
+        "vectorization_mode": "sync",
+        "kwargs": {"is_slippery": False},
+    }
+    config["evaluation_environment"] = {
+        "name": "gymnasium",
+        "id": "FrozenLake-v1",
+        "kwargs": {"is_slippery": False},
+    }
+    trainer = _TestRLTrainer(config)
+    trainer.setup()
+    trainer.environment.step_batch_wait = lambda: (
+        np.asarray([0, 0]),
+        np.asarray([0.0, float("nan")]),
+        np.asarray([False, False]),
+        np.asarray([False, False]),
+        [{}, {}],
+        np.asarray([0, 0]),
+    )
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.perform_training()
+    assert trainer.collector_step == 0
+    assert trainer.global_step == 0
+    assert trainer.transition_count == 0
     trainer.close()
 
 

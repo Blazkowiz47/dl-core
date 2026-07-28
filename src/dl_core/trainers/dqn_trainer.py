@@ -267,7 +267,9 @@ class DQNTrainer(RLTrainer):
             isinstance(compile_models, set) and "online" in compile_models
         )
         self.eager_online_model = (
-            copy.deepcopy(self.models["online"])
+            copy.deepcopy(self.models["online"]).to(
+                self.accelerator.get_device()
+            )
             if online_is_compiled
             else None
         )

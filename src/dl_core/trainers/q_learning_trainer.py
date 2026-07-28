@@ -217,6 +217,10 @@ class QLearningTrainer(RLTrainer):
         self,
         transitions: TransitionBatch[Any, Any],
     ) -> list[dict[str, float]]:
+        if not np.isfinite(transitions.rewards).all():
+            raise FloatingPointError(
+                "Q-learning transition rewards must be finite"
+            )
         logs: list[dict[str, float]] = []
         for environment_index in range(transitions.size):
             logs.append(

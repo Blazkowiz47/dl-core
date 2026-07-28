@@ -10,7 +10,7 @@ import pytest
 from gymnasium.spaces import Discrete
 
 from dl_core import load_builtin_components
-from dl_core.core import TRAINER_REGISTRY, Transition
+from dl_core.core import TRAINER_REGISTRY, Transition, TransitionBatch
 from dl_core.trainers import QLearningTrainer
 
 
@@ -117,6 +117,29 @@ def test_q_learning_rejects_nonfinite_rewards_before_table_update(
                 next_observation=1,
                 terminated=False,
                 truncated=False,
+            )
+        )
+    assert np.array_equal(trainer.q_table, table_before)
+    trainer.close()
+
+
+def test_q_learning_rejects_nonfinite_batch_before_any_table_update(
+    tmp_path: Path,
+) -> None:
+    load_builtin_components()
+    trainer = QLearningTrainer(_config(tmp_path))
+    trainer.setup()
+    table_before = trainer.q_table.copy()
+
+    with pytest.raises(FloatingPointError, match="rewards must be finite"):
+        trainer.process_transition_batch(
+            TransitionBatch(
+                observations=np.asarray([0, 0]),
+                actions=np.asarray([1, 2]),
+                rewards=np.asarray([1.0, float("nan")]),
+                next_observations=np.asarray([1, 1]),
+                terminated=np.asarray([False, False]),
+                truncated=np.asarray([False, False]),
             )
         )
     assert np.array_equal(trainer.q_table, table_before)

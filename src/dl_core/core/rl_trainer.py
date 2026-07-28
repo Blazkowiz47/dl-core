@@ -645,9 +645,9 @@ class RLTrainer(ABC):
             environment_wait_ms = (
                 perf_counter() - environment_wait_start
             ) * 1000.0
+            self._validate_rewards(rewards, source="Environment")
             self.collector_step += 1
             transition_processing_start = perf_counter()
-            self._validate_rewards(rewards, source="Environment")
             episode_lengths += 1
             episode_returns += rewards
             trainer_truncated = episode_lengths >= self.max_episode_steps
@@ -1059,11 +1059,11 @@ class RLTrainer(ABC):
                 lane_infos,
                 final_observations,
             ) = environment.step_batch([action])
+            reward = float(rewards[0])
+            self._validate_rewards(reward, source="Environment")
             if training:
                 self.collector_step += 1
             next_observation = final_observations[0]
-            reward = float(rewards[0])
-            self._validate_rewards(reward, source="Environment")
             terminated = bool(terminated_batch[0])
             truncated = bool(truncated_batch[0])
             final_info = lane_infos[0]
