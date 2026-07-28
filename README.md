@@ -7,6 +7,10 @@ across many experiment repositories. It is intended to be the public base
 package, while optional integrations such as Azure are layered on through
 extras and companion extension packages.
 
+Trainers own reusable optimization and rollout loops; experiment repositories
+own and register neural model architectures. `deep-learning-core` deliberately
+does not ship built-in neural networks.
+
 Current public release: `deep-learning-core==0.0.35`.
 Current development version: `0.0.35`.
 

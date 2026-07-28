@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import subprocess
 import sys
 
 from pytest import MonkeyPatch
@@ -171,6 +172,71 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "mlruns/" in gitignore_text
     assert "wandb/" in gitignore_text
     assert "outputs/" in gitignore_text
+
+
+def test_scaffold_model_helper_executes_name_less_binary_model(
+    tmp_path: Path,
+) -> None:
+    """Generated model tooling should resolve config keys and binary outputs."""
+    target_dir = create_experiment_scaffold(
+        "binary-model-demo",
+        root_dir=str(tmp_path),
+    )
+    config_path = target_dir / "configs" / "base.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    config["dataset"]["num_classes"] = 1
+    config["models"]["resnet_example"]["num_classes"] = 1
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/temporary/test_model.py",
+            "--config",
+            "configs/base.yaml",
+            "--batch-size",
+            "2",
+        ],
+        cwd=target_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Model key: resnet_example" in result.stdout
+    assert "probabilities: tensor(shape=[2, 1]" in result.stdout
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from pathlib import Path; import torch; "
+                "from dl_core import load_local_components; "
+                "from dl_core.core import MODEL_REGISTRY; "
+                "from dl_core.utils.config import load_config; "
+                "path=Path('configs/base.yaml').resolve(); "
+                "load_local_components(str(path)); "
+                "config=load_config(str(path)); "
+                "model=MODEL_REGISTRY.get("
+                "'resnet_example', config['models']['resnet_example'] | "
+                "{'num_classes': 1}); "
+                "model.module.fc.weight.data.zero_(); "
+                "model.module.fc.bias.data.zero_(); "
+                "outputs=model({'image': torch.zeros(2, 3, 64, 64)}); "
+                "assert torch.equal("
+                "outputs['probabilities'], torch.full((2, 1), 0.5))"
+            ),
+        ],
+        cwd=target_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
 
 def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> None:
     """Omitting --name should initialize the provided directory in place."""

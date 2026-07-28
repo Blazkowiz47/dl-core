@@ -57,9 +57,10 @@ my-exp/
       my_exp.py
 ```
 
-## Why the Wrappers Exist
+## Why the Local Components Exist
 
-The scaffold intentionally gives you thin local wrappers so you can:
+The scaffold gives you local trainer and dataset components plus a complete
+project-owned example model so you can:
 
 - keep experiment-specific changes out of `dl-core`
 - preserve a stable default path for new projects
@@ -70,6 +71,15 @@ By default:
 - the dataset wrapper is named after the project package
 - the trainer wrapper is named after the project package
 - the project owns the generated `ResNetExample` architecture
+
+## Migrating an Older ResNet Scaffold
+
+Older generated projects may still import
+`dl_core.models.resnet.ResNet`. Model architectures are no longer shipped by
+`deep-learning-core`. Generate a fresh temporary scaffold, copy its
+`src/models/resnet_example.py` into the older experiment, and declare
+`torchvision` in that experiment's dependencies. The existing
+`models.resnet_example` configuration key can remain unchanged.
 
 ## First Files To Edit
 
