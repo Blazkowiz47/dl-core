@@ -306,10 +306,9 @@ class Callback(ABC):
         iteration: int,
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Called after an iteration-based trainer closes a reporting window."""
+        """Reuse the epoch-end policy for an iteration reporting window."""
 
-        if not self.is_main_process():
-            return
+        self.on_epoch_end(iteration, logs)
 
     def on_batch_start(
         self,
@@ -779,15 +778,12 @@ class CallbackList:
     ) -> None:
         """Call iteration-end hooks and keep all ranks on the same window."""
 
-        for callback in self.callbacks:
-            self._sync_callback_enabled(callback)
-            if callback.enabled:
-                try:
-                    callback.on_iteration_end(iteration, logs)
-                except Exception as e:
-                    self._handle_callback_error(callback, "on_iteration_end", e)
-                self.trainer.accelerator.wait_for_everyone()
-        self.trainer.accelerator.wait_for_everyone()
+        self._dispatch_indexed_hook(
+            "on_iteration_end",
+            iteration,
+            logs,
+            synchronize=True,
+        )
 
     def on_batch_start(
         self,
@@ -847,7 +843,7 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL episode-start hook."""
-        self._dispatch_rl_hook("on_episode_start", episode, logs)
+        self._dispatch_indexed_hook("on_episode_start", episode, logs)
 
     def on_episode_end(
         self,
@@ -855,7 +851,7 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL episode-end hook."""
-        self._dispatch_rl_hook("on_episode_end", episode, logs)
+        self._dispatch_indexed_hook("on_episode_end", episode, logs)
 
     def on_update_end(
         self,
@@ -863,7 +859,7 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL update-end hook."""
-        self._dispatch_rl_hook("on_update_end", update, logs)
+        self._dispatch_indexed_hook("on_update_end", update, logs)
 
     def on_evaluation_end(
         self,
@@ -871,13 +867,15 @@ class CallbackList:
         logs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Dispatch the RL evaluation-end hook."""
-        self._dispatch_rl_hook("on_evaluation_end", step, logs)
+        self._dispatch_indexed_hook("on_evaluation_end", step, logs)
 
-    def _dispatch_rl_hook(
+    def _dispatch_indexed_hook(
         self,
         hook_name: str,
         index: int,
         logs: Optional[Dict[str, Any]],
+        *,
+        synchronize: bool = False,
     ) -> None:
         for callback in self.callbacks:
             self._sync_callback_enabled(callback)
@@ -887,6 +885,10 @@ class CallbackList:
                 getattr(callback, hook_name)(index, logs)
             except Exception as error:
                 self._handle_callback_error(callback, hook_name, error)
+            if synchronize:
+                self.trainer.accelerator.wait_for_everyone()
+        if synchronize:
+            self.trainer.accelerator.wait_for_everyone()
 
     def _handle_callback_error(
         self, callback: Callback, hook_name: str, error: Exception

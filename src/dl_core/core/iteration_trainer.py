@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from typing import Any, Iterator
 
-import torch
 from tqdm import tqdm
 
 from dl_core.core.config_metadata import config_field
@@ -24,6 +23,8 @@ class IterationTrainer(EpochTrainer):
     """
 
     REQUIRES_EPOCHS = False
+    PROGRESS_UNIT = "iteration"
+    PROGRESS_UNITS = "iterations"
     CONFIG_FIELDS = [
         field
         for field in EpochTrainer.CONFIG_FIELDS
@@ -122,27 +123,6 @@ class IterationTrainer(EpochTrainer):
             return len(loader) > 0
         except TypeError:
             return True
-
-    def _finish_train_window(self, meters: MeterTracker) -> dict[str, float]:
-        """Synchronize and compute metrics accumulated since the last report."""
-
-        split = "train"
-        self.accelerator.wait_for_everyone(
-            f"after training iteration {self.current_iteration}"
-        )
-        metrics: dict[str, float] = meters.get_averages()
-        for manager_name, manager in self.metric_managers.items():
-            manager.set_epoch(self.current_iteration)
-            metrics.update(manager.compute(split))
-            self.accelerator.wait_for_everyone(
-                f"after computing {split} metrics for {manager_name}"
-            )
-            metrics.update(manager.compute_epoch_diagnostics(split))
-            manager.generate_plots(self.current_iteration, split)
-            self.accelerator.wait_for_everyone(
-                f"after generating {split} plots for {manager_name}"
-            )
-        return metrics
 
     def _perform_training(self) -> None:
         """Consume training batches until the configured iteration limit."""
@@ -272,7 +252,23 @@ class IterationTrainer(EpochTrainer):
                 ):
                     continue
 
-                train_metrics = self._finish_train_window(meters)
+                self.accelerator.wait_for_everyone(
+                    f"after training iteration {self.current_iteration}"
+                )
+                train_metrics: dict[str, float] = meters.get_averages()
+                for manager_name, manager in self.metric_managers.items():
+                    manager.set_epoch(self.current_iteration)
+                    train_metrics.update(manager.compute("train"))
+                    self.accelerator.wait_for_everyone(
+                        f"after computing train metrics for {manager_name}"
+                    )
+                    train_metrics.update(
+                        manager.compute_epoch_diagnostics("train")
+                    )
+                    manager.generate_plots(self.current_iteration, "train")
+                    self.accelerator.wait_for_everyone(
+                        f"after generating train plots for {manager_name}"
+                    )
                 self.set_metrics("train", train_metrics)
                 self.callbacks.on_train_end(
                     self.current_iteration,
@@ -374,31 +370,6 @@ class IterationTrainer(EpochTrainer):
         )
         return payload
 
-    def _save_checkpoint(
-        self,
-        iteration: int,
-        filename: str | None = None,
-    ) -> None:
-        """Save numbered checkpoints under an iteration-scoped directory."""
-
-        if not self.accelerator.is_main_process():
-            return
-
-        checkpoint = self._get_current_checkpoint(iteration)
-        if filename is None:
-            checkpoint_path = self.artifact_manager.get_iteration_checkpoint_path(
-                iteration
-            )
-        else:
-            checkpoint_path = self.artifact_manager.get_final_checkpoint_path(
-                filename
-            )
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(checkpoint, checkpoint_path)
-        self.logger.debug(
-            f"Saved checkpoint for iteration {iteration}: {checkpoint_path}"
-        )
-
     def restore_progress_state(self, checkpoint: dict[str, Any]) -> None:
         """Restore iteration count and the finite-loader resume cursor."""
 
@@ -419,76 +390,5 @@ class IterationTrainer(EpochTrainer):
             f"Resuming from iteration {self.current_iteration}, "
             f"data cycle {self.data_cycle}, position {self.iteration_in_cycle}"
         )
-
-    def _compile_epoch_logs_for_epoch(self, epoch: int) -> dict[str, float]:
-        """Compile flattened metrics using an iteration progress field."""
-
-        logs = super()._compile_epoch_logs_for_epoch(epoch)
-        logs.pop("epoch", None)
-        if logs or self.accelerator.is_main_process():
-            logs["iteration"] = float(epoch)
-        return logs
-
-    def _build_final_progress_logs(self) -> dict[str, Any]:
-        """Return iteration fields for final callback logs."""
-
-        return {
-            "final_iteration": self.current_iteration,
-            "total_iterations": self.iterations,
-            "data_cycle": self.data_cycle,
-        }
-
-    def _build_analysis_progress(
-        self,
-        recorded_epochs: list[int],
-        final_epoch: int,
-        best_epoch: int | None,
-    ) -> dict[str, Any]:
-        """Return iteration fields for persisted run analysis."""
-
-        return {
-            "recorded_iterations": recorded_epochs,
-            "final_iteration": final_epoch,
-            "total_iterations": self.iterations,
-            "best_iteration": best_epoch,
-            "data_cycle": self.data_cycle,
-        }
-
-    def _build_run_info_progress(self) -> dict[str, int]:
-        """Return iteration fields for persisted run metadata."""
-
-        return {
-            "current_iteration": self.current_iteration,
-            "total_iterations": self.iterations,
-            "data_cycle": self.data_cycle,
-        }
-
-    def _log_metrics(self, epoch: int) -> None:
-        """Log metrics for one iteration reporting window."""
-
-        for split in ("train", "validation", "test"):
-            for manager in self.metric_managers.values():
-                manager.print_logs(split)
-        self.logger.info(f"Iteration {epoch} - General Stats:")
-        for key, value in self.metrics_history["general"].get(epoch, {}).items():
-            if isinstance(value, (float, int)):
-                self.logger.info(f"  {key}: {float(value):.6e}")
-            else:
-                self.logger.info(f"  {key}: {value}")
-
-    def get_trainer_info(self) -> dict[str, Any]:
-        """Return trainer metadata with iteration progress."""
-
-        info = super().get_trainer_info()
-        info.pop("current_epoch", None)
-        info.update(
-            {
-                "current_iteration": self.current_iteration,
-                "total_iterations": self.iterations,
-                "data_cycle": self.data_cycle,
-            }
-        )
-        return info
-
 
 __all__ = ["IterationTrainer"]

@@ -289,15 +289,6 @@ class EarlyStoppingCallback(Callback):
             if hasattr(self.trainer, "stop_training"):
                 self.trainer.stop_training = True
 
-    def on_iteration_end(
-        self,
-        iteration: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Apply the stopping policy to an iteration reporting window."""
-
-        self.on_epoch_end(iteration, logs)
-
     def get_state(self) -> Dict[str, Any]:
         """
         Get early stopping state for checkpoint saving.

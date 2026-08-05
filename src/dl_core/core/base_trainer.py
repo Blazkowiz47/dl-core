@@ -101,6 +101,8 @@ class EpochTrainer(ABC):
     """
 
     REQUIRES_EPOCHS = True
+    PROGRESS_UNIT = "epoch"
+    PROGRESS_UNITS = "epochs"
 
     CONFIG_FIELDS = [
         config_field(
@@ -317,14 +319,6 @@ class EpochTrainer(ABC):
 
         return os.environ.pop(_INTERRUPT_ENV_KEY, None)
 
-    def _build_final_progress_logs(self) -> dict[str, Any]:
-        """Return lifecycle progress fields for final callback logs."""
-
-        return {
-            "final_epoch": getattr(self, "current_epoch", 0),
-            "total_epochs": getattr(self, "epochs", 0),
-        }
-
     def _load_continue_model(self) -> None:
         # Load checkpoint if specified in trainer config (resume training)
         # This is different from loading pretrained weights - it restores full training state
@@ -415,8 +409,19 @@ class EpochTrainer(ABC):
                         "Skipping synchronized teardown after barrier failure: "
                         f"{barrier_error}"
                     )
-            final_logs = self._build_final_progress_logs()
-            final_logs["status"] = run_status
+            progress_unit = self.PROGRESS_UNIT
+            progress_units = self.PROGRESS_UNITS
+            final_logs = {
+                f"final_{progress_unit}": getattr(
+                    self,
+                    f"current_{progress_unit}",
+                    0,
+                ),
+                f"total_{progress_units}": getattr(self, progress_units, 0),
+                "status": run_status,
+            }
+            if hasattr(self, "data_cycle"):
+                final_logs["data_cycle"] = self.data_cycle
             if error_message is not None:
                 final_logs["error_message"] = error_message
             selected_checkpoint_path = getattr(self, "selected_checkpoint_path", None)
@@ -901,7 +906,10 @@ class EpochTrainer(ABC):
 
         checkpoint_dict = self._get_current_checkpoint(epoch)
         if filename is None:
-            checkpoint_path = self.artifact_manager.get_epoch_checkpoint_path(epoch)
+            checkpoint_path = getattr(
+                self.artifact_manager,
+                f"get_{self.PROGRESS_UNIT}_checkpoint_path",
+            )(epoch)
         else:
             checkpoint_path = self.artifact_manager.get_final_checkpoint_path(
                 filename
@@ -910,7 +918,9 @@ class EpochTrainer(ABC):
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(checkpoint_dict, checkpoint_path)
 
-        self.logger.debug(f"Saved checkpoint for epoch {epoch}: {checkpoint_path}")
+        self.logger.debug(
+            f"Saved checkpoint for {self.PROGRESS_UNIT} {epoch}: {checkpoint_path}"
+        )
 
     def _finalize_training(self, synchronize: bool = True) -> None:
         """
@@ -1468,7 +1478,9 @@ class EpochTrainer(ABC):
         if not self.accelerator.is_main_process():
             return {}
 
-        checkpoint_logs: dict[str, float] = {"epoch": float(epoch)}
+        checkpoint_logs: dict[str, float] = {
+            self.PROGRESS_UNIT: float(epoch)
+        }
         for split, metrics in self.metrics_history.items():
             epoch_metrics = metrics.get(epoch, {})
             for k, v in epoch_metrics.items():
@@ -1628,37 +1640,19 @@ class EpochTrainer(ABC):
             "final_metrics": final_metrics,
             "best_metrics": best_metrics,
         }
+        progress_unit = self.PROGRESS_UNIT
+        progress_units = self.PROGRESS_UNITS
         summary.update(
-            self._build_analysis_progress(
-                recorded_epochs=recorded_epochs,
-                final_epoch=final_epoch,
-                best_epoch=best_epoch,
-            )
+            {
+                f"recorded_{progress_units}": recorded_epochs,
+                f"final_{progress_unit}": final_epoch,
+                f"total_{progress_units}": getattr(self, progress_units),
+                f"best_{progress_unit}": best_epoch,
+            }
         )
+        if hasattr(self, "data_cycle"):
+            summary["data_cycle"] = self.data_cycle
         return summary
-
-    def _build_analysis_progress(
-        self,
-        recorded_epochs: list[int],
-        final_epoch: int,
-        best_epoch: int | None,
-    ) -> dict[str, Any]:
-        """Return epoch progress fields for persisted run analysis."""
-
-        return {
-            "recorded_epochs": recorded_epochs,
-            "final_epoch": final_epoch,
-            "total_epochs": self.epochs,
-            "best_epoch": best_epoch,
-        }
-
-    def _build_run_info_progress(self) -> dict[str, int]:
-        """Return epoch progress fields for persisted run metadata."""
-
-        return {
-            "current_epoch": self.current_epoch,
-            "total_epochs": self.epochs,
-        }
 
     def _persist_run_analysis(
         self,
@@ -1693,7 +1687,19 @@ class EpochTrainer(ABC):
                 else None
             ),
         }
-        run_info.update(self._build_run_info_progress())
+        progress_unit = self.PROGRESS_UNIT
+        progress_units = self.PROGRESS_UNITS
+        run_info.update(
+            {
+                f"current_{progress_unit}": getattr(
+                    self,
+                    f"current_{progress_unit}",
+                ),
+                f"total_{progress_units}": getattr(self, progress_units),
+            }
+        )
+        if hasattr(self, "data_cycle"):
+            run_info["data_cycle"] = self.data_cycle
 
         self.artifact_manager.save_metrics(summary, filename="summary.json")
         self.artifact_manager.save_metrics(history, filename="history.json")
@@ -1729,7 +1735,8 @@ class EpochTrainer(ABC):
                 manager.print_logs(split)
 
         # Log general-level metrics to console
-        self.logger.info(f"Epoch {epoch} - General Stats:")
+        progress_label = self.PROGRESS_UNIT.capitalize()
+        self.logger.info(f"{progress_label} {epoch} - General Stats:")
         for key, value in self.metrics_history["general"].get(epoch, {}).items():
             if isinstance(value, (float, int)):
                 self.logger.info(f"  {key}: {float(value):.6e}")
@@ -2783,15 +2790,23 @@ class EpochTrainer(ABC):
         Returns:
             Dictionary containing trainer metadata
         """
+        progress_unit = self.PROGRESS_UNIT
+        progress_units = self.PROGRESS_UNITS
         info = {
             "name": self.__class__.__name__,
             "models": [x.name for x in self.models.values()],
             "config": self.config,
-            "current_epoch": self.current_epoch,
+            f"current_{progress_unit}": getattr(
+                self,
+                f"current_{progress_unit}",
+            ),
+            f"total_{progress_units}": getattr(self, progress_units),
             "global_step": self.global_step,
             "callbacks": [x.__class__.__name__ for x in self.callbacks.callbacks],
             "dataloaders": {},
         }
+        if hasattr(self, "data_cycle"):
+            info["data_cycle"] = self.data_cycle
 
         for split, loader in (
             ("train", self.train_loader),

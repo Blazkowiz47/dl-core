@@ -131,21 +131,11 @@ class LocalMetricTrackerCallback(Callback):
     def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Append non-phase epoch metrics after train/validation/test complete."""
         super().on_epoch_end(epoch, logs)
-        self._append_scalars(epoch, logs, phase=None)
-
-    def on_iteration_end(
-        self,
-        iteration: int,
-        logs: dict[str, Any] | None = None,
-    ) -> None:
-        """Append non-phase metrics for an iteration reporting window."""
-
-        super().on_iteration_end(iteration, logs)
         self._append_scalars(
-            iteration,
+            epoch,
             logs,
             phase=None,
-            index_name="iteration",
+            index_name=("iteration" if logs and "iteration" in logs else "epoch"),
         )
 
     def on_episode_end(

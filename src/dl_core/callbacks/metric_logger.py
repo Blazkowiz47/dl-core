@@ -52,34 +52,14 @@ class MetricLoggerCallback(Callback):
         their compute() phase, not in callbacks.
         """
         super().on_epoch_end(epoch, logs)
-        self._record_metrics(epoch, logs, "Epoch")
-
-    def on_iteration_end(
-        self,
-        iteration: int,
-        logs: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Record metrics for an iteration reporting window."""
-
-        super().on_iteration_end(iteration, logs)
-        self._record_metrics(iteration, logs, "Iteration")
-
-    def _record_metrics(
-        self,
-        progress: int,
-        logs: Optional[Dict[str, Any]],
-        unit: str,
-    ) -> None:
-        """Store and optionally print metrics for one progress unit."""
-
         if not logs or not self.enabled or not self.is_main_process():
             return
 
         # Only rank 0 reaches here - store metrics in history
-        self.metric_history[progress] = logs.copy()
+        self.metric_history[epoch] = logs.copy()
 
         # Log if frequency matches
-        if progress % self.log_frequency != 0:
+        if epoch % self.log_frequency != 0:
             return
 
         # Enhanced logging
@@ -89,8 +69,9 @@ class MetricLoggerCallback(Callback):
                 metric_strs.append(f"{key}: {value:.4f}")
 
         if metric_strs:
+            unit = "Iteration" if "iteration" in logs else "Epoch"
             self.logger.info(
-                f"{unit} {progress} metrics - {', '.join(metric_strs)}"
+                f"{unit} {epoch} metrics - {', '.join(metric_strs)}"
             )
 
     def get_metric_history(self) -> Dict[int, Dict[str, Any]]:

@@ -179,3 +179,36 @@ def test_private_callback_hook_raises_actionable_migration_error() -> None:
         callback.on_episode_end(7)
 
     assert callback.received_episode == -1
+
+
+def test_iteration_hook_reuses_epoch_policy_with_iteration_index() -> None:
+    """The generic iteration adapter should preserve iteration metadata."""
+
+    with TemporaryDirectory() as temp_dir:
+        artifact_manager = ArtifactManager(
+            run_name="iteration-run",
+            output_dir=temp_dir,
+        )
+        callback = LocalMetricTrackerCallback()
+        callback.set_trainer(_DummyTrainer(artifact_manager))
+
+        callback.on_iteration_end(
+            4,
+            {
+                "iteration": 4.0,
+                "general/state/global_step": 64.0,
+            },
+        )
+
+        records = _read_jsonl(
+            artifact_manager.get_metric_streams_dir()
+            / "general_state_global_step.jsonl"
+        )
+        assert records == [
+            {
+                "metric": "general/state/global_step",
+                "step": 4,
+                "iteration": 4,
+                "value": 64.0,
+            }
+        ]
