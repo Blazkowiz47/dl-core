@@ -47,14 +47,6 @@ class TarShardIndex:
     tar_sha256: str | None
     samples: tuple[TarSampleReference, ...]
 
-    @staticmethod
-    def _sha256(path: Path) -> str:
-        digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
-
     @classmethod
     def build(cls, tar_path: str | Path, *, checksum: bool = False) -> TarShardIndex:
         """Scan an uncompressed tar and return its grouped member index."""
@@ -89,10 +81,18 @@ class TarShardIndex:
             TarSampleReference(key=key, members=grouped[key])
             for key in sorted(grouped)
         )
+        tar_sha256 = None
+        if checksum:
+            digest = hashlib.sha256()
+            with open(path, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            tar_sha256 = digest.hexdigest()
+
         return cls(
             format_version=1,
             tar_size=path.stat().st_size,
-            tar_sha256=cls._sha256(path) if checksum else None,
+            tar_sha256=tar_sha256,
             samples=samples,
         )
 
@@ -139,7 +139,11 @@ class TarShardIndex:
         if validate_checksum:
             if not index.tar_sha256:
                 raise ValueError(f"Tar index has no checksum: {index_file}")
-            actual_checksum = cls._sha256(shard_path)
+            digest = hashlib.sha256()
+            with open(shard_path, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            actual_checksum = digest.hexdigest()
             if actual_checksum != index.tar_sha256:
                 raise ValueError(f"Tar index checksum mismatch for {shard_path}")
         return index
@@ -189,22 +193,6 @@ class TarHandlePool:
         self._process_id = os.getpid()
         self._handles: OrderedDict[Path, Any] = OrderedDict()
 
-    def _handle(self, tar_path: Path) -> Any:
-        if self._process_id != os.getpid():
-            self.close()
-            self._process_id = os.getpid()
-        if tar_path in self._handles:
-            handle = self._handles.pop(tar_path)
-            self._handles[tar_path] = handle
-            return handle
-
-        handle = open(tar_path, "rb")
-        self._handles[tar_path] = handle
-        if len(self._handles) > self.max_open_shards:
-            _, oldest = self._handles.popitem(last=False)
-            oldest.close()
-        return handle
-
     def read(
         self,
         tar_path: str | Path,
@@ -212,8 +200,20 @@ class TarHandlePool:
     ) -> dict[str, bytes]:
         """Read indexed members directly from one tar shard."""
 
+        if self._process_id != os.getpid():
+            self.close()
+            self._process_id = os.getpid()
         path = Path(tar_path)
-        handle = self._handle(path)
+        if path in self._handles:
+            handle = self._handles.pop(path)
+            self._handles[path] = handle
+        else:
+            handle = open(path, "rb")
+            self._handles[path] = handle
+            if len(self._handles) > self.max_open_shards:
+                _, oldest = self._handles.popitem(last=False)
+                oldest.close()
+
         result: dict[str, bytes] = {}
         for extension, member in members.items():
             offset = int(member["offset"])
