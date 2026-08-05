@@ -11,28 +11,26 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.0`.
-Current development version: `0.1.0`.
+Current public release: `deep-learning-core==0.1.1`.
+Current development version: `0.1.1`.
 
 Compatible companion package floors:
 
-- `deep-learning-azure>=0.0.20,<0.1`
-- `deep-learning-mlflow>=0.0.14,<0.1`
+- `deep-learning-azure>=0.0.21,<0.1`
+- `deep-learning-mlflow>=0.0.15,<0.1`
 - `deep-learning-robotics>=0.0.6,<0.1`
-- `deep-learning-wandb>=0.0.15,<0.1`
+- `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.0?
+## What's New in 0.1.1?
 
-- neural architectures now belong exclusively to experiment repositories;
-  `deep-learning-core` ships reusable training-loop patterns and registries
-- DQN, PPO, SAC, and Dreamer require explicit project-owned model roles and
-  validate their tensor or protocol contracts during setup and updates
-- neutral Dreamer state/output types let researchers implement arbitrary world
-  models without inheriting a package architecture
-- `dl-init` generates a complete local ResNet example and declares
-  `torchvision` in the experiment instead of the core runtime
-- migration errors and docs identify older `dl_core.models` imports and the
-  project-local replacement path
+- `IterationTrainer` provides fixed-batch training with deterministic loader
+  cycling, iteration-based lifecycle frequencies, and resumable cursor state;
+  the ambiguous `BaseTrainer` alias has been removed
+- `TarShardDataset` indexes grouped samples in uncompressed tar files without
+  extraction and reuses worker-local tar handles for direct sample reads
+- `RoundRobinTarBatchSampler` builds deterministic, group-aware batches and
+  partitions complete batches across distributed ranks without duplication
+- dataset scaffolding now includes local and Azure-compatible tar-shard bases
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

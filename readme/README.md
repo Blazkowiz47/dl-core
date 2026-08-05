@@ -4,19 +4,19 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.0`.
-Current development version: `0.1.0`.
+Current public release: `deep-learning-core==0.1.1`.
+Current development version: `0.1.1`.
 
-## What's New in 0.1.0?
+## What's New in 0.1.1?
 
-- trainers and registries remain reusable while neural architectures are owned
-  and registered by experiment repositories
-- DQN, PPO, SAC, and Dreamer validate explicit project model roles and output
-  contracts without falling back to bundled networks
-- neutral Dreamer state/output protocols support custom world models
-- generated projects receive a self-contained local ResNet example with
-  `torchvision` declared by the experiment
-- the migration guide covers older `dl_core.models` imports
+- `IterationTrainer` supports fixed-batch training, deterministic finite-loader
+  cycling, iteration-based lifecycle frequencies, and exact cursor resume
+- callers now choose `EpochTrainer`, `IterationTrainer`, or `RLTrainer`
+  explicitly; the ambiguous `BaseTrainer` alias is removed
+- indexed tar datasets read grouped samples directly from uncompressed archives
+  and reuse worker-local handles without extracting files
+- deterministic round-robin tar batches preserve group balance and partition
+  complete batches across distributed ranks
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

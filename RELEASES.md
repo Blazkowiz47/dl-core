@@ -3,15 +3,17 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
-## Unreleased
+## 0.1.0
 
-- `IterationTrainer` adds fixed-batch training with deterministic finite-loader
-  cycling, iteration-based reporting/evaluation/checkpoint frequencies, DDP-safe
-  rank progress, and resumable iteration/cycle/cursor state
-- `dl-core add trainer ... --base iterationtrainer` scaffolds iteration-based
-  project trainers
-- the ambiguous `BaseTrainer` alias and scaffold aliases are removed; callers
-  must select `EpochTrainer`, `IterationTrainer`, or `RLTrainer` explicitly
+- neural architectures belong exclusively to experiment repositories while
+  `deep-learning-core` provides reusable training loops and registries
+- DQN, PPO, SAC, and Dreamer require explicit project-owned model roles and
+  validate their tensor or protocol contracts during setup and updates
+- neutral Dreamer state/output types support arbitrary project world models
+- generated projects include a self-contained ResNet example and declare
+  `torchvision` in the experiment rather than the core runtime
+- migration errors and docs identify older `dl_core.models` imports and their
+  project-local replacements
 
 ## 0.0.35
 

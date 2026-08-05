@@ -33,7 +33,7 @@ _BUILTIN_COMPONENT_MODULES = (
     "trainers",
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 _LOCAL_MODULES: dict[str, ModuleType] = {}
 _LOCAL_REGISTRATIONS: list[tuple[Any, str, type[Any]]] = []
