@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.1`.
-Current development version: `0.1.1`.
+Current public release: `deep-learning-core==0.1.4`.
+Current development version: `0.1.4`.
 
 Compatible companion package floors:
 
@@ -21,7 +21,7 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.1?
+## What's New in 0.1.4?
 
 - `IterationTrainer` provides fixed-batch training with deterministic loader
   cycling, iteration-based lifecycle frequencies, and resumable cursor state;

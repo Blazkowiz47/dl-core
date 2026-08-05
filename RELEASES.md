@@ -3,6 +3,17 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.1
+
+- `IterationTrainer` adds fixed-batch training with deterministic loader
+  cycling, iteration-based lifecycle frequencies, and resumable cursor state
+- the ambiguous `BaseTrainer` alias is removed in favor of explicit trainer
+  selection
+- indexed tar datasets and group-aware round-robin sampling support direct,
+  distributed reads from uncompressed archives
+- versions 0.1.2 and 0.1.3 were skipped in the repository release line because
+  older TestPyPI artifacts already occupied those versions
+
 ## 0.1.0
 
 - neural architectures belong exclusively to experiment repositories while

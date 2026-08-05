@@ -4,10 +4,10 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.1`.
-Current development version: `0.1.1`.
+Current public release: `deep-learning-core==0.1.4`.
+Current development version: `0.1.4`.
 
-## What's New in 0.1.1?
+## What's New in 0.1.4?
 
 - `IterationTrainer` supports fixed-batch training, deterministic finite-loader
   cycling, iteration-based lifecycle frequencies, and exact cursor resume
