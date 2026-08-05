@@ -103,8 +103,8 @@ def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
     """
     Get checkpoint directory path from config.
 
-    This follows the same pattern as BaseTrainer which uses ArtifactManager
-    to determine the checkpoint directory.
+    This follows the same pattern as the dataset-driven trainers, which use
+    ArtifactManager to determine the checkpoint directory.
 
     Args:
         config: Configuration dictionary
@@ -114,9 +114,9 @@ def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
     """
     try:
         # Try to construct checkpoint dir path from config
-        # This mimics what ArtifactManager and BaseTrainer do
+        # This mimics what ArtifactManager and the dataset-driven trainers do
 
-        # Get runtime configuration (matches BaseTrainer lines 106-112)
+        # Get runtime configuration used by the trainer artifact manager
         runtime_config = config.get("runtime", {})
         output_dir = runtime_config.get("output_dir", "artifacts")
 

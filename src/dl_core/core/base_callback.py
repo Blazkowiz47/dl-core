@@ -15,7 +15,13 @@ import torch.distributed as dist
 from dl_core.core.config_metadata import config_field
 
 if TYPE_CHECKING:
-    from dl_core.core.base_trainer import BaseTrainer
+    from dl_core.core.base_trainer import EpochTrainer
+    from dl_core.core.iteration_trainer import IterationTrainer
+    from dl_core.core.rl_trainer import RLTrainer
+
+    Trainer = EpochTrainer | IterationTrainer | RLTrainer
+else:
+    Trainer = Any
 
 
 def _normalize_log_key(key: str) -> str:
@@ -51,7 +57,7 @@ class Callback(ABC):
         self.params = kwargs
         self.enabled = kwargs.get("enabled", True)
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.trainer: BaseTrainer
+        self.trainer: Trainer
 
     def set_trainer(self, trainer):
         """
@@ -295,6 +301,16 @@ class Callback(ABC):
         if not self.is_main_process():
             return
 
+    def on_iteration_end(
+        self,
+        iteration: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Called after an iteration-based trainer closes a reporting window."""
+
+        if not self.is_main_process():
+            return
+
     def on_batch_start(
         self,
         batch: int,
@@ -476,7 +492,7 @@ class CallbackList:
             callbacks: List of callback instances
         """
         self.callbacks: list[Callback] = callbacks or []
-        self.trainer: BaseTrainer
+        self.trainer: Trainer
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     def set_trainer(self, trainer):
@@ -755,6 +771,23 @@ class CallbackList:
         self.trainer.logger.debug(
             f"on_epoch_end: All ranks synchronized after epoch {epoch}, proceeding"
         )
+
+    def on_iteration_end(
+        self,
+        iteration: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Call iteration-end hooks and keep all ranks on the same window."""
+
+        for callback in self.callbacks:
+            self._sync_callback_enabled(callback)
+            if callback.enabled:
+                try:
+                    callback.on_iteration_end(iteration, logs)
+                except Exception as e:
+                    self._handle_callback_error(callback, "on_iteration_end", e)
+                self.trainer.accelerator.wait_for_everyone()
+        self.trainer.accelerator.wait_for_everyone()
 
     def on_batch_start(
         self,

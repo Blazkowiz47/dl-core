@@ -75,16 +75,36 @@ class CheckpointCallback(Callback):
         """Check if current metrics warrant saving a checkpoint."""
         super().on_epoch_end(epoch, logs)
 
+        self._save_for_progress(epoch, logs, "epoch")
+
+    def on_iteration_end(
+        self,
+        iteration: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Check iteration-window metrics for a checkpoint candidate."""
+        super().on_iteration_end(iteration, logs)
+
+        self._save_for_progress(iteration, logs, "iteration")
+
+    def _save_for_progress(
+        self,
+        progress: int,
+        logs: Optional[Dict[str, Any]],
+        unit: str,
+    ) -> None:
+        """Apply checkpoint selection for an epoch or iteration."""
+
         if not logs:
             # Save anyway if not monitoring specific metric
             if not self.save_best_only:
-                self.trainer.save_checkpoint(epoch)
+                self.trainer.save_checkpoint(progress)
             return
 
         resolved_monitor = self.resolve_log_key(logs, self.monitor)
         if resolved_monitor is None:
             if not self.save_best_only:
-                self.trainer.save_checkpoint(epoch)
+                self.trainer.save_checkpoint(progress)
             return
 
         current_value = logs[resolved_monitor]
@@ -100,18 +120,18 @@ class CheckpointCallback(Callback):
 
         if is_better:
             self.best_value = current_value
-            self.best_epoch = epoch
+            self.best_epoch = progress
 
             direction = "lower" if self.mode == "min" else "higher"
             self.logger.info(
                 f"New best {self.monitor}: {current_value:.4f} "
-                f"({direction} is better) at epoch {epoch}"
+                f"({direction} is better) at {unit} {progress}"
             )
 
             # Trigger checkpoint save in trainer
-            self.trainer.save_checkpoint(epoch)
-            self.trainer.save_checkpoint(epoch, filename="best.pth")
+            self.trainer.save_checkpoint(progress)
+            self.trainer.save_checkpoint(progress, filename="best.pth")
 
         elif not self.save_best_only:
             # Save checkpoint even if not best
-            self.trainer.save_checkpoint(epoch)
+            self.trainer.save_checkpoint(progress)

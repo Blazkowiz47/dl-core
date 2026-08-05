@@ -28,8 +28,8 @@ from .adaptive_computation_trainer import (
 )
 from .base_callback import Callback
 from .batched_environment import BatchedEnvironment
-from .base_trainer import BaseTrainer
 from .epoch_trainer import EpochTrainer
+from .iteration_trainer import IterationTrainer
 from .sequence_trainer import SequenceStepOutput, SequenceTrainer
 from .base_transform import BaseTransform
 from .rl_trainer import RLTrainer
@@ -121,8 +121,8 @@ __all__ = [
     "BaseSampler",
     "Callback",
     "BatchedEnvironment",
-    "BaseTrainer",
     "EpochTrainer",
+    "IterationTrainer",
     "SequenceTrainer",
     "SequenceStepOutput",
     "AdaptiveComputationTrainer",

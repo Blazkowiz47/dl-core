@@ -13,11 +13,11 @@ from dl_core.callbacks.checkpoint import CheckpointCallback
 from dl_core.callbacks.dataset_refresh import DatasetRefreshCallback
 from dl_core.callbacks.early_stopping import EarlyStoppingCallback
 from dl_core.core.base_callback import Callback, CallbackList
-from dl_core.core.base_trainer import BaseTrainer
+from dl_core.core.base_trainer import EpochTrainer
 from dl_core.utils.artifact_manager import ArtifactManager
 
 
-class _ConcreteTrainer(BaseTrainer):
+class _ConcreteTrainer(EpochTrainer):
     """Small concrete trainer used to exercise helper logic."""
 
     def __init__(self) -> None:
@@ -242,6 +242,22 @@ def test_checkpoint_callback_resolves_monitor_aliases() -> None:
     callback.on_epoch_end(1, {"validation/accuracy": 0.75})
 
     assert trainer.saved_epochs == [(1, None), (1, "best.pth")]
+
+
+def test_checkpoint_callback_supports_iteration_windows() -> None:
+    """Checkpoint selection should run at iteration reporting boundaries."""
+
+    trainer = _CheckpointTrainerStub()
+    callback = CheckpointCallback(
+        monitor="validation_accuracy",
+        mode="max",
+        save_best_only=True,
+    )
+    callback.set_trainer(trainer)
+
+    callback.on_iteration_end(25, {"validation/accuracy": 0.8})
+
+    assert trainer.saved_epochs == [(25, None), (25, "best.pth")]
 
 
 def test_early_stopping_resolves_monitor_aliases() -> None:

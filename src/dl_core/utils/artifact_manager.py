@@ -35,6 +35,8 @@ class ArtifactManager:
         │   └── eval/
         ├── epoch_2/
         │   └── ...
+        ├── iteration_1000/            # Iteration-scoped checkpoint artifacts
+        │   └── checkpoint.pth
         └── final/                     # Final aliases and run summaries
             ├── checkpoints/
             ├── logs/
@@ -135,6 +137,11 @@ class ArtifactManager:
     def get_epoch_dir(self, epoch: int) -> Path:
         """Get the root directory for one epoch's artifacts."""
         return self.run_dir / f"epoch_{epoch}"
+
+    def get_iteration_dir(self, iteration: int) -> Path:
+        """Get the root directory for one iteration's artifacts."""
+
+        return self.run_dir / f"iteration_{iteration}"
 
     def get_epoch_metrics_dir(self, epoch: int) -> Path:
         """Get the metrics directory for one epoch's artifacts."""
@@ -444,6 +451,16 @@ class ArtifactManager:
         checkpoint_name = filename or "checkpoint.pth"
         return self.get_epoch_dir(epoch) / checkpoint_name
 
+    def get_iteration_checkpoint_path(
+        self,
+        iteration: int,
+        filename: str | None = None,
+    ) -> Path:
+        """Get one checkpoint path under ``iteration_<n>/``."""
+
+        checkpoint_name = filename or "checkpoint.pth"
+        return self.get_iteration_dir(iteration) / checkpoint_name
+
     def save_run_info(self, run_info: dict[str, Any]) -> None:
         """
         Save run metadata to the artifact directory.
@@ -484,6 +501,11 @@ class ArtifactManager:
                 path.name
                 for path in self.run_dir.iterdir()
                 if path.is_dir() and path.name.startswith("epoch_")
+            ),
+            "iterations": sorted(
+                path.name
+                for path in self.run_dir.iterdir()
+                if path.is_dir() and path.name.startswith("iteration_")
             ),
             "final": [],
         }

@@ -92,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             "Other component examples:\n"
             "  dl-core add model MyResNet\n"
             "  dl-core add trainer MyTrainer\n"
+            "  dl-core add trainer StreamTrainer --base iterationtrainer\n"
             "  dl-core add trainer TextTrainer --base nlptrainer\n"
             "  dl-core add trainer RecursiveTrainer --base acttrainer\n"
             "  dl-core add trainer MyPolicy --base rltrainer\n"

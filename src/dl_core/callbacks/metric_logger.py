@@ -26,7 +26,7 @@ class MetricLoggerCallback(Callback):
         config_field(
             "log_frequency",
             "int",
-            "Log metrics every N epochs.",
+            "Log metrics every N epochs or iteration windows.",
             default=1,
         )
     ]
@@ -36,7 +36,7 @@ class MetricLoggerCallback(Callback):
         Initialize metric logger callback.
 
         Args:
-            log_frequency: How often to log metrics (every N epochs)
+            log_frequency: How often to log metrics
             **kwargs: Additional parameters
         """
         super().__init__(**kwargs)
@@ -51,20 +51,35 @@ class MetricLoggerCallback(Callback):
         Metric synchronization should be handled by MetricManagers during
         their compute() phase, not in callbacks.
         """
-        if not logs:
-            return
-
-        if not self.enabled:
-            return
-
-        # Call super() for rank filtering (only runs on main process after this point)
         super().on_epoch_end(epoch, logs)
+        self._record_metrics(epoch, logs, "Epoch")
+
+    def on_iteration_end(
+        self,
+        iteration: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record metrics for an iteration reporting window."""
+
+        super().on_iteration_end(iteration, logs)
+        self._record_metrics(iteration, logs, "Iteration")
+
+    def _record_metrics(
+        self,
+        progress: int,
+        logs: Optional[Dict[str, Any]],
+        unit: str,
+    ) -> None:
+        """Store and optionally print metrics for one progress unit."""
+
+        if not logs or not self.enabled or not self.is_main_process():
+            return
 
         # Only rank 0 reaches here - store metrics in history
-        self.metric_history[epoch] = logs.copy()
+        self.metric_history[progress] = logs.copy()
 
         # Log if frequency matches
-        if epoch % self.log_frequency != 0:
+        if progress % self.log_frequency != 0:
             return
 
         # Enhanced logging
@@ -74,7 +89,9 @@ class MetricLoggerCallback(Callback):
                 metric_strs.append(f"{key}: {value:.4f}")
 
         if metric_strs:
-            self.logger.info(f"Epoch {epoch} metrics - {', '.join(metric_strs)}")
+            self.logger.info(
+                f"{unit} {progress} metrics - {', '.join(metric_strs)}"
+            )
 
     def get_metric_history(self) -> Dict[int, Dict[str, Any]]:
         """Get the complete metric history."""

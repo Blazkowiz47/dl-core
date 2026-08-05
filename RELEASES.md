@@ -3,6 +3,16 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## Unreleased
+
+- `IterationTrainer` adds fixed-batch training with deterministic finite-loader
+  cycling, iteration-based reporting/evaluation/checkpoint frequencies, DDP-safe
+  rank progress, and resumable iteration/cycle/cursor state
+- `dl-core add trainer ... --base iterationtrainer` scaffolds iteration-based
+  project trainers
+- the ambiguous `BaseTrainer` alias and scaffold aliases are removed; callers
+  must select `EpochTrainer`, `IterationTrainer`, or `RLTrainer` explicitly
+
 ## 0.0.35
 
 - `DreamerTrainer` adds recurrent, discrete-action model-based RL through a
@@ -132,7 +142,7 @@ release-by-release changes that were previously shown there.
   normal training weights and EMA resume metadata
 - `dl-run --validate-only` now performs a real preflight by resolving the
   configured components without starting training
-- `BaseTrainer` now exposes `select_checkpoint()` and
+- dataset-driven trainers now expose `select_checkpoint()` and
   `post_training(checkpoint_path)` hooks for completed-run evaluation or export
   work; the default checkpoint selection uses `best.pth` then `latest.pth`
 - `dl-inspect-dataset` now summarizes split sizes and one collated batch from

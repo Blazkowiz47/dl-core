@@ -275,7 +275,7 @@ without needing to reconstruct EMA state manually.
 
 ## Post-Training Checkpoint Hooks
 
-After a successful training loop, `BaseTrainer.run()` calls
+After a successful training loop, the trainer lifecycle calls
 `select_checkpoint()` and passes the returned path into
 `post_training(checkpoint_path)`. This hook runs before run-analysis artifacts
 are persisted and before tracking callbacks upload finalized artifacts.
@@ -286,6 +286,41 @@ falls back to final `latest.pth`, and returns `None` if no checkpoint exists.
 Override `select_checkpoint()` when a project needs custom single- or
 multi-metric model selection, and override `post_training()` for completed-run
 evaluation, export, or report generation.
+
+## Trainer Lifecycles
+
+Use `EpochTrainer` when a complete pass over the training loader defines
+progress. Use `IterationTrainer` for streaming data or when training should stop
+after an exact number of batches:
+
+```yaml
+trainer:
+  stream_trainer:
+    iterations: 100000
+    log_frequency: 1000
+    validation_frequency: 5000
+    test_frequency: 10000
+    checkpoint_frequency: 5000
+```
+
+```python
+from dl_core.core import IterationTrainer
+
+
+class StreamTrainer(IterationTrainer):
+    ...
+```
+
+Every distributed rank consumes one local batch per iteration, so all ranks
+perform the same number of synchronized model updates. Finite loaders restart
+with a new deterministic data cycle; streaming loaders can remain open
+indefinitely. Checkpoints retain the completed iteration, data-cycle number,
+and position within the current finite-loader cycle.
+
+`BaseTrainer` is no longer part of the API. Existing epoch-based subclasses
+should import `EpochTrainer`; switching a project to iteration-based training
+also requires replacing `epochs` with `iterations` and choosing iteration
+frequencies.
 
 If Azure support is installed, `uv run dl-init --with-azure` will
 also scaffold Azure-ready config placeholders and `azure-config.json`.
@@ -318,6 +353,7 @@ Common local component scaffolds:
 ```bash
 uv run dl-core add model MyResNet
 uv run dl-core add trainer MyTrainer
+uv run dl-core add trainer StreamTrainer --base iterationtrainer
 uv run dl-core add trainer MyPolicy --base rltrainer
 uv run dl-core add callback MyMetrics
 uv run dl-core add metric_manager MyManager

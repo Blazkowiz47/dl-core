@@ -126,12 +126,34 @@ trainer:
 That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`,
 which builds on the epoch-based `dl_core.core.EpochTrainer`.
 
-After successful training, `BaseTrainer.run()` calls `select_checkpoint()` and
+After successful training, the trainer lifecycle calls `select_checkpoint()` and
 passes that path to `post_training(checkpoint_path)`. The default selector
 returns final `best.pth` when the checkpoint callback created it, falls back to
 final `latest.pth`, and otherwise returns `None`. Override `select_checkpoint()`
 for custom single- or multi-metric model selection, and override
 `post_training()` for completed-run evaluation or export work.
+
+For streaming or cyclic training, a local trainer can instead extend
+`dl_core.core.IterationTrainer` and replace `epochs` with an iteration budget:
+
+```yaml
+trainer:
+  my_streaming_exp:
+    iterations: 100000
+    log_frequency: 1000
+    validation_frequency: 5000
+    test_frequency: 10000
+    checkpoint_frequency: 5000
+```
+
+One iteration consumes one training batch on every distributed rank. A zero
+validation, test, or checkpoint frequency means final-only. Finite loaders are
+cycled and their cycle/cursor state is checkpointed; infinite loaders continue
+without requiring a length. The global batch sequence must still be partitioned
+into complete per-rank batches by the sampler so ranks do not duplicate work.
+
+There is no generic `BaseTrainer` export. Import `EpochTrainer`,
+`IterationTrainer`, or `RLTrainer` explicitly according to the lifecycle.
 
 ## Reproducibility
 

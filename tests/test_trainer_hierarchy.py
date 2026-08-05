@@ -9,9 +9,9 @@ import torch
 from dl_core.core import (
     AdaptiveComputationStepOutput,
     AdaptiveComputationTrainer,
-    BaseTrainer,
     CarryState,
     EpochTrainer,
+    IterationTrainer,
     SequenceStepOutput,
     SequenceTrainer,
 )
@@ -126,10 +126,19 @@ class _ConcreteAdaptiveTrainer(AdaptiveComputationTrainer):
         return AdaptiveComputationStepOutput(metrics={"ponder_penalty": 0.08})
 
 
-def test_base_trainer_is_epoch_trainer_alias() -> None:
-    """`BaseTrainer` should remain a compatibility alias."""
+def test_base_trainer_is_not_exported() -> None:
+    """The ambiguous trainer alias should be removed from the public API."""
 
-    assert BaseTrainer is EpochTrainer
+    import dl_core.core as core
+
+    assert not hasattr(core, "BaseTrainer")
+    assert "BaseTrainer" not in core.__all__
+
+
+def test_iteration_trainer_is_exported() -> None:
+    """The iteration lifecycle should be publicly importable."""
+
+    assert IterationTrainer.__name__ == "IterationTrainer"
 
 
 def test_standard_trainer_uses_epoch_trainer() -> None:

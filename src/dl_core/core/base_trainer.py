@@ -1,11 +1,4 @@
-"""
-Epoch-based trainer foundation with pluggable metric managers.
-
-This module keeps the shared training loop, accelerator integration, callback
-hooks, and checkpoint flow used by the built-in trainers. `BaseTrainer`
-remains as a compatibility alias for the epoch-based implementation so
-existing imports continue to work.
-"""
+"""Epoch-based trainer foundation with pluggable metric managers."""
 
 import logging
 import os
@@ -92,7 +85,7 @@ class EpochTrainer(ABC):
         - post_training() - Run completed-training evaluation or export work
 
     Usage:
-        class MyTrainer(BaseTrainer):
+        class MyTrainer(EpochTrainer):
             def setup_model(self):
                 self.models['main'] = MyModel(self.config)
 
@@ -106,6 +99,8 @@ class EpochTrainer(ABC):
         trainer = MyTrainer(config)
         trainer.run()
     """
+
+    REQUIRES_EPOCHS = True
 
     CONFIG_FIELDS = [
         config_field(
@@ -244,7 +239,10 @@ class EpochTrainer(ABC):
         self.trainer_config = trainer_config
         self.logger.info(f"Using trainer: {trainer_name}")
         self.logger.info(f"Trainer configuration: {trainer_config}")
-        self.epochs = trainer_config["epochs"]
+        if self.REQUIRES_EPOCHS:
+            self.epochs = int(trainer_config["epochs"])
+        else:
+            self.epochs = int(trainer_config.get("epochs", 0))
         self.show_progress = trainer_config.get("show_progress", False)
         self.print_freq = trainer_config.get("print_freq", 100)
         self.continue_model = trainer_config.get("continue_model")
@@ -318,6 +316,14 @@ class EpochTrainer(ABC):
         """Return and clear any pending process-level interrupt reason."""
 
         return os.environ.pop(_INTERRUPT_ENV_KEY, None)
+
+    def _build_final_progress_logs(self) -> dict[str, Any]:
+        """Return lifecycle progress fields for final callback logs."""
+
+        return {
+            "final_epoch": getattr(self, "current_epoch", 0),
+            "total_epochs": getattr(self, "epochs", 0),
+        }
 
     def _load_continue_model(self) -> None:
         # Load checkpoint if specified in trainer config (resume training)
@@ -409,11 +415,8 @@ class EpochTrainer(ABC):
                         "Skipping synchronized teardown after barrier failure: "
                         f"{barrier_error}"
                     )
-            final_logs = {
-                "final_epoch": getattr(self, "current_epoch", 0),
-                "total_epochs": getattr(self, "epochs", 0),
-                "status": run_status,
-            }
+            final_logs = self._build_final_progress_logs()
+            final_logs["status"] = run_status
             if error_message is not None:
                 final_logs["error_message"] = error_message
             selected_checkpoint_path = getattr(self, "selected_checkpoint_path", None)
@@ -775,8 +778,7 @@ class EpochTrainer(ABC):
             self.accelerator.load_accelerator_state(checkpoint)
 
             # Load other training state for resuming training
-            if "global_step" in checkpoint:
-                self.global_step = checkpoint["global_step"]
+            self.restore_progress_state(checkpoint)
             if "callback_states" in checkpoint:
                 for i, callback in enumerate(self.callbacks.callbacks):
                     key = f"callback_{i}_{callback.__class__.__name__}"
@@ -785,11 +787,6 @@ class EpochTrainer(ABC):
                         self.logger.info(
                             f"Restored state for {callback.__class__.__name__}"
                         )
-            if "epoch" in checkpoint:
-                # Resume from next epoch
-                self.setup_current_epoch(checkpoint["epoch"])
-                self.logger.info(f"Resuming from epoch {self.current_epoch}")
-
             self.logger.info(f"Loaded checkpoint from {checkpoint_path}")
             self.logger.info(
                 f"Training state restored: epoch={self.current_epoch}, "
@@ -1613,17 +1610,13 @@ class EpochTrainer(ABC):
         )
         selected_checkpoint_path = getattr(self, "selected_checkpoint_path", None)
 
-        return {
+        summary = {
             "status": status,
             "error_message": error_message,
             "run_name": self.artifact_manager.run_name,
             "experiment_name": self.artifact_manager.experiment_name,
             "sweep_name": self.artifact_manager.sweep_name,
             "artifact_dir": str(self.artifact_manager.run_dir),
-            "recorded_epochs": recorded_epochs,
-            "final_epoch": final_epoch,
-            "total_epochs": self.epochs,
-            "best_epoch": best_epoch,
             "selection_metric": selection_metric,
             "selection_mode": selection_mode,
             "selection_value": selection_value,
@@ -1634,6 +1627,37 @@ class EpochTrainer(ABC):
             ),
             "final_metrics": final_metrics,
             "best_metrics": best_metrics,
+        }
+        summary.update(
+            self._build_analysis_progress(
+                recorded_epochs=recorded_epochs,
+                final_epoch=final_epoch,
+                best_epoch=best_epoch,
+            )
+        )
+        return summary
+
+    def _build_analysis_progress(
+        self,
+        recorded_epochs: list[int],
+        final_epoch: int,
+        best_epoch: int | None,
+    ) -> dict[str, Any]:
+        """Return epoch progress fields for persisted run analysis."""
+
+        return {
+            "recorded_epochs": recorded_epochs,
+            "final_epoch": final_epoch,
+            "total_epochs": self.epochs,
+            "best_epoch": best_epoch,
+        }
+
+    def _build_run_info_progress(self) -> dict[str, int]:
+        """Return epoch progress fields for persisted run metadata."""
+
+        return {
+            "current_epoch": self.current_epoch,
+            "total_epochs": self.epochs,
         }
 
     def _persist_run_analysis(
@@ -1663,14 +1687,13 @@ class EpochTrainer(ABC):
             "config_path": str(self.artifact_manager.run_dir / "config.yaml"),
             "metrics_summary_path": str(self.artifact_manager.get_metrics_summary_path()),
             "metrics_history_path": str(self.artifact_manager.get_metrics_history_path()),
-            "current_epoch": self.current_epoch,
-            "total_epochs": self.epochs,
             "selected_checkpoint_path": (
                 str(summary["selected_checkpoint_path"])
                 if summary.get("selected_checkpoint_path") is not None
                 else None
             ),
         }
+        run_info.update(self._build_run_info_progress())
 
         self.artifact_manager.save_metrics(summary, filename="summary.json")
         self.artifact_manager.save_metrics(history, filename="history.json")
@@ -2737,6 +2760,15 @@ class EpochTrainer(ABC):
         """
         self._load_checkpoint(checkpoint_path)
 
+    def restore_progress_state(self, checkpoint: dict[str, Any]) -> None:
+        """Restore epoch and batch progress from a checkpoint payload."""
+
+        if "global_step" in checkpoint:
+            self.global_step = int(checkpoint["global_step"])
+        if "epoch" in checkpoint:
+            self.setup_current_epoch(int(checkpoint["epoch"]))
+            self.logger.info(f"Resuming from epoch {self.current_epoch}")
+
     def finalize_training(self, synchronize: bool = True) -> None:
         self._finalize_training(synchronize=synchronize)
 
@@ -2758,14 +2790,21 @@ class EpochTrainer(ABC):
             "current_epoch": self.current_epoch,
             "global_step": self.global_step,
             "callbacks": [x.__class__.__name__ for x in self.callbacks.callbacks],
-            "dataloaders": {
-                "train": len(self.train_loader) if self.train_loader else 0,
-                "validation": len(self.validation_loader)
-                if self.validation_loader
-                else 0,
-                "test": len(self.test_loader) if self.test_loader else 0,
-            },
+            "dataloaders": {},
         }
+
+        for split, loader in (
+            ("train", self.train_loader),
+            ("validation", self.validation_loader),
+            ("test", self.test_loader),
+        ):
+            if loader is None:
+                info["dataloaders"][split] = 0
+                continue
+            try:
+                info["dataloaders"][split] = len(loader)
+            except TypeError:
+                info["dataloaders"][split] = None
 
         # Add metric managers info
         if self.metric_managers:
@@ -2931,7 +2970,3 @@ class EpochTrainer(ABC):
             split: self.metrics_history[split].get(epoch, {})
             for split in ["train", "validation", "test"]
         }
-
-
-# Compatibility alias for existing imports.
-BaseTrainer = EpochTrainer

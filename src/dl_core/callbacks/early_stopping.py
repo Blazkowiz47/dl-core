@@ -55,7 +55,7 @@ class EarlyStoppingCallback(Callback):
         config_field(
             "patience",
             "int",
-            "Number of epochs without improvement to tolerate.",
+            "Number of reporting checks without improvement to tolerate.",
             default=10,
         ),
         config_field(
@@ -109,7 +109,7 @@ class EarlyStoppingCallback(Callback):
         Args:
             monitor: Single metric to monitor (backward compatible)
             mode: 'min' or 'max' for single metric
-            patience: Number of epochs with no improvement to wait
+            patience: Number of reporting checks with no improvement to wait
             target_value: Target value for single metric
             target_mode: How to compare target ('exact', 'less_than', 'greater_than', 'less_equal', 'greater_equal')
             metrics: List of metric configs for multi-metric monitoring
@@ -288,6 +288,15 @@ class EarlyStoppingCallback(Callback):
             # Set stop flag on trainer
             if hasattr(self.trainer, "stop_training"):
                 self.trainer.stop_training = True
+
+    def on_iteration_end(
+        self,
+        iteration: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Apply the stopping policy to an iteration reporting window."""
+
+        self.on_epoch_end(iteration, logs)
 
     def get_state(self) -> Dict[str, Any]:
         """

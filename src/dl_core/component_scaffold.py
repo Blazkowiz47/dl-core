@@ -325,6 +325,12 @@ _CORE_TRAINER_BASE_SPECS = {
         base_class="EpochTrainer",
         class_docstring="Local trainer scaffold based on EpochTrainer.",
     ),
+    "iterationtrainer": ComponentBaseSpec(
+        canonical_name="iterationtrainer",
+        import_path="dl_core.core",
+        base_class="IterationTrainer",
+        class_docstring="Local trainer scaffold based on IterationTrainer.",
+    ),
     "nlptrainer": ComponentBaseSpec(
         canonical_name="nlptrainer",
         import_path="dl_core.core",
@@ -369,11 +375,12 @@ _DATASET_BASE_ALIASES = {
 }
 
 _TRAINER_BASE_ALIASES = {
-    "base_trainer": "epochtrainer",
-    "basetrainer": "epochtrainer",
     "epoch": "epochtrainer",
     "epoch_trainer": "epochtrainer",
     "epochtrainer": "epochtrainer",
+    "iteration": "iterationtrainer",
+    "iteration_trainer": "iterationtrainer",
+    "iterationtrainer": "iterationtrainer",
     "nlp": "nlptrainer",
     "nlp_trainer": "nlptrainer",
     "nlptrainer": "nlptrainer",

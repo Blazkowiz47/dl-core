@@ -50,7 +50,7 @@ class LocalMetricTrackerCallback(Callback):
         config_field(
             "log_frequency",
             "int",
-            "Persist tracked scalar metrics every N epochs or RL events.",
+            "Persist metrics every N epochs, iteration windows, or RL events.",
             default=1,
         )
     ]
@@ -132,6 +132,21 @@ class LocalMetricTrackerCallback(Callback):
         """Append non-phase epoch metrics after train/validation/test complete."""
         super().on_epoch_end(epoch, logs)
         self._append_scalars(epoch, logs, phase=None)
+
+    def on_iteration_end(
+        self,
+        iteration: int,
+        logs: dict[str, Any] | None = None,
+    ) -> None:
+        """Append non-phase metrics for an iteration reporting window."""
+
+        super().on_iteration_end(iteration, logs)
+        self._append_scalars(
+            iteration,
+            logs,
+            phase=None,
+            index_name="iteration",
+        )
 
     def on_episode_end(
         self,

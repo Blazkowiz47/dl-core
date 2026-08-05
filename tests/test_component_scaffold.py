@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 import dl_core.component_scaffold as component_scaffold
 from dl_core import load_builtin_components, load_local_components
 from dl_core.cli import main as cli_main
@@ -408,10 +410,18 @@ def test_supported_trainer_scaffold_bases_are_available() -> None:
 
     assert component_scaffold.list_supported_trainer_bases() == [
         "epochtrainer",
+        "iterationtrainer",
         "nlptrainer",
         "acttrainer",
         "rltrainer",
     ]
+
+
+def test_removed_base_trainer_scaffold_alias_is_rejected() -> None:
+    """The removed BaseTrainer name should not silently select EpochTrainer."""
+
+    with pytest.raises(ValueError, match="Unsupported trainer base"):
+        component_scaffold.normalize_trainer_base("basetrainer")
 
 
 def test_cli_add_trainer_defaults_to_epoch_trainer(tmp_path: Path) -> None:
@@ -469,6 +479,35 @@ def test_cli_add_trainer_supports_explicit_epoch_base(tmp_path: Path) -> None:
 
     assert "from dl_core.core import EpochTrainer" in component_text
     assert "class EpochArcTrainer(EpochTrainer):" in component_text
+    assert "def train_step(" in component_text
+
+
+def test_cli_add_trainer_supports_iteration_base(tmp_path: Path) -> None:
+    """Trainer scaffolds should support the fixed-iteration lifecycle."""
+
+    target_dir = create_experiment_scaffold(
+        "trainer-iteration-demo",
+        root_dir=str(tmp_path),
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "trainer",
+            "StreamArc",
+            "--base",
+            "iterationtrainer",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_path = target_dir / "src" / "trainers" / "streamarc.py"
+    component_text = component_path.read_text()
+
+    assert "from dl_core.core import IterationTrainer" in component_text
+    assert "class StreamArcTrainer(IterationTrainer):" in component_text
     assert "def train_step(" in component_text
 
 
