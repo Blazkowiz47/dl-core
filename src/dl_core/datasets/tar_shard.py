@@ -233,9 +233,10 @@ class TarHandlePool:
     def close(self) -> None:
         """Close all handles owned by the current process."""
 
-        for handle in self._handles.values():
+        for handle in getattr(self, "_handles", {}).values():
             handle.close()
-        self._handles.clear()
+        if hasattr(self, "_handles"):
+            self._handles.clear()
 
     def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
