@@ -75,6 +75,36 @@ Notes:
 - if you need dummy or synthetic data, implement it in your local dataset
   wrapper instead of relying on the built-in standard dataset
 
+Indexed tar wrappers use uncompressed `.tar` files and can declare explicit
+shards and required grouped members:
+
+```yaml
+dataset:
+  name: my_tar_dataset
+  auto_split: false
+  shards:
+    train:
+      - path: data/train/attack-000.tar
+        group: attack
+      - path: data/train/real-000.tar
+        group: real
+  required_extensions: [png, json]
+  max_open_shards: 8
+  persistent_workers: true
+  batch_size: 32
+  batch_sampler:
+    type: round_robin_tar
+    group_pattern: [attack, real]
+    shuffle_within_batch: true
+    distributed_drop_last: true
+```
+
+The index defaults to `<shard>.tar.idx.json`. `index_checksum: true` adds and
+validates SHA-256 checksums; otherwise the index is validated using tar size.
+The distributed sampler partitions complete batches between ranks. Workers
+inside a rank receive only those selected sample indices and keep their own
+process-local tar handles.
+
 ## Optimizer
 
 The default path uses a single flat optimizer config:

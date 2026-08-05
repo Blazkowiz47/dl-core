@@ -200,6 +200,12 @@ class MultiGPUAccelerator(BaseAccelerator):
         if dataloaders:
             for name, dataloader in dataloaders.items():
                 if dataloader is not None:
+                    batch_sampler = dataloader.batch_sampler
+                    if getattr(batch_sampler, "is_distributed", False):
+                        self.samplers[name] = batch_sampler
+                        prepared_dataloaders[name] = dataloader
+                        continue
+
                     dataset = dataloader.dataset
                     # Get seed from config, default to 42 for reproducibility
                     sampler = DistributedSampler(
@@ -350,7 +356,8 @@ class MultiGPUAccelerator(BaseAccelerator):
             epoch: Current epoch number
         """
         for name, sampler in self.samplers.items():
-            sampler.set_epoch(epoch)
+            if hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
 
     def cleanup(self) -> None:
         """

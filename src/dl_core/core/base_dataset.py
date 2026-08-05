@@ -125,6 +125,12 @@ class BaseWrapper(ABC):
             default={"train": None, "validation": None, "test": None},
         ),
         config_field(
+            "persistent_workers",
+            "bool | dict[str, bool]",
+            "Keep DataLoader workers alive between loader iterations.",
+            default={"train": False, "validation": False, "test": False},
+        ),
+        config_field(
             "seed",
             "int",
             "Dataset-level seed used for splitting and worker seeding.",
@@ -238,6 +244,10 @@ class BaseWrapper(ABC):
         self.prefetch_factor: dict[str, int | None] = config.get(
             "prefetch_factor", {"train": None, "validation": None, "test": None}
         )
+        self.persistent_workers: dict[str, bool] = config.get(
+            "persistent_workers",
+            {"train": False, "validation": False, "test": False},
+        )
 
         # General configuration
         self.num_classes: int | None = config.get("num_classes")
@@ -345,6 +355,12 @@ class BaseWrapper(ABC):
                 "train": self.prefetch_factor,
                 "validation": self.prefetch_factor,
                 "test": self.prefetch_factor,
+            }
+        if not isinstance(self.persistent_workers, dict):
+            self.persistent_workers = {
+                "train": self.persistent_workers,
+                "validation": self.persistent_workers,
+                "test": self.persistent_workers,
             }
 
     def _setup_augmentations(self) -> None:
@@ -640,8 +656,14 @@ class BaseWrapper(ABC):
             prefetch_factor, self.prefetch_factor[split]
         )
 
-        # Create transform function with split bound using partial
-        transform_fn = partial(self.transform, split=split)
+        dataset = self.build_dataset(data, split)
+        batch_sampler = self.build_batch_sampler(
+            dataset,
+            split,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=drop_last,
+        )
 
         actual_batch_size = batch_size or self.batch_size
         actual_num_workers = num_workers or self.num_workers
@@ -652,17 +674,30 @@ class BaseWrapper(ABC):
             f"prefetch_factor={prefetch_factor}"
         )
 
+        loader_kwargs = {
+            "num_workers": num_workers,
+            "pin_memory": pin_memory,
+            "collate_fn": self.collate_fn,
+            "prefetch_factor": prefetch_factor,
+            "persistent_workers": bool(
+                self.persistent_workers[split] and num_workers > 0
+            ),
+            "worker_init_fn": partial(seed_worker, base_seed=self.seed),
+            "generator": None,
+        }
+        if batch_sampler is not None:
+            return DataLoader(
+                dataset,
+                batch_sampler=batch_sampler,
+                **loader_kwargs,
+            )
+
         return DataLoader(
-            DatasetGenerator(data, transform_fn),
+            dataset,
             batch_size=batch_size,
-            num_workers=num_workers,
             shuffle=shuffle,
-            pin_memory=pin_memory,
             drop_last=drop_last,
-            collate_fn=self.collate_fn,
-            prefetch_factor=prefetch_factor,
-            worker_init_fn=partial(seed_worker, base_seed=self.seed),
-            generator=None,
+            **loader_kwargs,
         )
 
     # ============================================================================
@@ -762,6 +797,26 @@ class BaseWrapper(ABC):
         - call auto_generate_partitions() to create splits
         """
         pass
+
+    def build_dataset(self, data: list[dict], split: str) -> Dataset:
+        """Build the map-style dataset consumed by a split DataLoader."""
+
+        transform_fn = partial(self.transform, split=split)
+        return DatasetGenerator(data, transform_fn)
+
+    def build_batch_sampler(
+        self,
+        dataset: Dataset,
+        split: str,
+        *,
+        batch_size: int,
+        shuffle: bool,
+        drop_last: bool,
+    ) -> Any | None:
+        """Return an optional split-specific PyTorch batch sampler."""
+
+        del dataset, split, batch_size, shuffle, drop_last
+        return None
 
     @time_execution("Dataset split performed in:")
     def perform_split(
@@ -1577,6 +1632,9 @@ class FrameWrapper(BaseWrapper):
             drop_last=drop_last,
             collate_fn=self.collate_fn,
             prefetch_factor=prefetch_factor,
+            persistent_workers=bool(
+                self.persistent_workers[split] and num_workers > 0
+            ),
             worker_init_fn=partial(seed_worker, base_seed=self.seed),
             generator=None,
         )
