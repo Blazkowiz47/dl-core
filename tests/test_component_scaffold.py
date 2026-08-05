@@ -732,6 +732,30 @@ def test_cli_add_adaptive_dataset_uses_adaptive_base(tmp_path: Path) -> None:
     )
 
 
+def test_cli_add_tar_dataset_keeps_inherited_index_discovery(tmp_path: Path) -> None:
+    """Tar dataset scaffolds should only require grouped-byte transformation."""
+
+    target_dir = create_experiment_scaffold("tar-demo", root_dir=str(tmp_path))
+    exit_code = cli_main(
+        [
+            "add",
+            "dataset",
+            "tar_set",
+            "--base",
+            "tar",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_text = (target_dir / "src" / "datasets" / "tar_set.py").read_text()
+    assert "from dl_core.datasets import TarShardWrapper" in component_text
+    assert "class TarSetDataset(TarShardWrapper):" in component_text
+    assert "file_dict[\"members\"]" in component_text
+    assert "def get_file_list(" not in component_text
+
+
 def test_cli_add_dataset_supports_optional_azure_bases(
     tmp_path: Path,
     monkeypatch,
@@ -779,6 +803,50 @@ def test_cli_add_dataset_supports_optional_azure_bases(
     )
     assert "def get_video_groups(self, split: str)" in component_text
     assert "def build_frame_record(" in component_text
+
+
+def test_cli_add_dataset_supports_optional_azure_tar_base(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Azure tar scaffolds should retain the core grouped-member contract."""
+
+    target_dir = create_experiment_scaffold("azure-tar-demo", root_dir=str(tmp_path))
+    monkeypatch.setattr(
+        component_scaffold,
+        "_load_optional_dataset_base_specs",
+        lambda: {
+            "azure_streaming_tar": component_scaffold.DatasetBaseSpec(
+                canonical_name="azure_streaming_tar",
+                import_path="dl_azure.datasets",
+                base_class="AzureStreamingTarShardWrapper",
+                class_docstring=(
+                    "Dataset scaffold based on AzureStreamingTarShardWrapper."
+                ),
+                template_kind="tar_shard",
+            )
+        },
+    )
+
+    exit_code = cli_main(
+        [
+            "add",
+            "dataset",
+            "azure_tar",
+            "--base",
+            "azure-streaming-tar",
+            "--root-dir",
+            str(target_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    component_text = (target_dir / "src" / "datasets" / "azure_tar.py").read_text()
+    assert "from dl_azure.datasets import AzureStreamingTarShardWrapper" in (
+        component_text
+    )
+    assert "class AzureTarDataset(AzureStreamingTarShardWrapper):" in component_text
+    assert "file_dict[\"members\"]" in component_text
 
 
 def test_cli_add_component_updates_existing_package_exports(tmp_path: Path) -> None:

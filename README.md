@@ -441,6 +441,7 @@ uv run dl-core add dataset MyDataset
 uv run dl-core add dataset FrameSet --base frame
 uv run dl-core add dataset TextSet --base text_sequence
 uv run dl-core add dataset ActSet --base adaptive_computation
+uv run dl-core add dataset TarSet --base tar_shard
 uv run dl-core add callback EpochLogger --base metric_logger
 uv run dl-core add metric_manager PadMetrics --base standard
 uv run dl-core add optimizer AdamwWrapper --base adamw
@@ -464,6 +465,7 @@ uv run dl-core add dataset AzureFrames --base azure_compute_frame
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
 uv run dl-core add dataset AzureStream --base azure_streaming
 uv run dl-core add dataset AzureStreamSeq --base azure_streaming_multiframe
+uv run dl-core add dataset AzureTar --base azure_streaming_tar
 ```
 
 Plain `deep-learning-core` currently exposes dataset bases for:

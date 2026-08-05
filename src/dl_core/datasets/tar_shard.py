@@ -529,7 +529,13 @@ class TarShardWrapper(BaseWrapper):
                 path = Path(shard["path"]).expanduser()
                 if not path.is_absolute():
                     path = self.shard_root / path
-                resolved.append({**shard, "path": str(path)})
+                resolved_shard = {**shard, "path": str(path)}
+                if shard.get("index_path"):
+                    index_path = Path(shard["index_path"]).expanduser()
+                    if not index_path.is_absolute():
+                        index_path = self.shard_root / index_path
+                    resolved_shard["index_path"] = str(index_path)
+                resolved.append(resolved_shard)
             return resolved
 
         patterns = self.config.get("shard_patterns", {})

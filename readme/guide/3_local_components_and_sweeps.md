@@ -42,6 +42,7 @@ uv run dl-core add dataset LocalDataset
 uv run dl-core add dataset FrameDataset --base frame
 uv run dl-core add dataset TextDataset --base text_sequence
 uv run dl-core add dataset ActDataset --base adaptive_computation
+uv run dl-core add dataset TarDataset --base tar_shard
 ```
 
 Supported component types:

@@ -316,6 +316,13 @@ _CORE_DATASET_BASE_SPECS = {
         ),
         template_kind="adaptive_computation",
     ),
+    "tar_shard": DatasetBaseSpec(
+        canonical_name="tar_shard",
+        import_path="dl_core.datasets",
+        base_class="TarShardWrapper",
+        class_docstring="Dataset scaffold based on TarShardWrapper.",
+        template_kind="tar_shard",
+    ),
 }
 
 _CORE_TRAINER_BASE_SPECS = {
@@ -372,6 +379,10 @@ _DATASET_BASE_ALIASES = {
     "adaptive_computation_dataset": "adaptive_computation",
     "adaptivecomputationdataset": "adaptive_computation",
     "act": "adaptive_computation",
+    "tar": "tar_shard",
+    "tar_shard": "tar_shard",
+    "tar_shard_wrapper": "tar_shard",
+    "tarshardwrapper": "tar_shard",
 }
 
 _TRAINER_BASE_ALIASES = {
@@ -1593,6 +1604,24 @@ def _load_optional_dataset_base_specs() -> dict[str, DatasetBaseSpec]:
             class_docstring="Dataset scaffold based on AzureStreamingWrapper.",
             template_kind="sample",
         ),
+        "azure_compute_tar": DatasetBaseSpec(
+            canonical_name="azure_compute_tar",
+            import_path="dl_azure.datasets",
+            base_class="AzureComputeTarShardWrapper",
+            class_docstring=(
+                "Dataset scaffold based on AzureComputeTarShardWrapper."
+            ),
+            template_kind="tar_shard",
+        ),
+        "azure_streaming_tar": DatasetBaseSpec(
+            canonical_name="azure_streaming_tar",
+            import_path="dl_azure.datasets",
+            base_class="AzureStreamingTarShardWrapper",
+            class_docstring=(
+                "Dataset scaffold based on AzureStreamingTarShardWrapper."
+            ),
+            template_kind="tar_shard",
+        ),
         "azure_compute_frame": DatasetBaseSpec(
             canonical_name="azure_compute_frame",
             import_path="dl_azure.datasets",
@@ -1651,6 +1680,12 @@ def _render_dataset_component(
         )
     if base_spec.template_kind == "adaptive_computation":
         return _dataset_adaptive_component(
+            base_spec,
+            registry_literal,
+            class_name,
+        )
+    if base_spec.template_kind == "tar_shard":
+        return _dataset_tar_shard_component(
             base_spec,
             registry_literal,
             class_name,
@@ -1890,6 +1925,37 @@ class {class_name}({base_spec.base_class}):
         raise NotImplementedError(
             "TODO: load file_dict['path'] and return the tensors needed by "
             "your adaptive-computation trainer."
+        )
+'''
+
+
+def _dataset_tar_shard_component(
+    base_spec: DatasetBaseSpec,
+    registry_literal: str,
+    class_name: str,
+) -> str:
+    """Render a grouped tar-sample dataset scaffold."""
+
+    return f'''"""{_dataset_module_docstring(base_spec)}"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dl_core.core import register_dataset
+from {base_spec.import_path} import {base_spec.base_class}
+
+
+@register_dataset({registry_literal})
+class {class_name}({base_spec.base_class}):
+    """{base_spec.class_docstring}"""
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Decode one grouped tar sample into the model input dictionary."""
+        members = file_dict["members"]
+        raise NotImplementedError(
+            "TODO: decode members such as members['png'] and members['json'], "
+            "then return the tensors and metadata required by the model."
         )
 '''
 

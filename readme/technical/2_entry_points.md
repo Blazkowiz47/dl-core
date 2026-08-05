@@ -14,6 +14,7 @@ uv run dl-core list sampler
 uv run dl-core add augmentation Custom1
 uv run dl-core add dataset LocalDataset
 uv run dl-core add dataset FrameDataset --base frame
+uv run dl-core add dataset TarDataset --base tar_shard
 uv run dl-core add callback EpochLogger --base metric_logger
 uv run dl-core add optimizer AdamwWrapper --base adamw
 ```
