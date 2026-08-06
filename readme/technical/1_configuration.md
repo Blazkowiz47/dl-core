@@ -75,8 +75,7 @@ Notes:
 - if you need dummy or synthetic data, implement it in your local dataset
   wrapper instead of relying on the built-in standard dataset
 
-Indexed tar wrappers use uncompressed `.tar` files and can declare explicit
-shards and required grouped members:
+WebDataset-backed tar wrappers declare shard paths and required grouped members:
 
 ```yaml
 dataset:
@@ -89,21 +88,24 @@ dataset:
       - path: data/train/real-000.tar
         group: real
   required_extensions: [png, json]
-  max_open_shards: 8
   persistent_workers: true
   batch_size: 32
-  batch_sampler:
-    type: round_robin_tar
-    group_pattern: [attack, real]
-    shuffle_within_batch: true
-    distributed_drop_last: true
+  webdataset:
+    shard_shuffle: 100
+    sample_shuffle: 10000
+    sample_shuffle_initial: 100
+    resampled:
+      train: true
+      validation: false
+      test: false
 ```
 
-The index defaults to `<shard>.tar.idx.json`. `index_checksum: true` adds and
-validates SHA-256 checksums; otherwise the index is validated using tar size.
-The distributed sampler partitions complete batches between ranks. Workers
-inside a rank receive only those selected sample indices and keep their own
-process-local tar handles.
+Install this optional path with `deep-learning-core[webdataset]`. WebDataset
+groups members by sample key, shuffles shards and samples with bounded buffers,
+and splits shards with `split_by_node` and `split_by_worker`. Training can use a
+resampled stream with `IterationTrainer`; validation and test should normally
+remain finite. `shard_shuffle`, `sample_shuffle`, `sample_shuffle_initial`,
+`resampled`, and `empty_check` may be scalars or split-specific mappings.
 
 ## Optimizer
 
@@ -179,8 +181,9 @@ trainer:
 One iteration consumes one training batch on every distributed rank. A zero
 validation, test, or checkpoint frequency means final-only. Finite loaders are
 cycled and their cycle/cursor state is checkpointed; infinite loaders continue
-without requiring a length. The global batch sequence must still be partitioned
-into complete per-rank batches by the sampler so ranks do not duplicate work.
+without requiring a length. WebDataset-backed loaders split shards between
+ranks and workers before reading samples; a resampled training stream keeps
+every rank available for the configured iteration budget.
 
 There is no generic `BaseTrainer` export. Import `EpochTrainer`,
 `IterationTrainer`, or `RLTrainer` explicitly according to the lifecycle.

@@ -10,7 +10,7 @@ import torch.nn as nn
 from torch.amp import GradScaler  # pyright: ignore[reportPrivateImportUsage]
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 
 from dl_core.core.base_accelerator import BaseAccelerator
@@ -207,6 +207,9 @@ class MultiGPUAccelerator(BaseAccelerator):
                         continue
 
                     dataset = dataloader.dataset
+                    if isinstance(dataset, IterableDataset):
+                        prepared_dataloaders[name] = dataloader
+                        continue
                     # Get seed from config, default to 42 for reproducibility
                     sampler = DistributedSampler(
                         dataset,

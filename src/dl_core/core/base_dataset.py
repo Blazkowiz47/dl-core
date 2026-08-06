@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 from sklearn.model_selection import train_test_split
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset
 
 from dl_core.core.base_transform import BaseTransform
 from dl_core.core.config_metadata import config_field
@@ -695,7 +695,7 @@ class BaseWrapper(ABC):
         return DataLoader(
             dataset,
             batch_size=batch_size,
-            shuffle=shuffle,
+            shuffle=False if isinstance(dataset, IterableDataset) else shuffle,
             drop_last=drop_last,
             **loader_kwargs,
         )

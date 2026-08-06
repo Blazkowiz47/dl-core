@@ -21,6 +21,15 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
+## What's New in Development?
+
+- tar datasets now delegate streaming, grouped samples, buffered shuffling,
+  resampling, and rank/worker splitting to the optional `webdataset` package
+- `TarShardWrapper` remains a thin config and transform adapter; the custom tar
+  index, handle pool, and round-robin batch sampler have been removed
+- iterable datasets are preserved by the multi-GPU accelerator instead of being
+  wrapped in an incompatible PyTorch `DistributedSampler`
+
 ## What's New in 0.1.4?
 
 - `IterationTrainer` provides fixed-batch training with deterministic loader
@@ -40,6 +49,12 @@ Install from PyPI:
 
 ```bash
 pip install deep-learning-core
+```
+
+Install WebDataset-backed tar support only when needed:
+
+```bash
+pip install "deep-learning-core[webdataset]"
 ```
 
 Install with Azure support:
@@ -479,12 +494,11 @@ Plain `deep-learning-core` currently exposes dataset bases for:
 adaptive-time computation trainers. Multiframe dataset bases are still
 provided through `dl-azure`.
 
-`TarShardWrapper` groups members such as `sample.png` and `sample.json` by
-their shared key and reads them directly from uncompressed `.tar` files. It
-uses a JSON sidecar index for byte-offset access, never extracts archives, and
-can build deterministic round-robin batches across shards and distributed
-ranks. Project wrappers implement `transform()` and receive grouped bytes in
-`file_dict["members"]`.
+`TarShardWrapper` uses the optional `webdataset` package to stream members such
+as `sample.png` and `sample.json` as one grouped sample. Project wrappers
+implement `transform()` and receive the grouped bytes in
+`file_dict["members"]`. WebDataset performs shard/sample shuffling and splits
+the shard stream between distributed ranks and DataLoader workers.
 
 ## Releases
 

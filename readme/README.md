@@ -7,6 +7,13 @@ focused on the extracted package and the experiment-repo workflow around it.
 Current public release: `deep-learning-core==0.1.4`.
 Current development version: `0.1.4`.
 
+## What's New in Development?
+
+- tar datasets now use optional WebDataset pipelines for grouped streaming,
+  buffered shuffling, resampling, and distributed shard splitting
+- the custom sidecar index, tar handle pool, and round-robin tar sampler have
+  been removed
+
 ## What's New in 0.1.4?
 
 - `IterationTrainer` supports fixed-batch training, deterministic finite-loader

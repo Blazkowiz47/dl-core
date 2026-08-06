@@ -49,6 +49,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+webdataset = [
+    "webdataset>=1,<2",
+]
 azure = [
     "deep-learning-azure>=0.0.21,<0.1",
 ]
@@ -64,6 +67,7 @@ dev = [
     "ruff>=0.12",
     "torchvision",
     "twine>=6.0",
+    "webdataset>=1,<2",
 ]
 
 [project.urls]
