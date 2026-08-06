@@ -32,6 +32,22 @@ class _BytesTarWrapper(TarShardWrapper):
         return {**file_dict, "split": split}
 
 
+class _DynamicTarWrapper(_BytesTarWrapper):
+    def build_shard_sources(self, split: str) -> list[dict[str, Any]]:
+        if "dynamic_sources" in self.config:
+            return self.config["dynamic_sources"].get(split, [])
+        return [
+            {
+                "name": "dynamic",
+                "weight": self.config.get("dynamic_weight", 1.0),
+                "shards": [
+                    {"path": path, "group": "dynamic"}
+                    for path in self.config["dynamic_shards"].get(split, [])
+                ],
+            }
+        ]
+
+
 def _wrapper(tar_path: Path, **config: Any) -> _BytesTarWrapper:
     return _BytesTarWrapper(
         {
@@ -87,6 +103,69 @@ def test_tar_wrapper_rejects_incomplete_required_pairs(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="missing extensions"):
         next(iter(loader))
+
+
+def test_project_wrapper_can_build_weighted_sources_without_yaml_shards(
+    tmp_path: Path,
+) -> None:
+    tar_path = tmp_path / "dynamic.tar"
+    _write_tar(tar_path, {"sample": {"png": b"image", "json": b"{}"}})
+    wrapper = _DynamicTarWrapper(
+        {
+            "dynamic_shards": {"train": [str(tar_path)]},
+            "required_extensions": ["png", "json"],
+            "batch_size": 1,
+            "num_workers": 0,
+            "shuffle": False,
+            "auto_split": False,
+        }
+    )
+
+    loader = wrapper.get_split("train")
+    assert loader is not None
+    batch = next(iter(loader))
+    assert batch["key"] == ["sample"]
+    assert batch["group"] == ["dynamic"]
+    assert batch["source_name"] == ["dynamic"]
+    assert batch["source_weight"].tolist() == [1.0]
+
+
+def test_dynamic_source_weights_are_passed_to_webdataset_random_mix(
+    tmp_path: Path,
+) -> None:
+    bonafide = tmp_path / "bonafide.tar"
+    attack = tmp_path / "attack.tar"
+    _write_tar(bonafide, {"real": {"png": b"real", "json": b"{}"}})
+    _write_tar(attack, {"attack": {"png": b"attack", "json": b"{}"}})
+    wrapper = _DynamicTarWrapper(
+        {
+            "dynamic_sources": {
+                "train": [
+                    {
+                        "name": "bonafide",
+                        "weight": 0.6,
+                        "shards": [str(bonafide)],
+                    },
+                    {
+                        "name": "attack",
+                        "weight": 0.4,
+                        "shards": [str(attack)],
+                    },
+                ]
+            },
+            "required_extensions": ["png", "json"],
+            "batch_size": 1,
+            "num_workers": 0,
+            "shuffle": False,
+            "auto_split": False,
+            "webdataset": {"resampled": {"train": True}},
+        }
+    )
+
+    loader = wrapper.get_split("train")
+    assert loader is not None
+    assert loader.dataset.probs == [0.6, 0.4]
+    assert next(iter(loader))["source_name"][0] in {"bonafide", "attack"}
 
 
 def test_tar_wrapper_skips_incomplete_pairs_when_not_strict(tmp_path: Path) -> None:

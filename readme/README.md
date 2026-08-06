@@ -11,6 +11,8 @@ Current development version: `0.1.4`.
 
 - tar datasets now use optional WebDataset pipelines for grouped streaming,
   buffered shuffling, resampling, and distributed shard splitting
+- project wrappers can build weighted shard sources dynamically through one
+  override hook backed by WebDataset `RandomMix`
 - the custom sidecar index, tar handle pool, and round-robin tar sampler have
   been removed
 

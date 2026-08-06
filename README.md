@@ -27,6 +27,8 @@ Compatible companion package floors:
   resampling, and rank/worker splitting to the optional `webdataset` package
 - `TarShardWrapper` remains a thin config and transform adapter; the custom tar
   index, handle pool, and round-robin batch sampler have been removed
+- project wrappers can override `build_shard_sources(split)` to construct shard
+  paths and weights dynamically; multiple sources are mixed by WebDataset
 - iterable datasets are preserved by the multi-GPU accelerator instead of being
   wrapped in an incompatible PyTorch `DistributedSampler`
 
@@ -499,6 +501,39 @@ as `sample.png` and `sample.json` as one grouped sample. Project wrappers
 implement `transform()` and receive the grouped bytes in
 `file_dict["members"]`. WebDataset performs shard/sample shuffling and splits
 the shard stream between distributed ranks and DataLoader workers.
+
+Explicit `dataset.shards` are optional. Project wrappers can construct paths and
+weights together:
+
+```python
+from dl_core.datasets import TarShardWrapper
+
+
+class MobaiTarWrapper(TarShardWrapper):
+    def build_shard_sources(self, split: str) -> list[dict]:
+        return [
+            {
+                "name": "bonafide",
+                "weight": 0.5,
+                "shards": self.find_bonafide_shards(split),
+            },
+            {
+                "name": "replay",
+                "weight": 0.3,
+                "shards": self.find_replay_shards(split),
+            },
+            {
+                "name": "print",
+                "weight": 0.2,
+                "shards": self.find_print_shards(split),
+            },
+        ]
+```
+
+Each shard may be a path string or a metadata dictionary containing `path`.
+Positive-weight sources are passed to WebDataset `RandomMix`. The weights are
+probabilistic rather than an exact within-batch composition and are most useful
+with a resampled iteration-based training stream.
 
 ## Releases
 

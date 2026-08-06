@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ class TarShardWrapper(BaseWrapper):
         config_field(
             "shards",
             "list[str | dict] | dict[str, list[str | dict]]",
-            "Explicit tar shards, optionally split-specific and annotated with metadata.",
+            "Optional tar shards used by the default build_shard_sources hook.",
         ),
         config_field(
             "shard_patterns",
@@ -82,42 +83,54 @@ class TarShardWrapper(BaseWrapper):
             for shard in configured
         ]
 
-    def get_shards(self, split: str) -> list[dict[str, Any]]:
-        """Return resolved local shard records for one split."""
+    def build_shard_sources(self, split: str) -> list[dict[str, Any]]:
+        """Build weighted logical shard sources; subclasses may override."""
 
-        configured = self.get_configured_shards(split)
-        if configured:
-            resolved = []
-            for shard in configured:
+        shards = self.get_configured_shards(split)
+        if not shards:
+            patterns = self.config.get("shard_patterns", {})
+            if isinstance(patterns, dict):
+                patterns = patterns.get(split, [])
+            if isinstance(patterns, str):
+                patterns = [patterns]
+            if not patterns:
+                patterns = [
+                    f"{split}/**/*.tar",
+                    f"{split}/**/*.tar.gz",
+                    f"{split}/**/*.tgz",
+                ]
+            paths = {
+                path
+                for pattern in patterns
+                for path in self.shard_root.glob(pattern)
+                if path.is_file()
+            }
+            shards = [{"path": str(path.absolute())} for path in sorted(paths)]
+        return [{"name": split, "weight": 1.0, "shards": shards}]
+
+    def get_shard_sources(self, split: str) -> list[dict[str, Any]]:
+        """Resolve logical source shard records into local paths."""
+
+        sources = []
+        for source in self.build_shard_sources(split):
+            resolved_shards = []
+            for configured_shard in source.get("shards", []):
+                shard = (
+                    dict(configured_shard)
+                    if isinstance(configured_shard, dict)
+                    else {"path": str(configured_shard)}
+                )
                 path = Path(shard["path"]).expanduser()
                 if not path.is_absolute():
                     path = self.shard_root / path
-                resolved.append({**shard, "path": str(path)})
-            return resolved
-
-        patterns = self.config.get("shard_patterns", {})
-        if isinstance(patterns, dict):
-            patterns = patterns.get(split, [])
-        if isinstance(patterns, str):
-            patterns = [patterns]
-        if not patterns:
-            patterns = [
-                f"{split}/**/*.tar",
-                f"{split}/**/*.tar.gz",
-                f"{split}/**/*.tgz",
-            ]
-        paths = {
-            path
-            for pattern in patterns
-            for path in self.shard_root.glob(pattern)
-            if path.is_file()
-        }
-        return [{"path": str(path)} for path in sorted(paths)]
+                resolved_shards.append({**shard, "path": str(path)})
+            sources.append({**source, "shards": resolved_shards})
+        return sources
 
     def get_file_list(self, split: str) -> list[dict[str, Any]]:
-        """Return shard records; WebDataset discovers samples while streaming."""
+        """Return weighted shard sources for the WebDataset pipeline."""
 
-        return self.get_shards(split)
+        return self.get_shard_sources(split)
 
     def _webdataset_value(self, name: str, split: str, default: Any) -> Any:
         value = self.webdataset_config.get(name, default)
@@ -174,13 +187,6 @@ class TarShardWrapper(BaseWrapper):
                 "`uv add 'deep-learning-core[webdataset]'`."
             ) from exc
 
-        paths = [str(shard["path"]) for shard in data]
-        metadata_by_shard = {
-            str(shard["path"]): {
-                key: value for key, value in shard.items() if key != "path"
-            }
-            for shard in data
-        }
         config = self.webdataset_config
         resampled = bool(self._webdataset_value("resampled", split, False))
         shuffle = self._webdataset_shuffle.get(split, self.shuffle[split])
@@ -194,40 +200,88 @@ class TarShardWrapper(BaseWrapper):
             cache_path.mkdir(parents=True, exist_ok=True)
             cache_dir = str(cache_path)
 
-        dataset = wds.WebDataset(
-            paths,
-            resampled=resampled,
-            shardshuffle=shard_shuffle,
-            detshuffle=bool(self.deterministic and shard_shuffle),
-            nodesplitter=wds.split_by_node,
-            workersplitter=wds.split_by_worker,
-            empty_check=bool(self._webdataset_value("empty_check", split, True)),
-            cache_dir=cache_dir,
-            cache_size=int(config.get("cache_size", -1)),
-            seed=self.seed,
-        )
         sample_shuffle = int(self._webdataset_value("sample_shuffle", split, 1000))
-        if shuffle and sample_shuffle > 0:
-            initial = int(
-                self._webdataset_value(
-                    "sample_shuffle_initial",
-                    split,
-                    min(100, sample_shuffle),
+        pipelines = []
+        weights = []
+        for source in data:
+            weight = float(source.get("weight", 1.0))
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError(
+                    f"WebDataset source {source.get('name', split)!r} has invalid "
+                    f"weight {weight}"
+                )
+            if weight == 0:
+                continue
+
+            shards = source.get("shards", [])
+            if not shards:
+                raise ValueError(
+                    f"WebDataset source {source.get('name', split)!r} has no shards"
+                )
+            paths = [str(shard["path"]) for shard in shards]
+            metadata_by_shard = {}
+            for shard in shards:
+                metadata = {
+                    key: value for key, value in shard.items() if key != "path"
+                }
+                metadata.setdefault("source_name", source.get("name", split))
+                metadata.setdefault("source_weight", weight)
+                metadata_by_shard[str(shard["path"])] = metadata
+
+            pipeline = wds.WebDataset(
+                paths,
+                resampled=resampled,
+                shardshuffle=shard_shuffle,
+                detshuffle=bool(self.deterministic and shard_shuffle),
+                nodesplitter=wds.split_by_node,
+                workersplitter=wds.split_by_worker,
+                empty_check=bool(
+                    self._webdataset_value("empty_check", split, True)
+                ),
+                cache_dir=cache_dir,
+                cache_size=int(config.get("cache_size", -1)),
+                seed=self.seed,
+            )
+            if shuffle and sample_shuffle > 0:
+                initial = int(
+                    self._webdataset_value(
+                        "sample_shuffle_initial",
+                        split,
+                        min(100, sample_shuffle),
+                    )
+                )
+                if self.deterministic:
+                    pipeline = pipeline.compose(
+                        wds.detshuffle(
+                            sample_shuffle,
+                            initial=initial,
+                            seed=self.seed,
+                        )
+                    )
+                else:
+                    pipeline = pipeline.shuffle(sample_shuffle, initial=initial)
+            pipelines.append(
+                pipeline.map(
+                    partial(
+                        self._transform_webdataset_sample,
+                        split=split,
+                        metadata_by_shard=metadata_by_shard,
+                    )
                 )
             )
-            if self.deterministic:
-                dataset = dataset.compose(
-                    wds.detshuffle(sample_shuffle, initial=initial, seed=self.seed)
-                )
-            else:
-                dataset = dataset.shuffle(sample_shuffle, initial=initial)
-        dataset = dataset.map(
-            partial(
-                self._transform_webdataset_sample,
-                split=split,
-                metadata_by_shard=metadata_by_shard,
+            weights.append(weight)
+
+        if not pipelines:
+            raise ValueError(f"No positive-weight WebDataset sources found for {split}")
+        dataset = pipelines[0]
+        if len(pipelines) > 1:
+            dataset = wds.RandomMix(
+                pipelines,
+                probs=weights,
+                longest=bool(
+                    self._webdataset_value("mix_longest", split, not resampled)
+                ),
             )
-        )
         dataset.is_distributed = True
         return dataset
 

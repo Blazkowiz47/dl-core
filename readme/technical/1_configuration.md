@@ -106,6 +106,14 @@ and splits shards with `split_by_node` and `split_by_worker`. Training can use a
 resampled stream with `IterationTrainer`; validation and test should normally
 remain finite. `shard_shuffle`, `sample_shuffle`, `sample_shuffle_initial`,
 `resampled`, and `empty_check` may be scalars or split-specific mappings.
+`mix_longest` controls whether a finite weighted mix continues after one source
+is exhausted and defaults to `true` for non-resampled streams.
+
+`dataset.shards` and `shard_patterns` are default conveniences. A project
+wrapper can instead override `build_shard_sources(split)` and return entries
+with `name`, `weight`, and `shards`. Shards may be strings or dictionaries with
+a `path` plus project metadata. Multiple positive-weight sources are mixed with
+WebDataset `RandomMix`; zero-weight sources are skipped.
 
 ## Optimizer
 
