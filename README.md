@@ -11,17 +11,17 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.4`.
-Current development version: `0.1.4`.
+Current public release: `deep-learning-core==0.1.5`.
+Current development version: `0.1.5`.
 
 Compatible companion package floors:
 
-- `deep-learning-azure>=0.0.21,<0.1`
+- `deep-learning-azure>=0.0.22,<0.1`
 - `deep-learning-mlflow>=0.0.15,<0.1`
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in Development?
+## What's New in 0.1.5?
 
 - tar datasets now delegate streaming, grouped samples, buffered shuffling,
   resampling, and rank/worker splitting to the optional `webdataset` package
@@ -31,17 +31,6 @@ Compatible companion package floors:
   paths and weights dynamically; multiple sources are mixed by WebDataset
 - iterable datasets are preserved by the multi-GPU accelerator instead of being
   wrapped in an incompatible PyTorch `DistributedSampler`
-
-## What's New in 0.1.4?
-
-- `IterationTrainer` provides fixed-batch training with deterministic loader
-  cycling, iteration-based lifecycle frequencies, and resumable cursor state;
-  the ambiguous `BaseTrainer` alias has been removed
-- `TarShardDataset` indexes grouped samples in uncompressed tar files without
-  extraction and reuses worker-local tar handles for direct sample reads
-- `RoundRobinTarBatchSampler` builds deterministic, group-aware batches and
-  partitions complete batches across distributed ranks without duplication
-- dataset scaffolding now includes local and Azure-compatible tar-shard bases
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

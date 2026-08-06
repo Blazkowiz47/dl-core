@@ -4,10 +4,10 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.4`.
-Current development version: `0.1.4`.
+Current public release: `deep-learning-core==0.1.5`.
+Current development version: `0.1.5`.
 
-## What's New in Development?
+## What's New in 0.1.5?
 
 - tar datasets now use optional WebDataset pipelines for grouped streaming,
   buffered shuffling, resampling, and distributed shard splitting
@@ -15,17 +15,6 @@ Current development version: `0.1.4`.
   override hook backed by WebDataset `RandomMix`
 - the custom sidecar index, tar handle pool, and round-robin tar sampler have
   been removed
-
-## What's New in 0.1.4?
-
-- `IterationTrainer` supports fixed-batch training, deterministic finite-loader
-  cycling, iteration-based lifecycle frequencies, and exact cursor resume
-- callers now choose `EpochTrainer`, `IterationTrainer`, or `RLTrainer`
-  explicitly; the ambiguous `BaseTrainer` alias is removed
-- indexed tar datasets read grouped samples directly from uncompressed archives
-  and reuse worker-local handles without extracting files
-- deterministic round-robin tar batches preserve group balance and partition
-  complete batches across distributed ranks
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

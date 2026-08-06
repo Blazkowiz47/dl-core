@@ -3,6 +3,17 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.4
+
+- `IterationTrainer` provides fixed-batch training with deterministic loader
+  cycling, iteration-based lifecycle frequencies, and resumable cursor state;
+  the ambiguous `BaseTrainer` alias has been removed
+- `TarShardDataset` indexes grouped samples in uncompressed tar files without
+  extraction and reuses worker-local tar handles for direct sample reads
+- `RoundRobinTarBatchSampler` builds deterministic, group-aware batches and
+  partitions complete batches across distributed ranks without duplication
+- dataset scaffolding includes local and Azure-compatible tar-shard bases
+
 ## 0.1.1
 
 - `IterationTrainer` adds fixed-batch training with deterministic loader
