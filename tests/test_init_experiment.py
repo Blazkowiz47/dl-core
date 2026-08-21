@@ -83,6 +83,9 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "name" not in config["models"]["resnet_example"]
     assert "from dl_core.models" not in model_text
     assert "from torchvision.models import" in model_text
+    assert "# 1. Retrieve and prepare inputs." in model_text
+    assert "# 2. Run the model elements in execution order." in model_text
+    assert "# 3. Build and return the final output dictionary." in model_text
     assert '"torchvision"' in pyproject_text
     assert config["dataset"]["name"] == component_name
     assert list(config["trainer"].keys()) == [component_name]
@@ -144,10 +147,18 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "# named-demo Experiment Repository Guidelines" in agents_text
     assert "## Execution Safety" in agents_text
     assert "## Config Rules" in agents_text
+    assert "## Component implementation" in agents_text
     assert "## Code Hygiene" in agents_text
+    assert "## Dependency versions" in agents_text
     assert "Even one-off single-run configs belong under `experiments/`." in agents_text
     assert "Do not extract one-off logic into a separate function" in agents_text
-    assert "unless the logic is used more than twice" in agents_text
+    assert "unless it is reused more than twice" in agents_text
+    assert "Retrieve inputs from `batch_data` and perform input preparation." in (
+        agents_text
+    )
+    assert "Keep losses, metric updates, logging, optimizer operations" in agents_text
+    assert "Always show the latest stable PyTorch version" in agents_text
+    assert "official PyTorch releases page" in agents_text
     assert "`CLAUDE.md` should only point at this file with `@AGENTS.md`" in (
         agents_text
     )
@@ -164,7 +175,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert claude_text == "@AGENTS.md\n"
     assert "`CLAUDE.md`: Claude-compatible pointer to `AGENTS.md`" in readme_text
     assert "concrete single-run and sweep experiment configs" in readme_text
-    assert '"deep-learning-core>=0.1.5,<0.2"' in pyproject_text
+    assert '"deep-learning-core>=0.1.6,<0.2"' in pyproject_text
     assert "   - `CLAUDE.md`" in readme_text
     assert "scripts/temporary/test_dataset.py" in readme_text
     assert "scripts/temporary/test_model.py" in readme_text

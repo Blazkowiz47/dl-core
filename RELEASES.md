@@ -3,6 +3,25 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.6
+
+- repository and generated experiment guidance now asks authors to keep new
+  components direct, avoid one-off helpers, and delay shared abstractions until
+  multiple components need them
+- model stubs and the generated ResNet example organize `compute_forward()` as
+  input preparation, an ordered model pass, and final output construction
+- generated guidance requires checking the official PyTorch releases before
+  naming the latest stable version and distinguishes older compatibility pins
+
+## 0.1.5
+
+- tar datasets use optional WebDataset pipelines for grouped streaming,
+  buffered shuffling, resampling, and distributed shard splitting
+- project wrappers can build weighted shard sources dynamically through one
+  override hook backed by WebDataset `RandomMix`
+- the custom sidecar index, tar handle pool, and round-robin tar sampler were
+  removed
+
 ## 0.1.4
 
 - `IterationTrainer` provides fixed-batch training with deterministic loader

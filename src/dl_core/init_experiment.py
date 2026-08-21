@@ -81,7 +81,7 @@ description = "Experiment repository for {project_name}."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "deep-learning-core>=0.1.5,<0.2",
+    "deep-learning-core>=0.1.6,<0.2",
     "torchvision",
 ]
 
@@ -219,14 +219,33 @@ def _project_agents_md(project_name: str) -> str:
 - Only move to `uv run dl-sweep experiments/lr_sweep.yaml` after a single run already works.
 - When a user says an experiment or sweep is done, or asks for analysis, check `experiments/<sweep_name>/analysis/` for the analysis markdown file and update `experiments/experiments.log` automatically when it exists.
 
+## Component implementation
+
+- Keep every new component direct and readable. Start from the generated method stub and implement only the required behavior.
+- Match nearby components before introducing a new pattern.
+- Avoid pass-through helpers, unnecessary wrapper classes, and configuration options with only one use.
+- Keep component-specific behavior in the component instead of adding a framework-level abstraction before multiple components need it.
+- Keep `compute_forward()` in three visible stages when the architecture allows it:
+  1. Retrieve inputs from `batch_data` and perform input preparation.
+  2. Pass the prepared values through the model elements in execution order.
+  3. Build and return the final output dictionary.
+- Keep losses, metric updates, logging, optimizer operations, and unrelated state changes outside `compute_forward()`.
+
 ## Code Hygiene
 
-- Keep dataset wrappers, trainers, callbacks, and metric managers readable and direct.
+- Keep models, dataset wrappers, trainers, callbacks, criteria, metrics, metric managers, and executors readable and direct.
 - Keep additional helper functions to a minimum.
-- Do not extract one-off logic into a separate function unless the logic is used more than twice.
-- Prefer inline, local logic for project-specific dataset and trainer behavior when it remains readable.
+- Do not extract one-off logic into a separate function unless it is reused more than twice or represents a distinct operation that benefits from independent testing.
+- Prefer inline, local logic for project-specific component behavior when it remains readable.
 - Avoid broad refactors while implementing experiment logic. Keep edits scoped to the current dataset, model, trainer, or config need.
 - Use `uv add`, `uv lock`, and `uv sync` for dependency changes. Do not edit lockfiles by hand.
+
+## Dependency versions
+
+- Always show the latest stable PyTorch version in documentation, commands, and generated files that name a version.
+- Verify the version against the official PyTorch releases page before writing it. Do not copy a version from an older example.
+- If compatibility requires an older PyTorch version, label it as a compatibility pin instead of calling it latest.
+- Keep `torchvision` and `torchaudio` versions compatible with the selected PyTorch release.
 
 ## Shortcuts
 
@@ -761,7 +780,12 @@ class {class_name}(BaseModel):
     ) -> dict[str, Tensor]:
         \"\"\"Return classification probabilities, logits, and features.\"\"\"
         del kwargs
-        features = self.module.conv1(batch_data["image"])
+
+        # 1. Retrieve and prepare inputs.
+        images = batch_data["image"]
+
+        # 2. Run the model elements in execution order.
+        features = self.module.conv1(images)
         features = self.module.bn1(features)
         features = self.module.relu(features)
         features = self.module.maxpool(features)
@@ -771,6 +795,8 @@ class {class_name}(BaseModel):
         features = self.module.layer4(features)
         features = self.module.avgpool(features).flatten(1)
         logits = self.module.fc(features)
+
+        # 3. Build and return the final output dictionary.
         probabilities = (
             torch.sigmoid(logits)
             if logits.shape[1] == 1

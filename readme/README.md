@@ -4,17 +4,16 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.5`.
-Current development version: `0.1.5`.
+Current public release: `deep-learning-core==0.1.6`.
+Current development version: `0.1.6`.
 
-## What's New in 0.1.5?
+## What's New in 0.1.6?
 
-- tar datasets now use optional WebDataset pipelines for grouped streaming,
-  buffered shuffling, resampling, and distributed shard splitting
-- project wrappers can build weighted shard sources dynamically through one
-  override hook backed by WebDataset `RandomMix`
-- the custom sidecar index, tar handle pool, and round-robin tar sampler have
-  been removed
+- new component guidance favors direct implementations over one-off helpers
+  and unnecessary wrappers
+- model stubs and examples show the three-stage `compute_forward()` structure
+- generated repositories tell authors to verify the latest stable PyTorch
+  release before naming an exact version
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

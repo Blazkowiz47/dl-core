@@ -993,23 +993,24 @@ wheels = [
 
 [[package]]
 name = "deep-learning-azure"
-version = "0.0.22"
-source = { registry = "../dl-azure/dist" }
+version = "0.0.23"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "azure-ai-ml" },
     { name = "azure-identity" },
     { name = "azure-storage-blob" },
     { name = "azureml-mlflow" },
     { name = "deep-learning-core" },
+    { name = "filelock" },
 ]
-sdist = { path = "deep_learning_azure-0.0.22.tar.gz" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/32/f7a5513fc8296109e406c5930f805e3e0922d507c7a4caac5f069588f19f/deep_learning_azure-0.0.23.tar.gz", hash = "sha256:a32b692f652329bed28934439a9315ec501cff0b72429f13900dbd13b58b0059", size = 234996, upload-time = "2026-08-14T04:41:44.43Z" }
 wheels = [
-    { path = "deep_learning_azure-0.0.22-py3-none-any.whl" },
+    { url = "https://files.pythonhosted.org/packages/92/ca/18bb6d75c5e42355f03555b7037173c10b2417524b32d5ca648ffeb56de1/deep_learning_azure-0.0.23-py3-none-any.whl", hash = "sha256:31338c7c6e80c4012843d4928831786be82f60b70b4345f256ce6868cf3dca31", size = 53160, upload-time = "2026-08-14T04:41:43.036Z" },
 ]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.1.5"
+version = "0.1.6"
 source = { editable = "." }
 dependencies = [
     { name = "albumentations" },
@@ -1074,27 +1075,27 @@ provides-extras = ["webdataset", "azure", "mlflow", "wandb", "dev"]
 [[package]]
 name = "deep-learning-mlflow"
 version = "0.0.15"
-source = { registry = "../dl-mlflow/dist" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "deep-learning-core" },
     { name = "mlflow" },
 ]
-sdist = { path = "deep_learning_mlflow-0.0.15.tar.gz" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/e1/5f3ecff35b7d29a7fe2fe1313776564755adbc87d0a6b0590ea676538d91/deep_learning_mlflow-0.0.15.tar.gz", hash = "sha256:1149afbdc3d8d3f7ecd60990c0d64e84f75adcaa5ff7137314f9a48dfabbcf75", size = 227596, upload-time = "2026-08-14T04:44:22.65Z" }
 wheels = [
-    { path = "deep_learning_mlflow-0.0.15-py3-none-any.whl" },
+    { url = "https://files.pythonhosted.org/packages/f9/00/0aa4e721fccbc97253140a6dd6157466d29e73b8c0df85b704008a3efc34/deep_learning_mlflow-0.0.15-py3-none-any.whl", hash = "sha256:c3f3e8a9f304eb72e3627350c1bda5603365bcd81f67696782cfb102771ec172", size = 12525, upload-time = "2026-08-14T04:44:21.473Z" },
 ]
 
 [[package]]
 name = "deep-learning-wandb"
 version = "0.0.16"
-source = { registry = "../dl-wandb/dist" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "deep-learning-core" },
     { name = "wandb" },
 ]
-sdist = { path = "deep_learning_wandb-0.0.16.tar.gz" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/85/e8a1753404d6c8047fa0c3adebdd3dfd584a513f52d2eba7c6d92e27dfe9/deep_learning_wandb-0.0.16.tar.gz", hash = "sha256:e8a551f361377650466e2151e8c4f49bc71bc7843770b4843d5a8c9025bb338e", size = 149575, upload-time = "2026-08-14T04:44:12.068Z" }
 wheels = [
-    { path = "deep_learning_wandb-0.0.16-py3-none-any.whl" },
+    { url = "https://files.pythonhosted.org/packages/4a/9f/9e323ae6b20dd34155995903fc496ba900abdbd6252e481aedde5e44156e/deep_learning_wandb-0.0.16-py3-none-any.whl", hash = "sha256:8b7413d1faea9fa97b64169fe4780be6c2c37a314810330a3e9c3bc0eff992bc", size = 12167, upload-time = "2026-08-14T04:44:10.859Z" },
 ]
 
 [[package]]

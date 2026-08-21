@@ -306,6 +306,9 @@ def test_cli_add_model_defaults_to_compute_forward_template(tmp_path: Path) -> N
 
     assert "from dl_core.core import BaseModel" in component_text
     assert "def compute_forward(" in component_text
+    assert "# 1. Retrieve and prepare values from batch_data." in component_text
+    assert "# 2. Run the prepared values through the model elements." in component_text
+    assert "# 3. Build and return the final output dictionary." in component_text
     assert "'probabilities': ..., 'logits': ..., 'features': ..." in component_text
 
     load_builtin_components()

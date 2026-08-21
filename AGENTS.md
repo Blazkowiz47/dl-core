@@ -27,6 +27,10 @@
     <rule>Match the existing style: 4-space indentation, <code>snake_case</code> functions and modules, <code>PascalCase</code> classes, and short module docstrings.</rule>
     <rule>Use f-strings for string formatting.</rule>
     <rule>Keep functions focused and avoid unnecessary nesting.</rule>
+    <rule>Keep new components direct and readable. Start from the generated method stub, implement only the required behavior, and avoid pass-through helpers, unnecessary wrappers, or configuration options with only one use.</rule>
+    <rule>Do not extract one-off component logic into a helper unless it is reused more than twice or represents a distinct operation that benefits from independent testing.</rule>
+    <rule>Keep <code>BaseModel.compute_forward()</code> linear when the architecture allows it: retrieve and prepare batch data, run the model elements in execution order, then build and return the final output dictionary. Keep losses, metrics, logging, and optimizer work outside this method.</rule>
+    <rule>When documentation, commands, or generated files name a PyTorch version, verify the latest stable release from the official PyTorch releases page first. Label older versions as compatibility pins and keep related <code>torchvision</code> and <code>torchaudio</code> versions compatible.</rule>
     <rule>No formatter or linter configuration is defined in <code>pyproject.toml</code>; mirror nearby files instead of re-styling code arbitrarily.</rule>
     <rule>Whenever package behavior, public APIs, CLI behavior, scaffold output, dependencies, or versions change, review <code>README.md</code> and the relevant <code>readme/</code> docs and keep them consistent with the code. If no documentation update is needed, state why.</rule>
   </development_rules>

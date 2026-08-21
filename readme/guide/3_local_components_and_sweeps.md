@@ -65,6 +65,50 @@ normalizes the module name for you. Generated components register under the
 normalized name and also keep the original provided name as an alias when it
 differs.
 
+## Writing local components
+
+Start from the generated method stub and implement only the behavior the
+component needs. Match a nearby component before introducing a new pattern.
+Keep the implementation local and direct when it remains readable.
+
+- Avoid pass-through helpers and wrapper classes that add no behavior.
+- Do not extract one-off logic into a helper unless it is reused more than
+  twice or represents a distinct operation that benefits from independent
+  testing.
+- Do not add configuration options until the component has a real use for
+  them.
+- Keep component-specific behavior in the component until multiple components
+  need the same abstraction.
+
+For models based on `BaseModel`, keep `compute_forward()` in three visible
+stages when the architecture allows it:
+
+```python
+def compute_forward(self, batch_data: dict, **kwargs) -> dict:
+    # 1. Retrieve and prepare inputs.
+    inputs = batch_data["image"]
+
+    # 2. Run the model elements in execution order.
+    features = self.encoder(inputs)
+    logits = self.classifier(features)
+
+    # 3. Build and return the final output dictionary.
+    probabilities = torch.softmax(logits, dim=1)
+    return {
+        "probabilities": probabilities,
+        "logits": logits,
+        "features": features,
+    }
+```
+
+Keep losses, metric updates, logging, optimizer operations, and unrelated
+state changes outside `compute_forward()`.
+
+When documentation or an example names a PyTorch version, check the
+[official PyTorch releases](https://github.com/pytorch/pytorch/releases) and
+use the latest stable release. Label an older version as a compatibility pin,
+and keep `torchvision` and `torchaudio` compatible with the selected release.
+
 For dataset scaffolds, the available `--base` values depend on what is
 installed in the current environment:
 

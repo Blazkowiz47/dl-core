@@ -2063,6 +2063,9 @@ class {class_name}({base_class}):
         **kwargs: Any,
     ) -> dict[str, torch.Tensor]:
         """Return probabilities, logits, and optional feature tensors."""
+        # 1. Retrieve and prepare values from batch_data.
+        # 2. Run the prepared values through the model elements.
+        # 3. Build and return the final output dictionary.
         raise NotImplementedError(
             "TODO: compute logits from batch_data and return "
             "{{'probabilities': ..., 'logits': ..., 'features': ...}}."

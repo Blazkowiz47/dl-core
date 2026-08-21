@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.5`.
-Current development version: `0.1.5`.
+Current public release: `deep-learning-core==0.1.6`.
+Current development version: `0.1.6`.
 
 Compatible companion package floors:
 
@@ -21,16 +21,15 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.5?
+## What's New in 0.1.6?
 
-- tar datasets now delegate streaming, grouped samples, buffered shuffling,
-  resampling, and rank/worker splitting to the optional `webdataset` package
-- `TarShardWrapper` remains a thin config and transform adapter; the custom tar
-  index, handle pool, and round-robin batch sampler have been removed
-- project wrappers can override `build_shard_sources(split)` to construct shard
-  paths and weights dynamically; multiple sources are mixed by WebDataset
-- iterable datasets are preserved by the multi-GPU accelerator instead of being
-  wrapped in an incompatible PyTorch `DistributedSampler`
+- repository and generated experiment guidance now asks authors to keep new
+  components direct, avoid one-off helpers, and delay shared abstractions until
+  multiple components need them
+- model stubs and the generated ResNet example organize `compute_forward()` as
+  input preparation, an ordered model pass, and final output construction
+- generated guidance requires checking the official PyTorch releases before
+  naming the latest stable version and distinguishes older compatibility pins
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -374,6 +373,10 @@ uv run dl-core add executor MyExecutor
 Default-base scaffolds for augmentations, metrics, metric managers,
 criterions, models, and executors now start with ready-to-edit method stubs
 instead of empty wrapper subclasses.
+
+See [Local Components and Sweeps](readme/guide/3_local_components_and_sweeps.md)
+for component implementation rules and the recommended `compute_forward()`
+structure.
 
 Sweep scaffolds are supported too:
 
