@@ -2,6 +2,7 @@
 
 import os
 from contextlib import nullcontext
+from functools import partial
 from typing import Any, ContextManager, Dict, Tuple
 
 import torch
@@ -232,11 +233,12 @@ class MultiGPUAccelerator(BaseAccelerator):
                         drop_last=dataloader.drop_last,
                         collate_fn=dataloader.collate_fn,
                         prefetch_factor=dataloader.prefetch_factor,
-                        persistent_workers=(dataloader.num_workers > 0),
-                        worker_init_fn=lambda worker_id: seed_worker(
-                            worker_id, base_seed=self.seed
+                        persistent_workers=dataloader.persistent_workers,
+                        worker_init_fn=partial(
+                            seed_worker,
+                            base_seed=self.global_rank * 100_000,
                         ),
-                        generator=None,
+                        generator=dataloader.generator,
                     )
                 else:
                     prepared_dataloaders[name] = None
@@ -250,20 +252,29 @@ class MultiGPUAccelerator(BaseAccelerator):
             prepared_dataloaders,
         )
 
-    def backward(self, loss: torch.Tensor, model: nn.Module | None = None) -> None:
+    def backward(
+        self,
+        loss: torch.Tensor,
+        model: nn.Module | None = None,
+        finalize: bool = False,
+    ) -> None:
         """
         Backward pass with mixed precision and gradient accumulation.
 
         Args:
             loss: Loss tensor to backpropagate
             model: Model to use for no_sync context (for gradient accumulation with DDP)
+            finalize: Synchronize a final partial accumulation window
         """
 
         loss = loss / self.gradient_accumulation_steps
         if not isinstance(model, DDP):
             raise ValueError("Model must be a DDP instance for MultiGPUAccelerator")
 
-        if self.accumulation_counter < self.gradient_accumulation_steps - 1:
+        if (
+            not finalize
+            and self.accumulation_counter < self.gradient_accumulation_steps - 1
+        ):
             # Use no_sync to prevent gradient synchronization
             with model.no_sync():
                 if self.scaler is not None:

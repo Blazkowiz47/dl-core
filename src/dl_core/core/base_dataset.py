@@ -17,7 +17,6 @@ from dl_core.core.registry import AUGMENTATION_REGISTRY, SAMPLER_REGISTRY
 from dl_core.utils import (
     memory_usage,
     seed_worker,
-    set_seeds_local,
     time_execution,
 )
 
@@ -282,6 +281,12 @@ class BaseWrapper(ABC):
 
         # State variables
         self.current_epoch = 0
+        self._loader_generators = {
+            split: torch.Generator().manual_seed(self.seed + split_index)
+            for split_index, split in enumerate(
+                ["train", "validation", "test"]
+            )
+        }
 
         self.class_sample_pointers = {}
         for split in ["train", "validation", "test"]:
@@ -295,10 +300,6 @@ class BaseWrapper(ABC):
     # ============================================================================
     # INTERNAL METHODS
     # ============================================================================
-    def _ensure_reproducibility(self) -> None:
-        """Set seeds for reproducibility."""
-        set_seeds_local(self.seed, self.deterministic)
-
     def _resolve_split_override(self, value: Any, default: Any) -> Any:
         """Return a per-call override when provided, otherwise the stored default."""
 
@@ -482,7 +483,6 @@ class BaseWrapper(ABC):
         Returns:
             List of file dicts with sampling applied: [{"path": Path, "label": int, ...}, ...]
         """
-        self._ensure_reproducibility()
         # Validate split name
         if split not in ["train", "validation", "test"]:
             raise ValueError(
@@ -546,9 +546,10 @@ class BaseWrapper(ABC):
 
     def _auto_generate_partitions(self) -> None:
         """Internal method to auto-generate dataset partitions if missing."""
-        self.logger.info("Pre-loading all dataset splits into memory")
+        self.logger.info("Pre-loading raw dataset file lists into memory")
         for split in ["train", "validation", "test"]:
-            _ = self.get_split(split)
+            if not self.files_list[split]:
+                self.files_list[split] = self.get_file_list(split)
 
         self.logger.info("Auto-creating missing dataset splits if needed")
         need_validation = (
@@ -559,7 +560,7 @@ class BaseWrapper(ABC):
             self.logger.info("All splits already available, no auto-splitting needed")
             return
 
-        all_train_files = self._get_file_list("train")
+        all_train_files = self.files_list["train"]
         if need_validation:
             all_train_files, validation_files = self.perform_split(
                 all_train_files,
@@ -606,6 +607,7 @@ class BaseWrapper(ABC):
             files,
             test_size=ratio,
             stratify=labels,
+            random_state=self.seed,
         )
 
         self.logger.debug(f"Split: part1={len(part1)}, part2={len(part2)}")
@@ -682,8 +684,8 @@ class BaseWrapper(ABC):
             "persistent_workers": bool(
                 self.persistent_workers[split] and num_workers > 0
             ),
-            "worker_init_fn": partial(seed_worker, base_seed=self.seed),
-            "generator": None,
+            "worker_init_fn": seed_worker,
+            "generator": self._loader_generators[split],
         }
         if batch_sampler is not None:
             return DataLoader(
@@ -714,6 +716,13 @@ class BaseWrapper(ABC):
             epoch: Current training epoch number
         """
         self.current_epoch = epoch
+        for split_index, split in enumerate(["train", "validation", "test"]):
+            self._loader_generators[split].manual_seed(
+                self.seed + epoch * 3 + split_index
+            )
+            sampler = self.sampler[split]
+            if sampler is not None:
+                sampler.set_epoch(epoch)
         self.logger.debug(f"Dataset epoch set to {epoch}")
 
     def scan_directory(
@@ -1567,7 +1576,6 @@ class FrameWrapper(BaseWrapper):
         self.logger.debug(f"Creating DataLoader for {split} split")
 
         # Get file list with sampling applied
-        self._ensure_reproducibility()
         sampled_video_groups = self._get_video_groups(split)
         data = self.convert_groups_to_files(sampled_video_groups, split)
         self.files_list[split] = data  # For stats and external access
@@ -1582,16 +1590,12 @@ class FrameWrapper(BaseWrapper):
                 data = self.sampled_files_list[split]
             else:
                 data = self.sampler[split].sample(data, split)
-                if shuffle:
-                    random.shuffle(data)
                 data = self._maybe_rank_shard_files(data)
                 self.logger.info(
                     f"Applied sampler to {split}: resulted in {len(data)} files"
                 )
                 self.sampled_files_list[split] = data
         else:
-            if shuffle:
-                random.shuffle(data)
             data = self._maybe_rank_shard_files(data)
             self.sampled_files_list[split] = data
 
@@ -1635,8 +1639,8 @@ class FrameWrapper(BaseWrapper):
             persistent_workers=bool(
                 self.persistent_workers[split] and num_workers > 0
             ),
-            worker_init_fn=partial(seed_worker, base_seed=self.seed),
-            generator=None,
+            worker_init_fn=seed_worker,
+            generator=self._loader_generators[split],
         )
 
     def _auto_generate_partitions(self) -> None:
@@ -1659,7 +1663,6 @@ class FrameWrapper(BaseWrapper):
         - self.files_list['test']
         """
         """Internal method to auto-generate dataset partitions if missing."""
-        self._ensure_reproducibility()
         for split in ["train", "validation", "test"]:
             _ = self.get_split(split)
 
@@ -1685,6 +1688,7 @@ class FrameWrapper(BaseWrapper):
             train_videos, validation_videos = train_test_split(
                 videos,
                 test_size=self.validation_partition,
+                random_state=self.seed,
             )
 
             self.logger.debug(
@@ -1699,6 +1703,7 @@ class FrameWrapper(BaseWrapper):
             train_videos, test_videos = train_test_split(
                 videos,
                 test_size=self.test_partition,
+                random_state=self.seed,
             )
             self.logger.debug(
                 f"Split: part1={len(train_videos)}, part2={len(test_videos)}"

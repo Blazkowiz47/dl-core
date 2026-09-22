@@ -115,6 +115,30 @@ with `name`, `weight`, and `shards`. Shards may be strings or dictionaries with
 a `path` plus project metadata. Multiple positive-weight sources are mixed with
 WebDataset `RandomMix`; zero-weight sources are skipped.
 
+For map-style datasets, automatic validation and test partitions are created
+from the raw training records before any configured sampler is applied. This
+keeps oversampled identities out of held-out splits. DataLoader workers receive
+deterministic seeds that change with the epoch; loading or rebuilding a split
+does not reset the process-wide Python, NumPy, or PyTorch random streams.
+
+## Accelerator
+
+Optimization behavior is configured on the accelerator:
+
+```yaml
+accelerator:
+  type: single_gpu
+  mixed_precision: fp16
+  gradient_accumulation_steps: 4
+  max_grad_norm: 1.0
+```
+
+The standard trainer accumulates gradients across the configured number of
+microbatches, clips once immediately before a real optimizer update, and steps
+its scheduler only when that optimizer update occurs. FP16 gradients are
+unscaled before clipping. A shorter final accumulation window is averaged over
+the microbatches it actually contains and is not discarded.
+
 ## Optimizer
 
 The default path uses a single flat optimizer config:
@@ -205,10 +229,9 @@ seed: 2025
 deterministic: true
 ```
 
-`seed` drives trainer setup, dataset splitting, worker seeding, and any seed
-values injected into downstream configs. `deterministic` is forwarded to the
-trainer and dataset seed helpers so PyTorch deterministic mode can be disabled
-explicitly when needed.
+`seed` drives trainer setup, deterministic dataset splitting, epoch-specific
+DataLoader generators, and any seed values injected into downstream configs.
+`deterministic` controls PyTorch deterministic mode during trainer setup.
 
 ## Name Key Rules
 

@@ -152,7 +152,10 @@ class SingleGPUAccelerator(BaseAccelerator):
         )
 
     def backward(
-        self, loss: torch.Tensor, model: Optional[torch.nn.Module] = None
+        self,
+        loss: torch.Tensor,
+        model: Optional[torch.nn.Module] = None,
+        finalize: bool = False,
     ) -> None:
         """
         Backward pass with mixed precision support.
@@ -160,7 +163,9 @@ class SingleGPUAccelerator(BaseAccelerator):
         Args:
             loss: Loss tensor to backpropagate
             model: Optional model (not used for single GPU, included for API consistency)
+            finalize: Unused on one GPU; accepted for API consistency
         """
+        del finalize
         loss = loss / self.gradient_accumulation_steps
 
         if self.scaler is not None:

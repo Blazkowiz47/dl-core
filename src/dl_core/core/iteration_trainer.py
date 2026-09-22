@@ -134,6 +134,7 @@ class IterationTrainer(EpochTrainer):
 
         if self.current_iteration == 0:
             self.perform_baseline_evaluation()
+            self.set_models_mode("train")
 
         if self.train_loader is None:
             raise RuntimeError("IterationTrainer requires a train data loader")
@@ -200,6 +201,9 @@ class IterationTrainer(EpochTrainer):
                     raise TypeError("preprocess_batch must return a dict")
 
                 self.callbacks.on_batch_start(batch_idx, "train", batch_data)
+                self._finalize_accumulation = (
+                    self.current_iteration + 1 == self.iterations
+                )
                 step_metrics = self.train_step(batch_data, batch_idx)
                 step_metrics = self.compute_probability_diagnostics(
                     step_metrics,
@@ -352,6 +356,7 @@ class IterationTrainer(EpochTrainer):
             pbar.close()
             for optimizer in self.optimizers.values():
                 optimizer.zero_grad()
+            self._finalize_accumulation = False
 
         self.accelerator.wait_for_everyone("Iteration training complete")
         self.logger.info("Iteration training completed")

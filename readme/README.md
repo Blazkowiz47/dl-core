@@ -4,16 +4,17 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.6`.
-Current development version: `0.1.6`.
+Current public release: `deep-learning-core==0.1.7`.
+Current development version: `0.1.7`.
 
-## What's New in 0.1.6?
+## What's New in 0.1.7?
 
-- new component guidance favors direct implementations over one-off helpers
-  and unnecessary wrappers
-- model stubs and examples show the three-stage `compute_forward()` structure
-- generated repositories tell authors to verify the latest stable PyTorch
-  release before naming an exact version
+- gradient accumulation, FP16 clipping, scheduler stepping, and final partial
+  updates now share one optimizer-step contract
+- auto-splitting uses raw records before sampling, while worker random streams
+  vary reproducibly by epoch without resetting process-wide RNG state
+- iteration training explicitly returns models to train mode after its baseline
+  evaluation
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

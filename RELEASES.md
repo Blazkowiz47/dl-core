@@ -3,6 +3,18 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.7
+
+- standard training preserves accumulated gradients, clips only when an
+  optimizer update occurs, advances schedulers with real updates, and flushes
+  partial final accumulation windows with the correct averaging factor
+- FP16 gradients are unscaled before gradient clipping
+- automatic validation and test partitions are created from raw records before
+  sampling, preventing oversampled identities from leaking across splits
+- dataset access no longer resets global RNG state; DataLoader workers receive
+  deterministic epoch-varying seeds and dataset samplers receive epoch updates
+- iteration-based training restores train mode after baseline evaluation
+
 ## 0.1.6
 
 - repository and generated experiment guidance now asks authors to keep new

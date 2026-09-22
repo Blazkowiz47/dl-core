@@ -223,6 +223,24 @@ def test_iteration_training_cycles_finite_loader_and_reports_final_window() -> N
     assert sorted(trainer.train_metrics) == [2, 4, 5]
 
 
+def test_iteration_training_restores_train_mode_after_baseline() -> None:
+    """The first optimization batch must not inherit baseline evaluation mode."""
+
+    trainer = _build_trainer(1)
+    trainer.skip_baseline_eval = False
+    trainer.models["main"] = torch.nn.Linear(1, 1)
+    observed_modes: list[bool] = []
+    trainer.perform_baseline_evaluation = lambda: trainer.set_models_mode("eval")
+    trainer.train_step = lambda batch_data, batch_idx: (
+        observed_modes.append(trainer.model.training) or {"loss": 0.0}
+    )
+    trainer.save_checkpoint = lambda iteration, filename=None: None
+
+    trainer.perform_training()
+
+    assert observed_modes == [True]
+
+
 def test_iteration_checkpoint_progress_restores_loader_cursor() -> None:
     """Resume state should retain iteration and finite-loader cycle position."""
 

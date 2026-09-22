@@ -11,6 +11,7 @@ import torch
 from torch.optim import SGD
 from torch.optim.lr_scheduler import StepLR
 
+from dl_core.accelerators.cpu import CPUAccelerator
 from dl_core.criterions.crossentropy import CrossEntropy
 from dl_core.core.base_trainer import EpochTrainer
 from dl_core.metric_managers.standard_manager import (
@@ -43,18 +44,22 @@ class _SingleProcessAccelerator:
         self,
         loss: torch.Tensor,
         model: torch.nn.Module | None = None,
+        finalize: bool = False,
     ) -> None:
         """Run a plain local backward pass."""
 
+        del model, finalize
         loss.backward()
 
     def optimizer_step(
         self,
         optimizer: torch.optim.Optimizer,
         model: torch.nn.Module | None = None,
+        finalize: bool = False,
     ) -> bool:
         """Run a plain local optimizer step."""
 
+        del model, finalize
         optimizer.step()
         optimizer.zero_grad()
         return True
@@ -254,4 +259,47 @@ def test_standard_trainer_step_methods_handle_random_mock_batches(
     assert (
         len(trainer.metric_managers["standard"].accumulated_data["validation"]["labels"])
         == 1
+    )
+
+
+def test_standard_trainer_steps_scheduler_only_with_optimizer(tmp_path: Any) -> None:
+    """Accumulation should preserve gradients and scheduler step alignment."""
+
+    generator = torch.Generator().manual_seed(2031)
+    trainer = StandardTrainer(
+        {
+            "seed": 2031,
+            "runtime": {"output_dir": str(tmp_path)},
+            "trainer": {"standard": {"epochs": 1}},
+        }
+    )
+    trainer.accelerator = CPUAccelerator({"gradient_accumulation_steps": 2})
+    trainer.models["main"] = _ToyClassifier()
+    trainer.criterions["crossentropy"] = CrossEntropy({})
+    trainer.optimizers["main"] = SGD(trainer.model.parameters(), lr=0.1)
+    trainer.schedulers["main"] = StepLR(
+        trainer.optimizers["main"],
+        step_size=1,
+        gamma=0.5,
+    )
+    trainer.optimizers["main"].zero_grad()
+    initial_parameters = [
+        parameter.detach().clone() for parameter in trainer.model.parameters()
+    ]
+    initial_scheduler_epoch = trainer.schedulers["main"].last_epoch
+
+    trainer.train_step(_mock_trainer_batch(generator), 0)
+
+    assert trainer.schedulers["main"].last_epoch == initial_scheduler_epoch
+    assert all(
+        torch.equal(before, after)
+        for before, after in zip(initial_parameters, trainer.model.parameters())
+    )
+
+    trainer.train_step(_mock_trainer_batch(generator), 1)
+
+    assert trainer.schedulers["main"].last_epoch == initial_scheduler_epoch + 1
+    assert any(
+        not torch.equal(before, after)
+        for before, after in zip(initial_parameters, trainer.model.parameters())
     )

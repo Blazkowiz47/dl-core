@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
+import numpy as np
 import torch
 
 from dl_core.core import (
@@ -187,6 +189,81 @@ class _OverrideDataset(BaseWrapper):
         }
 
 
+class _AutoSplitDataset(_OverrideDataset):
+    """Dataset with one raw split used to verify split-before-sampling."""
+
+    def __init__(self, sampler_name: str) -> None:
+        config = {
+            "dataset": {
+                "name": "auto-split-demo",
+                "batch_size": 2,
+                "num_workers": 0,
+                "shuffle": False,
+                "validation_partition": 0.2,
+                "test_split": 0.25,
+                "stratify": False,
+                "sample_splits": {
+                    "train": True,
+                    "validation": False,
+                    "test": False,
+                },
+                "sampler": {sampler_name: {}},
+            }
+        }
+        BaseWrapper.__init__(self, config)
+
+    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        """Return ten unique training records and empty held-out splits."""
+
+        if split != "train":
+            return []
+        return [
+            {"path": f"sample-{index}", "label": index % 2, "value": index}
+            for index in range(10)
+        ]
+
+
+class _DuplicatingSampler(BaseSampler):
+    """Duplicate records so pre-split sampling would leak identities."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.calls = 0
+
+    def sample_data(self, files: list[dict], split: str) -> list[dict]:
+        """Return two references to every input record."""
+
+        self.calls += 1
+        return [*files, *files]
+
+
+class _WorkerRandomDataset(_OverrideDataset):
+    """Dataset whose transform exposes each worker RNG stream."""
+
+    def __init__(self) -> None:
+        config = {
+            "dataset": {
+                "name": "worker-rng-demo",
+                "batch_size": 2,
+                "num_workers": 1,
+                "shuffle": False,
+                "persistent_workers": False,
+                "seed": 321,
+            }
+        }
+        BaseWrapper.__init__(self, config)
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Return random values from Python, NumPy, and PyTorch."""
+
+        return {
+            "python": random.random(),
+            "numpy": float(np.random.random()),
+            "torch": torch.rand(()),
+            "label": file_dict["label"],
+        }
+
+
 def test_text_sequence_wrapper_pads_variable_length_batches() -> None:
     """Text sequence batches should be padded on configured sequence keys."""
 
@@ -256,6 +333,10 @@ def test_dataset_reuses_sampled_files_on_repeated_split_access(
     assert len(second_loader.dataset) == 2
     assert sampler.calls == 1
 
+    dataset.set_epoch(3)
+
+    assert sampler.current_epoch == 3
+
 
 def test_dataset_allows_falsey_loader_overrides() -> None:
     """Per-call loader overrides should honor explicit falsey values."""
@@ -269,22 +350,75 @@ def test_dataset_allows_falsey_loader_overrides() -> None:
     assert len(batches) == 2
 
 
-def test_dataset_reproducibility_uses_configured_deterministic_flag(
-    monkeypatch: Any,
-) -> None:
-    """Dataset seeding should pass the configured deterministic flag through."""
+def test_file_list_access_does_not_reset_global_rng_state() -> None:
+    """Loading a split must not rewind model or augmentation randomness."""
 
-    calls: list[tuple[int, bool]] = []
+    random.seed(987)
+    np.random.seed(987)
+    torch.manual_seed(987)
+    expected = (random.random(), float(np.random.random()), torch.rand(()).item())
 
-    def _record_seed(seed: int, deterministic: bool = True) -> None:
-        calls.append((seed, deterministic))
-
-    monkeypatch.setattr("dl_core.core.base_dataset.set_seeds_local", _record_seed)
-
+    random.seed(987)
+    np.random.seed(987)
+    torch.manual_seed(987)
     dataset = _OverrideDataset()
-    dataset.seed = 321
-    dataset.deterministic = False
+    dataset._get_file_list("train")
+    actual = (random.random(), float(np.random.random()), torch.rand(()).item())
 
-    dataset._ensure_reproducibility()
+    assert actual == expected
 
-    assert calls == [(321, False)]
+
+def test_auto_split_uses_raw_records_before_sampling(monkeypatch: Any) -> None:
+    """Oversampling must not duplicate identities across dataset partitions."""
+
+    sampler = _DuplicatingSampler(seed=2025)
+    original_get = SAMPLER_REGISTRY.get
+
+    def _get_sampler(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "duplicating":
+            return sampler
+        return original_get(name, *args, **kwargs)
+
+    monkeypatch.setattr(SAMPLER_REGISTRY, "get", _get_sampler)
+    dataset = _AutoSplitDataset("duplicating")
+
+    dataset.auto_generate_partitions()
+
+    paths = {
+        split: {record["path"] for record in records}
+        for split, records in dataset.files_list.items()
+    }
+    assert sampler.calls == 0
+    assert len(paths["train"] | paths["validation"] | paths["test"]) == 10
+    assert paths["train"].isdisjoint(paths["validation"])
+    assert paths["train"].isdisjoint(paths["test"])
+    assert paths["validation"].isdisjoint(paths["test"])
+
+    train_loader = dataset.get_split("train")
+
+    assert train_loader is not None
+    assert sampler.calls == 1
+    assert len(train_loader.dataset) == 2 * len(dataset.files_list["train"])
+
+
+def test_worker_randomness_changes_by_epoch_and_repeats_across_runs() -> None:
+    """Respawned workers should vary by epoch and remain reproducible."""
+
+    first_dataset = _WorkerRandomDataset()
+    first_loader = first_dataset.get_split("train")
+    assert first_loader is not None
+
+    first_dataset.set_epoch(0)
+    epoch_zero = next(iter(first_loader))
+    first_dataset.set_epoch(1)
+    epoch_one = next(iter(first_loader))
+
+    second_dataset = _WorkerRandomDataset()
+    second_loader = second_dataset.get_split("train")
+    assert second_loader is not None
+    second_dataset.set_epoch(0)
+    repeated_epoch_zero = next(iter(second_loader))
+
+    for key in ["python", "numpy", "torch"]:
+        assert not torch.equal(epoch_zero[key], epoch_one[key])
+        assert torch.equal(epoch_zero[key], repeated_epoch_zero[key])

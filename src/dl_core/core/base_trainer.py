@@ -218,6 +218,7 @@ class EpochTrainer(ABC):
         self.metric_managers: dict[str, BaseMetricManager] = {}
         self.ema: ExponentialMovingAverage | None = None
         self.use_ema_for_eval = False
+        self._finalize_accumulation = False
 
         self.metrics_history: dict[str, dict[int, dict[str, float]]] = {
             "train": {},
@@ -1920,6 +1921,7 @@ class EpochTrainer(ABC):
                     f"Stopping at batch {batch_idx} (min_batch_count={min_batch_count})"
                 )
                 break
+            self._finalize_accumulation = batch_idx + 1 == min_batch_count
             # Move batch to device
             start = time.time()
             batch_data = self.preprocess_batch(batch_data, split_text)
@@ -1958,6 +1960,7 @@ class EpochTrainer(ABC):
 
         for optimizer in self.optimizers.values():
             optimizer.zero_grad()
+        self._finalize_accumulation = False
         # CRITICAL: Synchronize all processes after training epoch
         self.accelerator.wait_for_everyone(f"after {split_text} epoch completion")
 

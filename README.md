@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.6`.
-Current development version: `0.1.6`.
+Current public release: `deep-learning-core==0.1.7`.
+Current development version: `0.1.7`.
 
 Compatible companion package floors:
 
@@ -21,15 +21,17 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.6?
+## What's New in 0.1.7?
 
-- repository and generated experiment guidance now asks authors to keep new
-  components direct, avoid one-off helpers, and delay shared abstractions until
-  multiple components need them
-- model stubs and the generated ResNet example organize `compute_forward()` as
-  input preparation, an ordered model pass, and final output construction
-- generated guidance requires checking the official PyTorch releases before
-  naming the latest stable version and distinguishes older compatibility pins
+- standard training now preserves accumulated gradients, clips only on real
+  optimizer updates, advances schedulers with those updates, and flushes a
+  shorter final accumulation window
+- FP16 gradients are unscaled before clipping
+- automatic partitions are created before sampling, and dataset access no
+  longer rewinds global random state; worker seeds vary deterministically by
+  epoch
+- iteration-based training restores train mode immediately after baseline
+  evaluation
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

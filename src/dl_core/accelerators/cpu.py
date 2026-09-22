@@ -61,7 +61,10 @@ class CPUAccelerator(BaseAccelerator):
         )
 
     def backward(
-        self, loss: torch.Tensor, model: Optional[torch.nn.Module] = None
+        self,
+        loss: torch.Tensor,
+        model: Optional[torch.nn.Module] = None,
+        finalize: bool = False,
     ) -> None:
         """
         Standard backward with gradient accumulation.
@@ -69,7 +72,9 @@ class CPUAccelerator(BaseAccelerator):
         Args:
             loss: Loss tensor to backpropagate
             model: Optional model (not used for CPU, included for API consistency)
+            finalize: Unused on CPU; accepted for API consistency
         """
+        del finalize
         loss = loss / self.gradient_accumulation_steps
         loss.backward()
 

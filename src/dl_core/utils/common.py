@@ -140,12 +140,16 @@ def set_seeds_local(seed: int = 2025, deterministic: bool = True) -> None:
 def seed_worker(worker_id: int, base_seed: int | None = None) -> None:
     """Initialize random state for DataLoader worker processes.
 
-    Each worker gets deterministic seed based on PyTorch's initial_seed
-    (includes base seed + worker_id + epoch from generator).
+    PyTorch's worker seed already includes the DataLoader generator state and
+    worker id. ``base_seed`` is retained as an optional offset for callers that
+    need rank-specific streams.
     """
-    worker_seed = (base_seed or torch.initial_seed()) + worker_id
+    del worker_id
+    torch_seed = (torch.initial_seed() + (base_seed or 0)) % 2**64
+    worker_seed = torch_seed % 2**32
     random.seed(worker_seed)
     np.random.seed(worker_seed)
+    torch.manual_seed(torch_seed)
 
 
 def create_epoch_generator(epoch: int, base_seed: int | None = None) -> torch.Generator:

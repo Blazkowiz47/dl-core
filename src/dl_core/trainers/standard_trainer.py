@@ -187,8 +187,7 @@ class StandardTrainer(EpochTrainer):
         """Single training step."""
         labels = batch_data["label"]
 
-        # Zero gradients
-        self.optimizers["main"].zero_grad()
+        finalize = self._finalize_accumulation
 
         # Forward and backward pass with mixed precision autocast
         with self.accelerator.autocast_context():
@@ -206,16 +205,17 @@ class StandardTrainer(EpochTrainer):
                 loss_components[f"{name}_loss"] = criterion_loss.item()
 
             # Backward pass (inside autocast context)
-            self.accelerator.backward(total_loss, self.model)
-
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+            self.accelerator.backward(total_loss, self.model, finalize=finalize)
 
         # Optimizer step
-        self.accelerator.optimizer_step(self.optimizers["main"], self.model)
+        optimizer_stepped = self.accelerator.optimizer_step(
+            self.optimizers["main"],
+            self.model,
+            finalize=finalize,
+        )
 
         # Scheduler step
-        if "main" in self.schedulers:
+        if optimizer_stepped and "main" in self.schedulers:
             self.schedulers["main"].step()
 
         # Update metrics

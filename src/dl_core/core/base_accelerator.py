@@ -67,7 +67,11 @@ class BaseAccelerator(ABC):
         self.config = config
         self.mixed_precision = config.get("mixed_precision")
         self.seed = config.get("seed", 42)
-        self.gradient_accumulation_steps = config.get("gradient_accumulation_steps", 1)
+        self.gradient_accumulation_steps = int(
+            config.get("gradient_accumulation_steps", 1)
+        )
+        if self.gradient_accumulation_steps < 1:
+            raise ValueError("gradient_accumulation_steps must be at least 1")
         self.max_grad_norm = config.get("max_grad_norm", None)
         if self.max_grad_norm is not None:
             self.max_grad_norm = float(self.max_grad_norm)
@@ -157,7 +161,10 @@ class BaseAccelerator(ABC):
 
     @abstractmethod
     def backward(
-        self, loss: torch.Tensor, model: Optional[torch.nn.Module] = None
+        self,
+        loss: torch.Tensor,
+        model: Optional[torch.nn.Module] = None,
+        finalize: bool = False,
     ) -> None:
         """
         Perform backward pass with mixed precision support.
@@ -165,26 +172,48 @@ class BaseAccelerator(ABC):
         Args:
             loss: Loss tensor
             model: Optional model for gradient accumulation context (needed for DDP)
+            finalize: Synchronize a final partial accumulation window
         """
         pass
 
-    def optimizer_step(self, optimizer: Optimizer, model: nn.Module) -> bool:
+    def optimizer_step(
+        self,
+        optimizer: Optimizer,
+        model: nn.Module,
+        finalize: bool = False,
+    ) -> bool:
         """
         Perform optimizer step with gradient accumulation and mixed precision.
 
         This method handles gradient accumulation by only stepping the optimizer
         every N backward passes (where N = gradient_accumulation_steps).
 
-        NOTE: The accumulation counter is incremented in backward(), not here.
-        This ensures that with multiple optimizers, all of them step at the same time.
-
         Args:
             optimizer: Optimizer to step
             model: Model to clip gradients for
+            finalize: Step a final partial accumulation window
+
+        Returns:
+            Whether an optimizer step was performed
         """
         self.accumulation_counter += 1
-        if self.accumulation_counter == self.gradient_accumulation_steps:
+        should_step = (
+            self.accumulation_counter == self.gradient_accumulation_steps or finalize
+        )
+        if should_step:
+            accumulated_steps = self.accumulation_counter
             self.accumulation_counter = 0
+
+            if self.scaler is not None:
+                self.scaler.unscale_(optimizer)
+
+            if accumulated_steps < self.gradient_accumulation_steps:
+                gradient_scale = self.gradient_accumulation_steps / accumulated_steps
+                for group in optimizer.param_groups:
+                    for parameter in group["params"]:
+                        if parameter.grad is not None:
+                            parameter.grad.mul_(gradient_scale)
+
             if self.max_grad_norm is not None:
                 self.clip_gradients(model)
             if self.scaler is not None:
