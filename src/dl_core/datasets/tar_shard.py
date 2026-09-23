@@ -222,11 +222,13 @@ class TarShardWrapper(BaseWrapper):
             metadata_by_shard = {}
             for shard in shards:
                 metadata = {
-                    key: value for key, value in shard.items() if key != "path"
+                    key: value
+                    for key, value in shard.items()
+                    if key not in {"path", "public_url"}
                 }
                 metadata.setdefault("source_name", source.get("name", split))
                 metadata.setdefault("source_weight", weight)
-                metadata_by_shard[str(shard["path"])] = metadata
+                metadata_by_shard[str(shard.get("public_url", shard["path"]))] = metadata
 
             pipeline = wds.WebDataset(
                 paths,
