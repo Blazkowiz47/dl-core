@@ -2,6 +2,12 @@
 
 `dl-core` exposes several console entrypoints.
 
+Installed integrations register runtime components through the
+`dl_core.runtime_extensions` entry-point group. Each entry points to an
+importable module whose import registers its components; `load_builtin_components()`
+loads these modules before config resolution. Project bootstrap imports remain
+supported but are not required for installed integrations.
+
 ## `dl-core`
 
 Creates local component scaffolds inside an experiment repository and lists or

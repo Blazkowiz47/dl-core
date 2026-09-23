@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module, invalidate_caches
+from importlib.metadata import entry_points
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -42,9 +43,29 @@ _LOCAL_SRC_PATH_INSERTED = False
 
 
 def load_builtin_components() -> None:
-    """Import built-in component modules so they register themselves."""
+    """Import built-in and installed extension components."""
     for module_name in _BUILTIN_COMPONENT_MODULES:
         import_module(f"dl_core.{module_name}")
+    load_runtime_extensions()
+
+
+def load_runtime_extensions() -> list[str]:
+    """Import installed extension entry points for their registrations."""
+    loaded: list[str] = []
+    extensions = sorted(
+        entry_points(group="dl_core.runtime_extensions"),
+        key=lambda extension: (extension.name, extension.value),
+    )
+    for extension in extensions:
+        try:
+            extension.load()
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not load runtime extension {extension.name!r} "
+                f"from {extension.value!r}"
+            ) from error
+        loaded.append(extension.name)
+    return loaded
 
 
 def _is_local_module_name(module_name: str) -> bool:
@@ -199,4 +220,9 @@ def load_local_components(start_path: str | Path | None = None) -> list[str]:
     return imported_modules
 
 
-__all__ = ["__version__", "load_builtin_components", "load_local_components"]
+__all__ = [
+    "__version__",
+    "load_builtin_components",
+    "load_local_components",
+    "load_runtime_extensions",
+]
