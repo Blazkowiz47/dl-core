@@ -161,8 +161,13 @@ class _LifecycleCallbacksStub:
     """Callback list stub used to observe trainer finalization behavior."""
 
     def __init__(self) -> None:
+        self.training_start_calls = 0
         self.training_end_calls: list[tuple[dict[str, Any], bool]] = []
         self.finalized_calls: list[dict[str, Any]] = []
+
+    def on_training_start(self) -> None:
+        """Record overfit-mode callback startup."""
+        self.training_start_calls += 1
 
     def on_training_end(
         self,
@@ -777,6 +782,26 @@ def test_run_calls_post_training_before_persisting_analysis(tmp_path: Path) -> N
         best_path
     )
     assert finalize_sync == [True]
+
+
+def test_overfit_mode_emits_one_final_status(tmp_path: Path) -> None:
+    """Overfit callbacks stay open until post-training has completed."""
+    trainer, _, callbacks, _, _ = _build_lifecycle_trainer(tmp_path)
+    trainer.overfit_single_batch_enabled = True
+    trainer.overfit_iterations = 3
+    trainer.setup = lambda: None
+    trainer._overfit_single_batch = lambda: {"loss": 0.1}
+    trainer.post_training = lambda checkpoint_path: None
+
+    trainer._run()
+
+    assert callbacks.training_start_calls == 1
+    assert len(callbacks.training_end_calls) == 1
+    final_logs = callbacks.training_end_calls[0][0]
+    assert final_logs["status"] == "completed"
+    assert final_logs["overfit_iterations"] == 3
+    assert final_logs["test_type"] == "single_batch_overfit"
+    assert callbacks.finalized_calls == [final_logs]
 
 
 def test_checkpoint_cleanup_preserves_failure_artifacts() -> None:

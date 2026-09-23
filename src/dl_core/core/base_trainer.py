@@ -502,6 +502,9 @@ class EpochTrainer(ABC):
                 f"total_{progress_units}": getattr(self, progress_units, 0),
                 "status": run_status,
             }
+            if getattr(self, "overfit_single_batch_enabled", False):
+                final_logs["overfit_iterations"] = self.overfit_iterations
+                final_logs["test_type"] = "single_batch_overfit"
             if hasattr(self, "data_cycle"):
                 final_logs["data_cycle"] = self.data_cycle
             if error_message is not None:
@@ -1368,15 +1371,6 @@ class EpochTrainer(ABC):
 
         # Run the overfit test
         metrics = self._overfit_single_batch()
-
-        # Trigger training end callbacks
-        final_logs = {
-            "final_epoch": 1,
-            "total_epochs": 1,
-            "overfit_iterations": self.overfit_iterations,
-            "test_type": "single_batch_overfit",
-        }
-        self.callbacks.on_training_end(final_logs)
 
         return metrics
 
