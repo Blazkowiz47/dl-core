@@ -105,6 +105,7 @@ class IterationTrainer(EpochTrainer):
         self.current_iteration = 0
         self.data_cycle = 0
         self.iteration_in_cycle = 0
+        self._checkpoint_pending = False
 
     def _set_data_cycle(self, data_cycle: int) -> None:
         """Advance deterministic sampler and dataset state without an epoch hook."""
@@ -241,9 +242,17 @@ class IterationTrainer(EpochTrainer):
                     self.test_frequency > 0
                     and self.current_iteration % self.test_frequency == 0
                 )
-                should_checkpoint = (
+                checkpoint_requested = (
                     self.checkpoint_frequency > 0
                     and self.current_iteration % self.checkpoint_frequency == 0
+                )
+                if checkpoint_requested:
+                    self._checkpoint_pending = True
+                accumulation_pending = (
+                    getattr(self.accelerator, "accumulation_counter", 0) > 0
+                )
+                should_checkpoint = (
+                    self._checkpoint_pending and not accumulation_pending
                 )
                 if not any(
                     (
@@ -312,7 +321,7 @@ class IterationTrainer(EpochTrainer):
                 self.callbacks.on_iteration_end(self.current_iteration, logs)
                 self.log_metrics(self.current_iteration)
 
-                saved_latest = should_checkpoint or is_final
+                saved_latest = (should_checkpoint or is_final) and not accumulation_pending
                 if saved_latest:
                     self.save_checkpoint(
                         self.current_iteration,
@@ -322,10 +331,11 @@ class IterationTrainer(EpochTrainer):
                         self.current_iteration,
                         self.current_metrics,
                     )
+                    self._checkpoint_pending = False
 
                 self.broadcast_stop_training()
                 if self.stop_training:
-                    if not saved_latest:
+                    if not saved_latest and not accumulation_pending:
                         self.save_checkpoint(
                             self.current_iteration,
                             filename="latest.pth",
@@ -333,6 +343,12 @@ class IterationTrainer(EpochTrainer):
                         self.callbacks.on_checkpoint(
                             self.current_iteration,
                             self.current_metrics,
+                        )
+                    elif accumulation_pending:
+                        self.logger.warning(
+                            "Skipping an unsafe checkpoint with pending accumulated "
+                            "gradients; the previous completed-window checkpoint remains "
+                            "the resume point"
                         )
                     self.logger.info(
                         f"Training stopped early at iteration "

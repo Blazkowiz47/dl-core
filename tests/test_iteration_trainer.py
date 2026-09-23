@@ -241,6 +241,35 @@ def test_iteration_training_restores_train_mode_after_baseline() -> None:
     assert observed_modes == [True]
 
 
+def test_iteration_checkpoint_waits_for_accumulation_boundary() -> None:
+    """Periodic checkpoints should not capture unsynchronized partial gradients."""
+
+    trainer = _build_trainer(8)
+    trainer.checkpoint_frequency = 3
+    trainer.accelerator.accumulation_counter = 0
+    saved: list[tuple[int, str | None]] = []
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> dict[str, float]:
+        del batch_data, batch_idx
+        trainer.accelerator.accumulation_counter = (
+            trainer.accelerator.accumulation_counter + 1
+        ) % 4
+        return {"loss": 0.0}
+
+    trainer.train_step = _train_step
+    trainer.save_checkpoint = (
+        lambda iteration, filename=None: saved.append((iteration, filename))
+    )
+
+    trainer.perform_training()
+
+    assert saved == [(4, "latest.pth"), (8, "latest.pth")]
+    assert trainer.callbacks.checkpoints == [4, 8]
+
+
 def test_iteration_checkpoint_progress_restores_loader_cursor() -> None:
     """Resume state should retain iteration and finite-loader cycle position."""
 

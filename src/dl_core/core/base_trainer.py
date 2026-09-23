@@ -3,6 +3,7 @@
 import logging
 import os
 import shutil
+import tempfile
 import time
 import traceback
 from abc import ABC, abstractmethod
@@ -344,11 +345,7 @@ class EpochTrainer(ABC):
 
             self.setup_current_epoch(0)
 
-            try:
-                self.load_continue_model()
-            except Exception as e:
-                self.logger.error(f"Failed to load continue model: {e}")
-                traceback.print_exc()
+            self.load_continue_model()
 
             self.accelerator.wait_for_everyone("before training start")
             phase = "training"
@@ -745,20 +742,29 @@ class EpochTrainer(ABC):
             raise RuntimeError("Model must be setup before loading checkpoint")
 
         try:
-            # Load checkpoint on appropriate device
+            load_error: str | None = None
             if self.accelerator.is_main_process():
-                checkpoint = torch.load(
-                    checkpoint_path,
-                    map_location=self.accelerator.get_device(),
-                    weights_only=False,
-                )
+                try:
+                    checkpoint = torch.load(
+                        checkpoint_path,
+                        map_location=self.accelerator.get_device(),
+                        weights_only=False,
+                    )
+                except Exception as exc:
+                    checkpoint = None
+                    load_error = f"{type(exc).__name__}: {exc}"
             else:
                 checkpoint = None
 
             if dist.is_initialized():
-                checkpoint_list = [checkpoint]
+                checkpoint_list = [checkpoint, load_error]
                 dist.broadcast_object_list(checkpoint_list, src=0)
-                checkpoint = checkpoint_list[0]
+                checkpoint, load_error = checkpoint_list
+
+            if load_error is not None:
+                raise RuntimeError(
+                    f"Could not load checkpoint {checkpoint_path}: {load_error}"
+                )
 
             if checkpoint is None:
                 raise RuntimeError("Failed to load checkpoint: checkpoint is None")
@@ -779,6 +785,12 @@ class EpochTrainer(ABC):
                 if state_key in checkpoint and checkpoint[state_key] is not None:
                     scheduler.load_state_dict(checkpoint[state_key])
                     self.logger.info(f"Loaded scheduler state for: {name}")
+
+            for name, criterion in self.criterions.items():
+                state_key = f"criterion_{name}_state_dict"
+                if state_key in checkpoint and checkpoint[state_key] is not None:
+                    criterion.load_state_dict(checkpoint[state_key])
+                    self.logger.info(f"Loaded criterion state for: {name}")
 
             # Restore accelerator state (scaler, etc.)
             self.accelerator.load_accelerator_state(checkpoint)
@@ -917,7 +929,23 @@ class EpochTrainer(ABC):
             )
 
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(checkpoint_dict, checkpoint_path)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=checkpoint_path.parent,
+                prefix=f".{checkpoint_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary_file:
+                temporary_path = Path(temporary_file.name)
+                torch.save(checkpoint_dict, temporary_file)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+            os.replace(temporary_path, checkpoint_path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
         self.logger.debug(
             f"Saved checkpoint for {self.PROGRESS_UNIT} {epoch}: {checkpoint_path}"
@@ -1552,6 +1580,8 @@ class EpochTrainer(ABC):
                 continue
 
             metric_value = float(epoch_logs[resolved_metric])
+            if not np.isfinite(metric_value):
+                continue
             if best_value is None:
                 best_epoch = epoch
                 best_value = metric_value
@@ -1778,9 +1808,9 @@ class EpochTrainer(ABC):
 
         Added metrics:
             - ``prob_entropy_mean``
-            - ``score_bonafide_mean``
-            - ``score_attack_mean``
-            - ``score_delta``
+            - ``prob_confidence_mean``
+            - ``prob_margin_mean`` when at least two classes are present
+            - ``prob_true_class_mean`` when valid labels are present
 
         Args:
             step_metrics: Step metrics returned by trainer step function.
@@ -1800,7 +1830,6 @@ class EpochTrainer(ABC):
         if prob_key is None:
             return step_metrics
 
-        bonafide_index: int = self.dataset_wrapper.classes.index("real")
         probabilities = step_metrics.pop(prob_key)
         if not torch.is_tensor(probabilities):
             return step_metrics
@@ -1814,30 +1843,26 @@ class EpochTrainer(ABC):
 
         probs = probabilities.clamp(1e-8, 1.0)
         entropy = -(probs * probs.log()).sum(dim=1)
-        pos_scores = probs[:, bonafide_index]
-
         step_metrics["prob_entropy_mean"] = entropy.mean().item()
+        step_metrics["prob_confidence_mean"] = probs.max(dim=1).values.mean().item()
+        if probs.shape[1] > 1:
+            top_two = probs.topk(k=2, dim=1).values
+            step_metrics["prob_margin_mean"] = (
+                top_two[:, 0] - top_two[:, 1]
+            ).mean().item()
 
         labels = batch_data.get("label")
         if not torch.is_tensor(labels):
             return step_metrics
         labels = labels.detach().view(-1)
-        if labels.numel() != pos_scores.numel():
+        if labels.numel() != probs.shape[0]:
             return step_metrics
-        labels = labels.to(pos_scores.device)
-        bonafide_mask = labels == bonafide_index
-        attack_mask = labels != bonafide_index
-
-        if bonafide_mask.any():
-            step_metrics["score_bonafide_mean"] = (
-                pos_scores[bonafide_mask].mean().item()
-            )
-        if attack_mask.any():
-            step_metrics["score_attack_mean"] = pos_scores[attack_mask].mean().item()
-        if bonafide_mask.any() and attack_mask.any():
-            step_metrics["score_delta"] = (
-                step_metrics["score_bonafide_mean"] - step_metrics["score_attack_mean"]
-            )
+        labels = labels.to(device=probs.device, dtype=torch.long)
+        if (labels < 0).any() or (labels >= probs.shape[1]).any():
+            return step_metrics
+        step_metrics["prob_true_class_mean"] = (
+            probs.gather(1, labels.unsqueeze(1)).mean().item()
+        )
 
         return step_metrics
 
@@ -2773,6 +2798,10 @@ class EpochTrainer(ABC):
     def restore_progress_state(self, checkpoint: dict[str, Any]) -> None:
         """Restore epoch and batch progress from a checkpoint payload."""
 
+        if "best_metric" in checkpoint:
+            self.best_metric = checkpoint["best_metric"]
+        if "epochs_no_improvement" in checkpoint:
+            self.epochs_no_improvement = int(checkpoint["epochs_no_improvement"])
         if "global_step" in checkpoint:
             self.global_step = int(checkpoint["global_step"])
         if "epoch" in checkpoint:

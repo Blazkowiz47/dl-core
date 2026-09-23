@@ -1,5 +1,6 @@
 """Checkpoint callback for saving model checkpoints based on monitored metrics."""
 
+import math
 from typing import Any, Dict, Optional
 
 from dl_core.core.base_callback import Callback
@@ -88,7 +89,15 @@ class CheckpointCallback(Callback):
                 self.trainer.save_checkpoint(epoch)
             return
 
-        current_value = logs[resolved_monitor]
+        current_value = float(logs[resolved_monitor])
+        if not math.isfinite(current_value):
+            self.logger.warning(
+                f"Skipping non-finite checkpoint metric {self.monitor}: "
+                f"{current_value}"
+            )
+            if not self.save_best_only:
+                self.trainer.save_checkpoint(epoch)
+            return
 
         # Determine if this is a better value
         is_better = False
@@ -116,3 +125,17 @@ class CheckpointCallback(Callback):
         elif not self.save_best_only:
             # Save checkpoint even if not best
             self.trainer.save_checkpoint(epoch)
+
+    def get_state(self) -> dict[str, Any]:
+        """Return best-checkpoint state for exact resume."""
+
+        return {
+            "best_value": self.best_value,
+            "best_epoch": self.best_epoch,
+        }
+
+    def set_state(self, state: dict[str, Any]) -> None:
+        """Restore best-checkpoint state from a checkpoint."""
+
+        self.best_value = state.get("best_value")
+        self.best_epoch = state.get("best_epoch")

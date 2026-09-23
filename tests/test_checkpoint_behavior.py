@@ -85,6 +85,19 @@ class _MainProcessAcceleratorStub:
     def wait_for_everyone(self, context: str | None = None) -> None:
         """No-op barrier stub."""
 
+    def set_sampler_epoch(self, epoch: int) -> None:
+        """Accept restored epoch state."""
+
+        del epoch
+
+    def unwrap_model(self, model: torch.nn.Module) -> torch.nn.Module:
+        """Return an unwrapped local model."""
+
+        return model
+
+    def load_accelerator_state(self, checkpoint: dict[str, Any]) -> None:
+        """Accept an empty accelerator state."""
+
 
 class _TrainingStartCallback(Callback):
     """Callback that records how many times training-start fired."""
@@ -260,6 +273,39 @@ def test_checkpoint_callback_supports_iteration_windows() -> None:
     assert trainer.saved_epochs == [(25, None), (25, "best.pth")]
 
 
+def test_checkpoint_callback_restores_best_state() -> None:
+    """Best checkpoint selection should continue across resumed runs."""
+
+    callback = CheckpointCallback(monitor="loss", mode="min")
+    callback.best_value = 0.25
+    callback.best_epoch = 4
+
+    restored = CheckpointCallback(monitor="loss", mode="min")
+    restored.set_state(callback.get_state())
+
+    assert restored.best_value == 0.25
+    assert restored.best_epoch == 4
+
+
+def test_checkpoint_callback_ignores_non_finite_metrics() -> None:
+    """A NaN metric must not become the permanent best value."""
+
+    trainer = _CheckpointTrainerStub()
+    callback = CheckpointCallback(
+        monitor="loss",
+        mode="min",
+        save_best_only=True,
+    )
+    callback.set_trainer(trainer)
+
+    callback.on_epoch_end(1, {"loss": float("nan")})
+    callback.on_epoch_end(2, {"loss": 0.5})
+
+    assert callback.best_value == 0.5
+    assert callback.best_epoch == 2
+    assert trainer.saved_epochs == [(2, None), (2, "best.pth")]
+
+
 def test_early_stopping_resolves_monitor_aliases() -> None:
     """Early stopping should accept underscore monitor aliases."""
 
@@ -274,6 +320,20 @@ def test_early_stopping_resolves_monitor_aliases() -> None:
     callback.on_epoch_end(1, {"validation/accuracy": 0.65})
 
     assert callback.metric_states["validation_accuracy"]["best_value"] == 0.65
+
+
+def test_early_stopping_ignores_non_finite_metrics() -> None:
+    """NaN observations should not consume patience or poison best state."""
+
+    trainer = _CheckpointTrainerStub()
+    callback = EarlyStoppingCallback(monitor="loss", mode="min", patience=1)
+    callback.set_trainer(trainer)
+
+    callback.on_epoch_end(1, {"loss": float("nan")})
+
+    assert callback.metric_states["loss"]["best_value"] is None
+    assert callback.metric_states["loss"]["wait"] == 0
+    assert trainer.stop_training is False
 
 
 def test_trainer_reuses_current_checkpoint_for_same_epoch() -> None:
@@ -318,6 +378,120 @@ def test_trainer_rebuilds_current_checkpoint_for_new_epoch() -> None:
     trainer._get_current_checkpoint(2)
 
     assert build_calls == [1, 2]
+
+
+def test_checkpoint_save_is_atomic_on_write_failure(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """A failed save must preserve the previous checkpoint alias."""
+
+    trainer = _ConcreteTrainer()
+    trainer.accelerator = _MainProcessAcceleratorStub()
+    trainer.artifact_manager = ArtifactManager(
+        run_name="atomic-save",
+        output_dir=str(tmp_path),
+    )
+    trainer._get_current_checkpoint = lambda epoch: {"epoch": epoch}
+    checkpoint_path = trainer.artifact_manager.get_final_checkpoint_path(
+        "latest.pth"
+    )
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"epoch": 1}, checkpoint_path)
+
+    def _fail_save(payload: dict[str, int], destination: Any) -> None:
+        destination.write(b"partial")
+        raise OSError("disk full")
+
+    monkeypatch.setattr("dl_core.core.base_trainer.torch.save", _fail_save)
+
+    with pytest.raises(OSError, match="disk full"):
+        trainer.save_checkpoint(2, filename="latest.pth")
+
+    assert torch.load(checkpoint_path, weights_only=False) == {"epoch": 1}
+    assert not list(checkpoint_path.parent.glob(".latest.pth.*.tmp"))
+
+
+def test_checkpoint_load_restores_criterion_and_progress_state(tmp_path: Path) -> None:
+    """Resume should restore criterion buffers and trainer selection counters."""
+
+    class _StatefulCriterion(torch.nn.Module):
+        def __init__(self, value: float) -> None:
+            super().__init__()
+            self.register_buffer("running_value", torch.tensor(value))
+
+    trainer = _ConcreteTrainer()
+    trainer.logger = logging.getLogger("test_checkpoint_restore")
+    trainer.accelerator = _MainProcessAcceleratorStub()
+    trainer.models = {"main": torch.nn.Linear(1, 1)}
+    trainer.optimizers = {}
+    trainer.schedulers = {}
+    trainer.criterions = {"stateful": _StatefulCriterion(0.0)}
+    trainer.ema = None
+    trainer.callbacks = CallbackList([])
+    trainer.dataset_wrapper = type(
+        "DatasetStub",
+        (),
+        {"set_epoch": lambda self, epoch: None},
+    )()
+    trainer.metric_managers = {}
+    trainer.best_metric = None
+    trainer.epochs_no_improvement = 0
+    trainer.global_step = 0
+    trainer.current_epoch = 0
+    checkpoint_path = tmp_path / "resume.pth"
+    torch.save(
+        {
+            "models_state_dict": {
+                "main": trainer.models["main"].state_dict(),
+            },
+            "criterion_stateful_state_dict": _StatefulCriterion(3.5).state_dict(),
+            "epoch": 4,
+            "global_step": 19,
+            "best_metric": 0.2,
+            "epochs_no_improvement": 3,
+        },
+        checkpoint_path,
+    )
+
+    trainer.load_checkpoint(str(checkpoint_path))
+
+    assert trainer.criterions["stateful"].running_value.item() == pytest.approx(3.5)
+    assert trainer.current_epoch == 4
+    assert trainer.global_step == 19
+    assert trainer.best_metric == pytest.approx(0.2)
+    assert trainer.epochs_no_improvement == 3
+
+
+def test_checkpoint_load_broadcasts_main_rank_failure(monkeypatch: Any) -> None:
+    """Every rank should fail when rank zero cannot deserialize a checkpoint."""
+
+    class _WorkerAcceleratorStub(_MainProcessAcceleratorStub):
+        def is_main_process(self) -> bool:
+            return False
+
+    trainer = _ConcreteTrainer()
+    trainer.logger = logging.getLogger("test_distributed_checkpoint_failure")
+    trainer.accelerator = _WorkerAcceleratorStub()
+    trainer.models = {"main": torch.nn.Linear(1, 1)}
+    broadcast_values: list[list[Any]] = []
+
+    monkeypatch.setattr("dl_core.core.base_trainer.dist.is_initialized", lambda: True)
+
+    def _broadcast(values: list[Any], src: int) -> None:
+        assert src == 0
+        broadcast_values.append(list(values))
+        values[:] = [None, "UnpicklingError: invalid load key"]
+
+    monkeypatch.setattr(
+        "dl_core.core.base_trainer.dist.broadcast_object_list",
+        _broadcast,
+    )
+
+    with pytest.raises(RuntimeError, match="UnpicklingError: invalid load key"):
+        trainer.load_checkpoint("corrupt.pth")
+
+    assert broadcast_values == [[None, None]]
 
 
 def test_select_best_epoch_resolves_monitor_aliases() -> None:
@@ -517,6 +691,30 @@ def test_run_raises_setup_error_instead_of_exiting() -> None:
         assert str(exc) == "boom"
     else:
         raise AssertionError("Expected RuntimeError from setup failure")
+
+
+def test_run_fails_when_requested_continue_checkpoint_cannot_load(
+    tmp_path: Path,
+) -> None:
+    """An explicit resume failure must not silently start fresh training."""
+
+    trainer, _, callbacks, persisted, finalize_sync = _build_lifecycle_trainer(
+        tmp_path
+    )
+    training_calls: list[bool] = []
+    trainer.setup = lambda: None
+    trainer.load_continue_model = lambda: (_ for _ in ()).throw(
+        RuntimeError("corrupt checkpoint")
+    )
+    trainer.perform_training = lambda: training_calls.append(True)
+
+    with pytest.raises(RuntimeError, match="corrupt checkpoint"):
+        trainer._run()
+
+    assert training_calls == []
+    assert persisted == [("failed", "corrupt checkpoint")]
+    assert callbacks.training_end_calls[0][0]["status"] == "failed"
+    assert finalize_sync == [False]
 
 
 def test_callback_list_syncs_enabled_state_across_ranks(monkeypatch: Any) -> None:

@@ -1,5 +1,6 @@
 """Early stopping callback for stopping training based on monitored metrics."""
 
+import math
 from typing import Any, Dict, List, Optional
 
 from dl_core.core.base_callback import Callback
@@ -224,7 +225,13 @@ class EarlyStoppingCallback(Callback):
             if resolved_monitor is None:
                 continue
 
-            current_value = logs[resolved_monitor]
+            current_value = float(logs[resolved_monitor])
+            if not math.isfinite(current_value):
+                self.logger.warning(
+                    f"Ignoring non-finite early-stopping metric "
+                    f"{monitor_key}: {current_value}"
+                )
+                continue
             mode = state["mode"]
             target_value = state["target_value"]
             target_mode = state["target_mode"]

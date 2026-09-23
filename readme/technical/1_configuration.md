@@ -190,6 +190,22 @@ trainer:
 That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`,
 which builds on the epoch-based `dl_core.core.EpochTrainer`.
 
+When a training step returns a tensor under `probabilities_tensor` or
+`probabilities`, the base trainer records class-neutral diagnostics:
+`prob_entropy_mean`, `prob_confidence_mean`, and, for multiclass outputs,
+`prob_margin_mean`. If the batch also contains valid integer labels, it records
+`prob_true_class_mean`. These metrics do not depend on project-specific class
+names.
+
+Checkpoint aliases such as `latest.pth` and `best.pth` are replaced atomically
+after the new payload is fully written. Automatic local resume validates a
+checkpoint before selecting it and falls back from an unreadable `latest.pth`
+to the next loadable numbered checkpoint. An explicitly requested checkpoint
+is strict: if it cannot be loaded, the run fails instead of silently restarting
+from the beginning. Resume restores model, optimizer, scheduler, criterion,
+accelerator, callback, and trainer progress state when those entries are
+present.
+
 After successful training, the trainer lifecycle calls `select_checkpoint()` and
 passes that path to `post_training(checkpoint_path)`. The default selector
 returns final `best.pth` when the checkpoint callback created it, falls back to
@@ -216,6 +232,10 @@ cycled and their cycle/cursor state is checkpointed; infinite loaders continue
 without requiring a length. WebDataset-backed loaders split shards between
 ranks and workers before reading samples; a resampled training stream keeps
 every rank available for the configured iteration budget.
+
+With gradient accumulation, iteration checkpoints are deferred until the
+current accumulation window has produced an optimizer step. This prevents a
+resume point from silently dropping gradients held only in memory.
 
 There is no generic `BaseTrainer` export. Import `EpochTrainer`,
 `IterationTrainer`, or `RLTrainer` explicitly according to the lifecycle.

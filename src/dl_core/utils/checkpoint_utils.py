@@ -7,6 +7,8 @@ from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import torch
+
 from dl_core.utils.config_names import (
     resolve_config_experiment_name,
     resolve_config_run_name,
@@ -14,6 +16,17 @@ from dl_core.utils.config_names import (
 from dl_core.utils.artifact_manager import resolve_existing_run_artifact_dir
 
 logger = getLogger(__name__)
+
+
+def _is_loadable_checkpoint(checkpoint_path: Path) -> bool:
+    """Return whether a local checkpoint can be deserialized."""
+
+    try:
+        torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except Exception as error:
+        logger.warning(f"Ignoring unreadable checkpoint {checkpoint_path}: {error}")
+        return False
+    return True
 
 
 def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
@@ -37,13 +50,14 @@ def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
 
     latest_checkpoint = checkpoint_path / "latest.pth"
     if latest_checkpoint.is_file():
-        logger.info(f"Found latest checkpoint: {latest_checkpoint}")
-        return str(latest_checkpoint)
+        if _is_loadable_checkpoint(latest_checkpoint):
+            logger.info(f"Found latest checkpoint: {latest_checkpoint}")
+            return str(latest_checkpoint)
 
     checkpoint_pattern = re.compile(
         r"(epoch|episode|step)_(\d+)\.pth?"
     )
-    checkpoint_candidates: dict[str, tuple[int, int, Path]] = {}
+    checkpoint_candidates: dict[str, list[tuple[int, int, Path]]] = {}
 
     try:
         checkpoint_files = list(checkpoint_path.iterdir())
@@ -66,37 +80,49 @@ def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
 
         checkpoint_type = match.group(1)
         checkpoint_number = int(match.group(2))
-        candidate = (checkpoint_number, file_status.st_mtime_ns, file_path)
-        current = checkpoint_candidates.get(checkpoint_type)
-        if current is None or (
-            checkpoint_number,
-            file_status.st_mtime_ns,
-            file_path.name,
-        ) > (current[0], current[1], current[2].name):
-            checkpoint_candidates[checkpoint_type] = candidate
+        checkpoint_candidates.setdefault(checkpoint_type, []).append(
+            (checkpoint_number, file_status.st_mtime_ns, file_path)
+        )
 
     if not checkpoint_candidates:
         logger.info(f"No checkpoints found in {checkpoint_dir}")
         return None
 
-    checkpoint_type, (
-        checkpoint_number,
-        _modified_time,
-        latest_path,
-    ) = max(
-        checkpoint_candidates.items(),
-        key=lambda item: (
-            item[1][1],
-            item[1][0],
-            item[0],
-            item[1][2].name,
-        ),
-    )
-    logger.info(
-        f"Found latest checkpoint: {checkpoint_type} "
-        f"{checkpoint_number} at {latest_path}"
-    )
-    return str(latest_path)
+    for candidates in checkpoint_candidates.values():
+        candidates.sort(
+            key=lambda candidate: (
+                candidate[0],
+                candidate[1],
+                candidate[2].name,
+            ),
+            reverse=True,
+        )
+
+    while checkpoint_candidates:
+        checkpoint_type = max(
+            checkpoint_candidates,
+            key=lambda kind: (
+                checkpoint_candidates[kind][0][1],
+                checkpoint_candidates[kind][0][0],
+                kind,
+                checkpoint_candidates[kind][0][2].name,
+            ),
+        )
+        checkpoint_number, _modified_time, latest_path = checkpoint_candidates[
+            checkpoint_type
+        ].pop(0)
+        if not checkpoint_candidates[checkpoint_type]:
+            del checkpoint_candidates[checkpoint_type]
+        if not _is_loadable_checkpoint(latest_path):
+            continue
+        logger.info(
+            f"Found latest checkpoint: {checkpoint_type} "
+            f"{checkpoint_number} at {latest_path}"
+        )
+        return str(latest_path)
+
+    logger.info(f"No loadable checkpoints found in {checkpoint_dir}")
+    return None
 
 
 def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
