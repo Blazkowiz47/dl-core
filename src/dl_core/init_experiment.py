@@ -980,17 +980,27 @@ def create_experiment_scaffold(
     if with_azure:
         selected_extensions.add("azure")
 
-    tracking_backends = {
-        extension.tracking_backend
+    tracking_extensions = [
+        extension
         for extension_name in selected_extensions
         if (extension := extensions.get(extension_name)) is not None
         and extension.tracking_backend is not None
+    ]
+    highest_priority = max(
+        (extension.tracking_priority for extension in tracking_extensions),
+        default=0,
+    )
+    tracking_backends = {
+        extension.tracking_backend
+        for extension in tracking_extensions
+        if extension.tracking_priority == highest_priority
     }
     if len(tracking_backends) > 1:
         raise ValueError(
             "Selected init extensions require conflicting sweep tracking "
             f"backends: {', '.join(sorted(tracking_backends))}"
         )
+    tracking_backend = next(iter(tracking_backends), None)
 
     base_files = _base_scaffold_files(templates_dir, project)
     context = ScaffoldContext(
@@ -999,6 +1009,7 @@ def create_experiment_scaffold(
         project=project,
         files=base_files.copy(),
         enabled_extensions=set(selected_extensions),
+        tracking_backend=tracking_backend,
     )
     patchable_paths = {
         Path("pyproject.toml"),

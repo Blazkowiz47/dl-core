@@ -47,16 +47,18 @@ class FakePromptExtension(InitExtension):
 class FakeTrackingExtension(InitExtension):
     """Exercise safe extension patching without an external package."""
 
-    def __init__(self, name: str, backend: str) -> None:
+    def __init__(self, name: str, backend: str, priority: int = 1) -> None:
         self.name = name
         self.tracking_backend = backend
+        self.tracking_priority = priority
 
     def apply(self, context: ScaffoldContext) -> None:
-        context.replace_in_file(
-            "configs/base_sweep.yaml",
-            "tracking:\n",
-            f"tracking:\n  backend: {self.tracking_backend}\n",
-        )
+        if context.tracking_backend in {None, self.tracking_backend}:
+            context.replace_in_file(
+                "configs/base_sweep.yaml",
+                "tracking:\n",
+                f"tracking:\n  backend: {self.tracking_backend}\n",
+            )
         context.set_file(f"{self.name}.txt", "enabled\n")
 
 
@@ -78,6 +80,29 @@ def test_scaffold_rejects_conflicting_tracking_extensions_before_writing(
         )
 
     assert not (tmp_path / "demo").exists()
+
+
+def test_explicit_tracker_overrides_lower_priority_executor_default(
+    tmp_path: Path,
+) -> None:
+    """An Azure-like executor and explicit tracker can share a scaffold."""
+    extensions = {
+        "azure": FakeTrackingExtension("azure", "azure_mlflow", priority=0),
+        "wandb": FakeTrackingExtension("wandb", "wandb"),
+    }
+
+    target = create_experiment_scaffold(
+        "demo",
+        root_dir=str(tmp_path),
+        enabled_extensions=set(extensions),
+        discovered_extensions=extensions,
+    )
+
+    sweep = (target / "configs" / "base_sweep.yaml").read_text(encoding="utf-8")
+    assert sweep.count("  backend:") == 1
+    assert "backend: wandb" in sweep
+    assert (target / "azure.txt").exists()
+    assert (target / "wandb.txt").exists()
 
 
 def test_scaffold_missing_extension_anchor_writes_nothing(tmp_path: Path) -> None:

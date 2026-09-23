@@ -41,6 +41,7 @@ class ScaffoldContext:
     project: ProjectNames
     files: dict[Path, str]
     enabled_extensions: set[str] = field(default_factory=set)
+    tracking_backend: str | None = None
 
     def get_file(self, relative_path: str | Path) -> str:
         """Return file content for a generated relative path."""
@@ -124,6 +125,7 @@ class InitExtension:
 
     name = ""
     tracking_backend: str | None = None
+    tracking_priority = 1
 
     def display_name(self) -> str:
         """Return a user-facing extension name for prompts and help text."""
