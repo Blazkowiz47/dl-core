@@ -146,9 +146,10 @@ The scaffold keeps trainer and dataset customization in project-named
 components and generates a complete project-owned example model. This keeps
 experiment architectures isolated from `deep-learning-core`.
 
-If you install new extras later, `uv run dl-init --root-dir .` will only add
-missing scaffold files. Existing configs are left untouched, so extension
-callback/tracking wiring still needs to be added manually in those files.
+In-place `uv run dl-init --root-dir .` adds missing files. Selected extensions
+also update supported scaffold config, dependency, bootstrap, and ignore files
+while keeping their other content. Init stops before writing if an extension
+would replace an existing project-owned component file.
 """
 
 
@@ -168,7 +169,7 @@ def _project_agents_md(project_name: str) -> str:
 
 ## Preferred Commands
 
-- `uv run dl-init --root-dir .` adds missing scaffold files only. It does not rewrite existing configs to inject new extension wiring.
+- `uv run dl-init --root-dir .` adds missing scaffold files. Enabled extensions patch supported existing config and bootstrap files, but never replace project-owned component files.
 - `uv run dl-run --config configs/base.yaml --validate-only` is the default scaffold wiring check before creating a concrete experiment config.
 - `uv run dl-run --config experiments/<run_name>.yaml --validate-only` checks one concrete single-run experiment config.
 - `uv run dl-run --config experiments/<run_name>.yaml` runs one concrete single-run experiment config.
@@ -979,27 +980,82 @@ def create_experiment_scaffold(
     if with_azure:
         selected_extensions.add("azure")
 
+    tracking_backends = {
+        extension.tracking_backend
+        for extension_name in selected_extensions
+        if (extension := extensions.get(extension_name)) is not None
+        and extension.tracking_backend is not None
+    }
+    if len(tracking_backends) > 1:
+        raise ValueError(
+            "Selected init extensions require conflicting sweep tracking "
+            f"backends: {', '.join(sorted(tracking_backends))}"
+        )
+
+    base_files = _base_scaffold_files(templates_dir, project)
     context = ScaffoldContext(
         target_dir=target_dir,
         templates_dir=templates_dir,
         project=project,
-        files=_base_scaffold_files(
-            templates_dir,
-            project,
-        ),
+        files=base_files.copy(),
         enabled_extensions=set(selected_extensions),
     )
+    patchable_paths = {
+        Path("pyproject.toml"),
+        Path("README.md"),
+        Path("AGENTS.md"),
+        Path(".gitignore"),
+        Path("src") / "bootstrap.py",
+        Path("configs") / "base.yaml",
+        Path("configs") / "base_sweep.yaml",
+        Path("configs") / "presets.yaml",
+        Path("experiments") / "lr_sweep.yaml",
+        Path("azure-config.json"),
+    }
+    if initialize_in_place and selected_extensions:
+        for relative_path in patchable_paths & context.files.keys():
+            path = target_dir / relative_path
+            if path.is_file():
+                context.files[relative_path] = path.read_text(encoding="utf-8")
+    initial_files = context.files.copy()
     for extension_name in sorted(selected_extensions):
         extension = extensions.get(extension_name)
         if extension is None:
             raise ValueError(f"Unknown init extension: {extension_name}")
         extension.apply(context)
 
+    for relative_path in context.files:
+        path = target_dir / relative_path
+        if path.exists() and not path.is_file():
+            raise FileExistsError(f"Expected file path but found directory: {path}")
+
+    if initialize_in_place and selected_extensions:
+        changed_paths = {
+            relative_path
+            for relative_path, content in context.files.items()
+            if content != initial_files.get(relative_path)
+        }
+        conflicts = sorted(
+            relative_path
+            for relative_path in changed_paths
+            if relative_path not in patchable_paths
+            if (target_dir / relative_path).is_file()
+            and (target_dir / relative_path).read_text(encoding="utf-8")
+            != context.files[relative_path]
+        )
+        if conflicts:
+            paths = ", ".join(str(path) for path in conflicts)
+            raise FileExistsError(
+                "Selected init extensions would change existing files: "
+                f"{paths}. No files were written; merge the wiring manually."
+            )
+
     for relative_path, content in context.files.items():
         _write_text(
             target_dir / relative_path,
             content,
-            overwrite=not initialize_in_place,
+            overwrite=not initialize_in_place
+            or (bool(selected_extensions) and relative_path in patchable_paths),
         )
 
     return target_dir

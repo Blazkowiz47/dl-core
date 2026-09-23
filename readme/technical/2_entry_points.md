@@ -72,6 +72,11 @@ Important arguments:
 - dynamically added extension flags such as `--with-azure`, `--with-mlflow`,
   and `--with-wandb` when the relevant extra package is installed
 
+Only one sweep tracking backend can be selected. Extension patch anchors are
+checked before files are written. In-place init patches supported existing
+config and bootstrap files, preserving their other content, and refuses to
+replace an existing project-owned component file.
+
 `dl-init-experiment` remains available as a compatibility alias for older
 scripts.
 

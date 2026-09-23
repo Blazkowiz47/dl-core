@@ -6,7 +6,13 @@ import argparse
 from dataclasses import dataclass, field
 from importlib.metadata import EntryPoint, entry_points
 from pathlib import Path
+import re
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 ENTRY_POINT_GROUP = "dl_core.init_extensions"
 
@@ -47,7 +53,10 @@ class ScaffoldContext:
     def replace_in_file(self, relative_path: str | Path, old: str, new: str) -> None:
         """Replace text inside a generated file."""
         relative = Path(relative_path)
-        self.files[relative] = self.files[relative].replace(old, new)
+        content = self.files[relative]
+        if not old or old not in content:
+            raise ValueError(f"Scaffold anchor not found in {relative}: {old!r}")
+        self.files[relative] = content.replace(old, new, 1)
 
     def append_line(self, relative_path: str | Path, line: str) -> None:
         """Append a line to a generated text file if it is not already present."""
@@ -63,16 +72,31 @@ class ScaffoldContext:
         """Append a dependency to the generated project pyproject."""
         relative = Path("pyproject.toml")
         content = self.files[relative]
-        dependency_line = f'    "{requirement}",\n'
-        if dependency_line in content:
+        try:
+            existing = tomllib.loads(content)["project"].get("dependencies", [])
+        except (KeyError, tomllib.TOMLDecodeError) as exc:
+            raise ValueError(f"Cannot read project dependencies in {relative}") from exc
+        requirement_name = re.split(r"[\[<>=!~;\s]", requirement, 1)[0]
+        if any(
+            re.split(r"[\[<>=!~;\s]", item, 1)[0].lower().replace("_", "-")
+            == requirement_name.lower().replace("_", "-")
+            for item in existing
+        ):
             return
-
+        dependency_line = f'    "{requirement}",\n'
         marker = "dependencies = [\n"
-        self.files[relative] = content.replace(
-            marker,
-            f"{marker}{dependency_line}",
-            1,
-        )
+        if marker in content:
+            self.files[relative] = content.replace(
+                marker, f"{marker}{dependency_line}", 1
+            )
+        elif "dependencies = []" in content:
+            self.files[relative] = content.replace(
+                "dependencies = []",
+                f"dependencies = [\n{dependency_line}]",
+                1,
+            )
+        else:
+            raise ValueError(f"Scaffold dependency anchor not found in {relative}")
 
     def add_gitignore_patterns(self, *patterns: str) -> None:
         """Append missing ignore patterns to the generated project gitignore."""
@@ -99,6 +123,7 @@ class InitExtension:
     """Base interface for scaffold extensions."""
 
     name = ""
+    tracking_backend: str | None = None
 
     def display_name(self) -> str:
         """Return a user-facing extension name for prompts and help text."""

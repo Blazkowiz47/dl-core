@@ -339,6 +339,10 @@ callback block and local tracking defaults.
 If W&B support is installed, `uv run dl-init --with-wandb` will also
 scaffold a `wandb` callback block, W&B tracking defaults, and `.env.example`.
 
+Select one sweep tracking extension per scaffold. In-place init patches
+supported existing config and bootstrap files while preserving their other
+content; it never replaces a project-owned component file.
+
 ## Companion Packages
 
 - [`dl-azure`](https://github.com/Blazkowiz47/dl-azure)

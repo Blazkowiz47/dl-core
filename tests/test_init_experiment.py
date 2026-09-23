@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
 from pytest import MonkeyPatch
 import torch
 import yaml
@@ -41,6 +42,141 @@ class FakePromptExtension(InitExtension):
     def apply(self, context: ScaffoldContext) -> None:
         """Write a marker file into the scaffold."""
         context.set_file("wandb.txt", "enabled\n")
+
+
+class FakeTrackingExtension(InitExtension):
+    """Exercise safe extension patching without an external package."""
+
+    def __init__(self, name: str, backend: str) -> None:
+        self.name = name
+        self.tracking_backend = backend
+
+    def apply(self, context: ScaffoldContext) -> None:
+        context.replace_in_file(
+            "configs/base_sweep.yaml",
+            "tracking:\n",
+            f"tracking:\n  backend: {self.tracking_backend}\n",
+        )
+        context.set_file(f"{self.name}.txt", "enabled\n")
+
+
+def test_scaffold_rejects_conflicting_tracking_extensions_before_writing(
+    tmp_path: Path,
+) -> None:
+    """Two selected backends cannot create a duplicate YAML tracking key."""
+    extensions = {
+        "first": FakeTrackingExtension("first", "mlflow"),
+        "second": FakeTrackingExtension("second", "wandb"),
+    }
+
+    with pytest.raises(ValueError, match="conflicting sweep tracking"):
+        create_experiment_scaffold(
+            "demo",
+            root_dir=str(tmp_path),
+            enabled_extensions=set(extensions),
+            discovered_extensions=extensions,
+        )
+
+    assert not (tmp_path / "demo").exists()
+
+
+def test_scaffold_missing_extension_anchor_writes_nothing(tmp_path: Path) -> None:
+    """A template drift error must surface before any scaffold file is saved."""
+
+    class MissingAnchorExtension(InitExtension):
+        name = "broken"
+
+        def apply(self, context: ScaffoldContext) -> None:
+            context.set_file("broken.txt", "created\n")
+            context.replace_in_file("configs/base_sweep.yaml", "missing-anchor", "x")
+
+    with pytest.raises(ValueError, match="Scaffold anchor not found"):
+        create_experiment_scaffold(
+            "demo",
+            root_dir=str(tmp_path),
+            enabled_extensions={"broken"},
+            discovered_extensions={"broken": MissingAnchorExtension()},
+        )
+
+    assert not (tmp_path / "demo").exists()
+
+
+def test_in_place_extension_patches_existing_config(tmp_path: Path) -> None:
+    """Re-init applies extension wiring while keeping user config content."""
+    target = tmp_path / "demo"
+    target.mkdir()
+    create_experiment_scaffold(root_dir=str(target))
+    sweep_path = target / "configs" / "base_sweep.yaml"
+    before = sweep_path.read_text(encoding="utf-8")
+    sweep_path.write_text(before + "\n# keep custom note\n", encoding="utf-8")
+    extension = FakeTrackingExtension("tracker", "mlflow")
+
+    create_experiment_scaffold(
+        root_dir=str(target),
+        enabled_extensions={"tracker"},
+        discovered_extensions={"tracker": extension},
+    )
+
+    rendered = sweep_path.read_text(encoding="utf-8")
+    assert "backend: mlflow" in rendered
+    assert "# keep custom note" in rendered
+    assert (target / "tracker.txt").read_text(encoding="utf-8") == "enabled\n"
+
+
+def test_in_place_extension_refuses_component_overwrite(tmp_path: Path) -> None:
+    """A project-owned component collision aborts before writing any files."""
+    target = tmp_path / "demo"
+    target.mkdir()
+    create_experiment_scaffold(root_dir=str(target))
+    component_path = target / "src" / "datasets" / "demo.py"
+    before = component_path.read_text(encoding="utf-8")
+
+    class OverwritingExtension(FakeTrackingExtension):
+        def apply(self, context: ScaffoldContext) -> None:
+            super().apply(context)
+            context.set_file("src/datasets/demo.py", "overwrite\n")
+
+    extension = OverwritingExtension("tracker", "mlflow")
+
+    with pytest.raises(FileExistsError, match="No files were written"):
+        create_experiment_scaffold(
+            root_dir=str(target),
+            enabled_extensions={"tracker"},
+            discovered_extensions={"tracker": extension},
+        )
+
+    assert component_path.read_text(encoding="utf-8") == before
+    assert "backend: mlflow" not in (
+        target / "configs" / "base_sweep.yaml"
+    ).read_text(encoding="utf-8")
+    assert not (target / "tracker.txt").exists()
+
+
+def test_in_place_extension_supports_uv_init_pyproject(tmp_path: Path) -> None:
+    """Existing uv project metadata accepts a selected extension dependency."""
+    target = tmp_path / "demo"
+    target.mkdir()
+    pyproject = target / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n'
+        'dependencies = []\n',
+        encoding="utf-8",
+    )
+
+    class DependencyExtension(InitExtension):
+        name = "dependency"
+
+        def apply(self, context: ScaffoldContext) -> None:
+            context.add_dependency("deep-learning-wandb")
+
+    extension = DependencyExtension()
+    create_experiment_scaffold(
+        root_dir=str(target),
+        enabled_extensions={"dependency"},
+        discovered_extensions={"dependency": extension},
+    )
+
+    assert '"deep-learning-wandb",' in pyproject.read_text(encoding="utf-8")
 
 
 def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None:
