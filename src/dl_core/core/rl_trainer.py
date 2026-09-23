@@ -20,6 +20,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from tqdm import tqdm
 
 from dl_core.utils import ArtifactManager, set_seeds
+from dl_core.utils.artifact_manager import get_legacy_run_artifact_dir
 from dl_core.utils.checkpoint_utils import (
     atomic_torch_save,
     find_latest_checkpoint_local,
@@ -285,7 +286,35 @@ class RLTrainer(ABC):
         if not self.continue_model and self.config.get("auto_resume_local", False):
             checkpoint_dir = getattr(self, "checkpoint_dir", None)
             if checkpoint_dir is not None:
-                self.continue_model = find_latest_checkpoint_local(checkpoint_dir)
+                checkpoint_dirs = [checkpoint_dir]
+                artifact_manager = getattr(self, "artifact_manager", None)
+                if artifact_manager is not None:
+                    legacy_dir = Path(
+                        get_legacy_run_artifact_dir(
+                            run_name=artifact_manager.run_name,
+                            output_dir=str(artifact_manager.output_dir),
+                            experiment_name=artifact_manager.experiment_name,
+                            sweep_name=artifact_manager.sweep_name,
+                        )
+                    ) / "final" / "checkpoints"
+                    if str(legacy_dir) != checkpoint_dir:
+                        checkpoint_dirs.append(str(legacy_dir))
+
+                unreadable_dirs: list[str] = []
+                for candidate_dir in checkpoint_dirs:
+                    try:
+                        self.continue_model = find_latest_checkpoint_local(
+                            candidate_dir
+                        )
+                    except RuntimeError:
+                        unreadable_dirs.append(candidate_dir)
+                    if self.continue_model:
+                        break
+                if not self.continue_model and unreadable_dirs:
+                    raise RuntimeError(
+                        "Checkpoint artifacts exist but none can be loaded from "
+                        f"{', '.join(unreadable_dirs)}"
+                    )
                 if self.continue_model:
                     self.trainer_config["continue_model"] = self.continue_model
                     try:

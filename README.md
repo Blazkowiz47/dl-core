@@ -321,6 +321,8 @@ perform the same number of synchronized model updates. Finite loaders restart
 with a new deterministic data cycle; streaming loaders can remain open
 indefinitely. Checkpoints retain the completed iteration, data-cycle number,
 and position within the current finite-loader cycle.
+With gradient accumulation, reporting and checkpoint saves wait for a completed
+optimizer step; a final partial window is stepped before the final report.
 
 `BaseTrainer` is no longer part of the API. Existing epoch-based subclasses
 should import `EpochTrainer`; switching a project to iteration-based training

@@ -335,6 +335,7 @@ def test_early_stopping_counts_non_finite_metrics_toward_patience() -> None:
     callback.set_trainer(trainer)
 
     callback.on_epoch_end(1, {"loss": float("nan")})
+    assert trainer.stop_training is False
     callback.on_epoch_end(2, {"loss": float("inf")})
 
     assert callback.metric_states["loss"]["best_value"] is None
@@ -529,12 +530,18 @@ def test_checkpoint_payload_round_trips_callback_state(tmp_path: Path) -> None:
     assert target_callback.best_epoch == 3
 
 
+@pytest.mark.parametrize("legacy_layout", [False, True])
 def test_auto_resume_falls_back_through_real_epoch_layout(
     tmp_path: Path,
+    legacy_layout: bool,
 ) -> None:
-    """Trainer auto-resume should load a numbered epoch after corrupt latest."""
+    """Trainer auto-resume should recover from flat and legacy run layouts."""
 
-    run_dir = tmp_path / "runs" / "demo"
+    run_dir = (
+        tmp_path / "demo-exp" / "demo"
+        if legacy_layout
+        else tmp_path / "runs" / "demo"
+    )
     checkpoint_dir = run_dir / "final" / "checkpoints"
     checkpoint_dir.mkdir(parents=True)
     (checkpoint_dir / "latest.pth").write_bytes(b"truncated")
@@ -561,7 +568,14 @@ def test_auto_resume_falls_back_through_real_epoch_layout(
     trainer.continue_model = None
     trainer.trainer_config = {}
     trainer.config = {"auto_resume_local": True}
-    trainer.checkpoint_dir = str(checkpoint_dir)
+    trainer.artifact_manager = ArtifactManager(
+        run_name="demo",
+        output_dir=str(tmp_path),
+        experiment_name="demo-exp",
+    )
+    trainer.checkpoint_dir = str(
+        trainer.artifact_manager.get_checkpoints_dir()
+    )
     epoch_checkpoint = run_dir / "epoch_6" / "checkpoint.pth"
     epoch_checkpoint.parent.mkdir()
     torch.save(
@@ -610,6 +624,73 @@ def test_checkpoint_load_broadcasts_main_rank_failure(monkeypatch: Any) -> None:
         trainer.load_checkpoint("corrupt.pth")
 
     assert broadcast_values == [[None, None]]
+
+
+def test_checkpoint_load_broadcasts_rank_zero_read_error(
+    monkeypatch: Any,
+) -> None:
+    """Rank zero must send its deserialization failure before raising."""
+
+    trainer = _ConcreteTrainer()
+    trainer.logger = logging.getLogger("test_rank_zero_checkpoint_failure")
+    trainer.accelerator = _MainProcessAcceleratorStub()
+    trainer.models = {"main": torch.nn.Linear(1, 1)}
+    broadcast_values: list[list[Any]] = []
+
+    def _fail_load(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise OSError("unreadable checkpoint")
+
+    def _broadcast(values: list[Any], src: int) -> None:
+        assert src == 0
+        broadcast_values.append(list(values))
+
+    monkeypatch.setattr("dl_core.core.base_trainer.torch.load", _fail_load)
+    monkeypatch.setattr("dl_core.core.base_trainer.dist.is_initialized", lambda: True)
+    monkeypatch.setattr(
+        "dl_core.core.base_trainer.dist.broadcast_object_list", _broadcast
+    )
+
+    with pytest.raises(RuntimeError, match="OSError: unreadable checkpoint"):
+        trainer.load_checkpoint("corrupt.pth")
+
+    assert broadcast_values == [[None, "OSError: unreadable checkpoint"]]
+
+
+def test_auto_resume_broadcasts_rank_zero_discovery_error(
+    monkeypatch: Any,
+) -> None:
+    """A discovery failure must not strand non-main ranks in a collective."""
+
+    trainer = _ConcreteTrainer()
+    trainer.logger = logging.getLogger("test_rank_zero_discovery_failure")
+    trainer.accelerator = _MainProcessAcceleratorStub()
+    trainer.config = {"auto_resume_local": True}
+    trainer.continue_model = None
+    trainer.checkpoint_dir = "unreadable"
+    broadcast_values: list[list[Any]] = []
+
+    def _fail_discovery(checkpoint_dir: str) -> list[str]:
+        del checkpoint_dir
+        raise OSError("permission denied")
+
+    def _broadcast(values: list[Any], src: int) -> None:
+        assert src == 0
+        broadcast_values.append(list(values))
+
+    monkeypatch.setattr(
+        "dl_core.core.base_trainer.find_checkpoint_candidates_local",
+        _fail_discovery,
+    )
+    monkeypatch.setattr("dl_core.core.base_trainer.dist.is_initialized", lambda: True)
+    monkeypatch.setattr(
+        "dl_core.core.base_trainer.dist.broadcast_object_list", _broadcast
+    )
+
+    with pytest.raises(RuntimeError, match="OSError: permission denied"):
+        trainer._load_auto_resume_model()
+
+    assert broadcast_values == [[[], "OSError: permission denied"]]
 
 
 def test_select_best_epoch_resolves_monitor_aliases() -> None:

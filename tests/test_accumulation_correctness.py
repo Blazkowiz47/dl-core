@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any
 
 import pytest
@@ -9,6 +10,7 @@ import torch
 from torch.optim import SGD
 
 from dl_core.accelerators.cpu import CPUAccelerator
+from dl_core.accelerators.multi_gpu import MultiGPUAccelerator
 
 
 def _loss(model: torch.nn.Module, value: float, target: float) -> torch.Tensor:
@@ -76,6 +78,34 @@ def test_final_partial_accumulation_window_is_rescaled_and_stepped() -> None:
     reference_optimizer.step()
 
     assert torch.allclose(partial_model.weight, reference_model.weight)
+
+
+def test_distributed_final_window_does_not_skip_gradient_sync(
+    monkeypatch: Any,
+) -> None:
+    """Trainer-owned finalization must bypass DDP no_sync on the last batch."""
+
+    class _DDPStub:
+        def __init__(self) -> None:
+            self.no_sync_calls = 0
+
+        def no_sync(self) -> Any:
+            self.no_sync_calls += 1
+            return nullcontext()
+
+    monkeypatch.setattr("dl_core.accelerators.multi_gpu.DDP", _DDPStub)
+    accelerator = object.__new__(MultiGPUAccelerator)
+    accelerator.gradient_accumulation_steps = 4
+    accelerator.accumulation_counter = 1
+    accelerator.finalize_accumulation = True
+    accelerator.scaler = None
+    model = _DDPStub()
+    loss = torch.tensor(1.0, requires_grad=True)
+
+    accelerator.backward(loss, model=model)
+
+    assert model.no_sync_calls == 0
+    assert loss.grad == pytest.approx(0.25)
 
 
 def test_scaled_gradients_are_unscaled_before_clipping(monkeypatch: Any) -> None:

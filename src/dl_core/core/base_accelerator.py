@@ -80,6 +80,7 @@ class BaseAccelerator(ABC):
 
         # Gradient accumulation counter
         self.accumulation_counter = 0
+        self.finalize_accumulation = False
 
         # Mixed precision scaler (set to None by default, subclasses initialize if needed)
         self.scaler = None
@@ -198,7 +199,9 @@ class BaseAccelerator(ABC):
         """
         self.accumulation_counter += 1
         should_step = (
-            self.accumulation_counter == self.gradient_accumulation_steps or finalize
+            self.accumulation_counter == self.gradient_accumulation_steps
+            or finalize
+            or self.finalize_accumulation
         )
         if should_step:
             accumulated_steps = self.accumulation_counter

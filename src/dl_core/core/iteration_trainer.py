@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any, Iterator
 
+import torch
+import torch.distributed as dist
 from tqdm import tqdm
 
 from dl_core.core.config_metadata import config_field
@@ -139,11 +141,34 @@ class IterationTrainer(EpochTrainer):
     def _flush_pending_checkpoints(self) -> bool:
         """Write queued checkpoints at a completed accumulation boundary."""
 
-        if self._accumulation_pending() or not self._pending_checkpoint_filenames:
+        if self._accumulation_pending():
             return False
 
         filenames = self._pending_checkpoint_filenames
+        if dist.is_available() and dist.is_initialized():
+            pending = torch.tensor(
+                bool(filenames),
+                dtype=torch.bool,
+                device=self.accelerator.get_device(),
+            )
+            dist.all_reduce(pending, op=dist.ReduceOp.MAX)
+            if not pending.item():
+                return False
+            requests: list[list[str | None]] = [
+                [] for _ in range(dist.get_world_size())
+            ]
+            dist.all_gather_object(requests, filenames)
+            filenames = list(
+                dict.fromkeys(
+                    filename
+                    for rank_requests in requests
+                    for filename in rank_requests
+                )
+            )
         self._pending_checkpoint_filenames = []
+        if not filenames:
+            return False
+
         self.accelerator.wait_for_everyone("before deferred checkpoint save")
         for filename in filenames:
             super().save_checkpoint(self.current_iteration, filename=filename)
@@ -249,7 +274,11 @@ class IterationTrainer(EpochTrainer):
                 self._finalize_accumulation = (
                     self.current_iteration + 1 == self.iterations
                 )
-                step_metrics = self.train_step(batch_data, batch_idx)
+                self.accelerator.finalize_accumulation = self._finalize_accumulation
+                try:
+                    step_metrics = self.train_step(batch_data, batch_idx)
+                finally:
+                    self.accelerator.finalize_accumulation = False
                 step_metrics = self.compute_probability_diagnostics(
                     step_metrics,
                     batch_data,
@@ -295,10 +324,12 @@ class IterationTrainer(EpochTrainer):
                 )
                 if checkpoint_requested:
                     self._queue_checkpoint("latest.pth")
+                accumulation_pending = self._accumulation_pending()
+                if not accumulation_pending:
+                    self.broadcast_stop_training()
                 if self.stop_training or is_final:
                     self._queue_checkpoint("latest.pth")
 
-                accumulation_pending = self._accumulation_pending()
                 if is_final and accumulation_pending:
                     raise RuntimeError(
                         "The final iteration left accumulated gradients pending. "
@@ -409,6 +440,7 @@ class IterationTrainer(EpochTrainer):
             for optimizer in self.optimizers.values():
                 optimizer.zero_grad()
             self._finalize_accumulation = False
+            self.accelerator.finalize_accumulation = False
 
         self.accelerator.wait_for_everyone("Iteration training complete")
         self.logger.info("Iteration training completed")

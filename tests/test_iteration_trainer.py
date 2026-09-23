@@ -7,7 +7,9 @@ from typing import Any
 
 import pytest
 import torch
+from torch.optim import SGD
 
+from dl_core.accelerators.cpu import CPUAccelerator
 from dl_core.core import IterationTrainer
 from dl_core.utils import ArtifactManager
 
@@ -79,6 +81,11 @@ class _AcceleratorStub:
         """Keep test batches on CPU."""
 
         return batch_data
+
+    def get_device(self) -> torch.device:
+        """Return the device used for mocked distributed decisions."""
+
+        return torch.device("cpu")
 
 
 class _DatasetStub:
@@ -349,6 +356,55 @@ def test_callback_checkpoint_waits_for_accumulation_boundary() -> None:
     assert trainer.callbacks.checkpoints == [4]
 
 
+def test_deferred_checkpoint_is_shared_with_other_ranks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A main-only callback request must reach every rank before barriers."""
+
+    trainers = [_build_trainer(4), _build_trainer(4)]
+    for trainer in trainers:
+        trainer.accelerator.accumulation_counter = 0
+        trainer.accelerator.barriers = []
+        trainer.accelerator.wait_for_everyone = (
+            lambda context, current=trainer: current.accelerator.barriers.append(
+                context
+            )
+        )
+        trainer._save_checkpoint = lambda iteration, filename=None: None
+    trainers[0]._queue_checkpoint("best.pth")
+
+    collectives: list[str] = []
+    monkeypatch.setattr(
+        "dl_core.core.iteration_trainer.dist.is_initialized", lambda: True
+    )
+    monkeypatch.setattr(
+        "dl_core.core.iteration_trainer.dist.get_world_size", lambda: 2
+    )
+
+    def _all_reduce(pending: torch.Tensor, op: Any) -> None:
+        del op
+        collectives.append("reduce")
+        pending.fill_(True)
+
+    def _all_gather(requests: list[list[str | None]], value: Any) -> None:
+        del value
+        collectives.append("gather")
+        requests[:] = [["best.pth"], []]
+
+    monkeypatch.setattr(
+        "dl_core.core.iteration_trainer.dist.all_reduce", _all_reduce
+    )
+    monkeypatch.setattr(
+        "dl_core.core.iteration_trainer.dist.all_gather_object", _all_gather
+    )
+
+    assert all(trainer._flush_pending_checkpoints() for trainer in trainers)
+    assert collectives == ["reduce", "gather", "reduce", "gather"]
+    assert trainers[0].accelerator.barriers == trainers[1].accelerator.barriers
+    assert trainers[0].callbacks.checkpoints == [0]
+    assert trainers[1].callbacks.checkpoints == [0]
+
+
 def test_early_stop_finishes_pending_accumulation_before_checkpoint() -> None:
     """Early stopping should finish the active optimizer window before saving."""
 
@@ -369,6 +425,43 @@ def test_early_stop_finishes_pending_accumulation_before_checkpoint() -> None:
         return {"loss": 0.0}
 
     trainer.train_step = _train_step
+    trainer._save_checkpoint = (
+        lambda iteration, filename=None: saved.append((iteration, filename))
+    )
+
+    trainer.perform_training()
+
+    assert trainer.current_iteration == 4
+    assert trainer.callbacks.iteration_ends == [4]
+    assert saved == [(4, "latest.pth")]
+
+
+def test_batch_callback_stop_waits_for_accumulation_boundary() -> None:
+    """A stop request mid-window must not skip the safe final checkpoint."""
+
+    trainer = _build_trainer(8)
+    trainer.log_frequency = 100
+    trainer.accelerator.accumulation_counter = 0
+    saved: list[tuple[int, str | None]] = []
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor], batch_idx: int
+    ) -> dict[str, float]:
+        del batch_data, batch_idx
+        trainer.accelerator.accumulation_counter = (
+            trainer.accelerator.accumulation_counter + 1
+        ) % 4
+        return {"loss": 0.0}
+
+    def _stop_after_second_batch(
+        batch_idx: int, split: str, batch_data: dict[str, Any]
+    ) -> None:
+        del split, batch_data
+        if batch_idx == 1:
+            trainer.stop_training = True
+
+    trainer.train_step = _train_step
+    trainer.callbacks.on_batch_end = _stop_after_second_batch
     trainer._save_checkpoint = (
         lambda iteration, filename=None: saved.append((iteration, filename))
     )
@@ -410,6 +503,42 @@ def test_final_partial_accumulation_is_flushed_before_checkpoint() -> None:
 
     assert saved == [(6, "latest.pth")]
     assert trainer.callbacks.checkpoints == [6]
+
+
+def test_final_partial_accumulation_uses_accelerator_without_private_flag() -> None:
+    """Ordinary accelerator calls should finalize the last short window."""
+
+    trainer = _build_trainer(6)
+    trainer.log_frequency = 100
+    trainer.accelerator = CPUAccelerator({"gradient_accumulation_steps": 4})
+    model = torch.nn.Linear(1, 1)
+    optimizer = SGD(model.parameters(), lr=0.1)
+    trainer.models["main"] = model
+    trainer.optimizers["main"] = optimizer
+    steps: list[bool] = []
+    saved: list[tuple[int, str | None]] = []
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor], batch_idx: int
+    ) -> dict[str, float]:
+        del batch_idx
+        loss = model(batch_data["image"]).square().mean()
+        trainer.accelerator.backward(loss)
+        steps.append(trainer.accelerator.optimizer_step(optimizer, model))
+        return {"loss": loss.item()}
+
+    trainer.train_step = _train_step
+    trainer._save_checkpoint = (
+        lambda iteration, filename=None: saved.append((iteration, filename))
+    )
+
+    trainer.perform_training()
+
+    assert steps == [False, False, False, True, False, True]
+    assert trainer.accelerator.accumulation_counter == 0
+    assert not trainer.accelerator.finalize_accumulation
+    assert trainer.callbacks.iteration_ends == [6]
+    assert saved == [(6, "latest.pth")]
 
 
 def test_final_pending_accumulation_fails_loudly() -> None:

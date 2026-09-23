@@ -36,6 +36,7 @@ from dl_core.utils.checkpoint_utils import (
     atomic_torch_save,
     find_checkpoint_candidates_local,
 )
+from dl_core.utils.artifact_manager import get_legacy_run_artifact_dir
 
 from .registry import (
     ACCELERATOR_REGISTRY,
@@ -350,10 +351,24 @@ class EpochTrainer(ABC):
         if self.accelerator.is_main_process():
             try:
                 checkpoint_dir = getattr(self, "checkpoint_dir", None)
+                artifact_manager = getattr(self, "artifact_manager", None)
                 if checkpoint_dir is not None:
-                    candidate_paths = find_checkpoint_candidates_local(
-                        checkpoint_dir
+                    candidate_paths.extend(
+                        find_checkpoint_candidates_local(checkpoint_dir)
                     )
+                if artifact_manager is not None:
+                    legacy_dir = Path(
+                        get_legacy_run_artifact_dir(
+                            run_name=artifact_manager.run_name,
+                            output_dir=str(artifact_manager.output_dir),
+                            experiment_name=artifact_manager.experiment_name,
+                            sweep_name=artifact_manager.sweep_name,
+                        )
+                    ) / "final" / "checkpoints"
+                    if str(legacy_dir) != checkpoint_dir:
+                        candidate_paths.extend(
+                            find_checkpoint_candidates_local(str(legacy_dir))
+                        )
             except Exception as error:
                 discovery_error = f"{type(error).__name__}: {error}"
 
@@ -1894,6 +1909,10 @@ class EpochTrainer(ABC):
 
         if probabilities.ndim != 2 or probabilities.shape[0] == 0:
             return step_metrics
+
+        if probabilities.shape[1] == 1:
+            positive = probabilities.clamp(1e-8, 1.0 - 1e-8)
+            probabilities = torch.cat((1.0 - positive, positive), dim=1)
 
         probs = probabilities.clamp(1e-8, 1.0)
         entropy = -(probs * probs.log()).sum(dim=1)

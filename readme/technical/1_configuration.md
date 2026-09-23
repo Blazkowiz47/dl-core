@@ -192,10 +192,11 @@ which builds on the epoch-based `dl_core.core.EpochTrainer`.
 
 When a training step returns a tensor under `probabilities_tensor` or
 `probabilities`, the base trainer records class-neutral diagnostics:
-`prob_entropy_mean`, `prob_confidence_mean`, and, for multiclass outputs,
-`prob_margin_mean`. If the batch also contains valid integer labels, it records
-`prob_true_class_mean`. These metrics do not depend on project-specific class
-names.
+`prob_entropy_mean`, `prob_confidence_mean`, and `prob_margin_mean` when two or
+more class probabilities are available. A single-column sigmoid probability is
+treated as a binary distribution for these diagnostics. If the batch also
+contains valid integer labels, it records `prob_true_class_mean`. These metrics
+do not depend on project-specific class names.
 
 Checkpoint aliases such as `latest.pth` and `best.pth` are replaced atomically
 after the new payload is fully written. Automatic local resume validates a
@@ -205,6 +206,8 @@ is strict: if it cannot be loaded, the run fails instead of silently restarting
 from the beginning. Resume restores model, optimizer, scheduler, criterion,
 accelerator, callback, and trainer progress state when those entries are
 present.
+Automatic local resume also searches an existing experiment-grouped run layout
+when no suitable checkpoint is found in the flat run directory.
 
 After successful training, the trainer lifecycle calls `select_checkpoint()` and
 passes that path to `post_training(checkpoint_path)`. The default selector
@@ -236,6 +239,9 @@ every rank available for the configured iteration budget.
 With gradient accumulation, iteration checkpoints are deferred until the
 current accumulation window has produced an optimizer step. This prevents a
 resume point from silently dropping gradients held only in memory.
+Logging, validation, and testing requested mid-window run at that same safe
+boundary. The trainer completes a final partial window before reporting or
+saving its final state.
 
 There is no generic `BaseTrainer` export. Import `EpochTrainer`,
 `IterationTrainer`, or `RLTrainer` explicitly according to the lifecycle.

@@ -273,6 +273,7 @@ class MultiGPUAccelerator(BaseAccelerator):
 
         if (
             not finalize
+            and not self.finalize_accumulation
             and self.accumulation_counter < self.gradient_accumulation_steps - 1
         ):
             # Use no_sync to prevent gradient synchronization

@@ -167,6 +167,8 @@ Local auto-resume prefers `latest.pth`, then recognizes numbered `step_*`,
 `episode_*`, and legacy `epoch_*` checkpoints. When more than one numbered
 checkpoint kind exists, it resumes the most recently written candidate after
 selecting the highest number within each kind.
+Auto-resume also checks an existing experiment-grouped run directory when the
+flat run directory has no loadable checkpoint.
 
 Tabular Q-learning consumes vector steps in stable lane order. DQN performs at
 most one batched action-selection inference per vector step, inserts the complete
