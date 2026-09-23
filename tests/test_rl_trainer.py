@@ -287,6 +287,61 @@ def test_rl_trainer_checkpoint_restores_common_and_algorithm_state(
     restored.close()
 
 
+def test_rl_checkpoint_save_is_atomic_on_write_failure(tmp_path: Path) -> None:
+    """A failed RL save should retain the previous complete checkpoint."""
+
+    load_builtin_components()
+    trainer = _TestRLTrainer(_config(tmp_path, evaluation_episodes=0))
+    trainer.setup()
+    checkpoint_path = trainer.save_checkpoint("latest.pth")
+    assert checkpoint_path is not None
+    previous_checkpoint = checkpoint_path.read_bytes()
+
+    def _fail_save(payload: dict[str, Any], destination: Any) -> None:
+        del payload
+        destination.write(b"partial")
+        raise OSError("disk full")
+
+    with (
+        patch(
+            "dl_core.utils.checkpoint_utils.torch.save",
+            side_effect=_fail_save,
+        ),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        trainer.save_checkpoint("latest.pth")
+
+    assert checkpoint_path.read_bytes() == previous_checkpoint
+    assert not list(checkpoint_path.parent.glob(".latest.pth.*.tmp"))
+    trainer.close()
+
+
+def test_rl_auto_resume_falls_back_from_corrupt_latest(tmp_path: Path) -> None:
+    """RL setup should recover from its newest readable numbered checkpoint."""
+
+    load_builtin_components()
+    config = _config(tmp_path, evaluation_episodes=0)
+    trainer = _TestRLTrainer(config)
+    trainer.setup()
+    trainer.run_episode(training=True, episode=0)
+    numbered_checkpoint = trainer.save_checkpoint("episode_00000001.pth")
+    assert numbered_checkpoint is not None
+    latest_checkpoint = trainer.save_checkpoint("latest.pth")
+    assert latest_checkpoint is not None
+    latest_checkpoint.write_bytes(b"truncated")
+    trainer.close()
+
+    resume_config = _config(tmp_path, evaluation_episodes=0)
+    resume_config["auto_resume_local"] = True
+    restored = _TestRLTrainer(resume_config)
+    restored.setup()
+
+    assert restored.continue_model == str(numbered_checkpoint)
+    assert restored.current_episode == 1
+    assert restored.global_step == 2
+    restored.close()
+
+
 def test_rl_trainer_counts_updates_without_metrics(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = _EmptyUpdateRLTrainer(_config(tmp_path, evaluation_episodes=0))

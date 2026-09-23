@@ -2,8 +2,6 @@
 
 import logging
 import os
-import shutil
-import tempfile
 import time
 import traceback
 from abc import ABC, abstractmethod
@@ -34,6 +32,10 @@ from dl_core.utils.config_names import (
     resolve_config_experiment_name,
     resolve_config_run_name,
 )
+from dl_core.utils.checkpoint_utils import (
+    atomic_torch_save,
+    find_checkpoint_candidates_local,
+)
 
 from .registry import (
     ACCELERATOR_REGISTRY,
@@ -41,6 +43,11 @@ from .registry import (
     DATASET_REGISTRY,
     METRIC_MANAGER_REGISTRY,
 )
+
+
+class _CheckpointReadError(RuntimeError):
+    """Raised when rank zero cannot deserialize a checkpoint payload."""
+
 
 # Module-level logger
 logger = logging.getLogger(__name__)
@@ -296,25 +303,23 @@ class EpochTrainer(ABC):
     # Internal methods
     # ======================================================================
     def _checkpoint_dir_cleanup(self) -> None:
-        """
-        Clean up empty checkpoint directories.
+        """Remove stale checkpoint temp files without deleting failure artifacts."""
 
-        Called after training to remove artifact directories that contain no files.
-        Only runs on main process (rank 0).
-        """
         accelerator = getattr(self, "accelerator", None)
         if accelerator is not None and not accelerator.is_main_process():
             return
 
-        checkpoint_dir = getattr(self, "checkpoint_dir", None)
         artifact_manager = getattr(self, "artifact_manager", None)
-        if (
-            isinstance(checkpoint_dir, str)
-            and os.path.isdir(checkpoint_dir)
-            and not os.listdir(checkpoint_dir)
-            and artifact_manager is not None
-        ):
-            shutil.rmtree(artifact_manager.run_dir, ignore_errors=True)
+        if artifact_manager is None:
+            return
+        for temporary_path in artifact_manager.run_dir.rglob(".*.pt*.tmp"):
+            try:
+                temporary_path.unlink()
+            except OSError as error:
+                self.logger.warning(
+                    f"Could not remove stale checkpoint temp file "
+                    f"{temporary_path}: {error}"
+                )
 
     def _consume_interrupt_reason(self) -> str | None:
         """Return and clear any pending process-level interrupt reason."""
@@ -331,6 +336,67 @@ class EpochTrainer(ABC):
         self.load_checkpoint(self.continue_model)
         self.accelerator.wait_for_everyone("after loading checkpoint")
 
+    def _load_auto_resume_model(self) -> None:
+        """Load the newest readable local checkpoint after rank setup."""
+
+        config = getattr(self, "config", {})
+        if getattr(self, "continue_model", None) or not config.get(
+            "auto_resume_local", False
+        ):
+            return
+
+        candidate_paths: list[str] = []
+        discovery_error: str | None = None
+        if self.accelerator.is_main_process():
+            try:
+                checkpoint_dir = getattr(self, "checkpoint_dir", None)
+                if checkpoint_dir is not None:
+                    candidate_paths = find_checkpoint_candidates_local(
+                        checkpoint_dir
+                    )
+            except Exception as error:
+                discovery_error = f"{type(error).__name__}: {error}"
+
+        if dist.is_initialized():
+            discovery_state = [candidate_paths, discovery_error]
+            dist.broadcast_object_list(discovery_state, src=0)
+            candidate_paths, discovery_error = discovery_state
+
+        if discovery_error is not None:
+            raise RuntimeError(
+                f"Could not inspect local checkpoints: {discovery_error}"
+            )
+        if not candidate_paths:
+            self.logger.info("Auto-resume found no local checkpoints")
+            return
+
+        load_errors: list[str] = []
+        for checkpoint_path in candidate_paths:
+            try:
+                self.load_checkpoint(checkpoint_path)
+            except _CheckpointReadError as error:
+                load_errors.append(str(error))
+                continue
+            self.continue_model = checkpoint_path
+            self.trainer_config["continue_model"] = checkpoint_path
+            artifact_manager = getattr(self, "artifact_manager", None)
+            if self.accelerator.is_main_process() and artifact_manager is not None:
+                try:
+                    artifact_manager.save_config(config)
+                except Exception as error:
+                    self.logger.warning(
+                        f"Failed to persist auto-resume checkpoint path: {error}"
+                    )
+            self.logger.info(f"Auto-resuming from local checkpoint: {checkpoint_path}")
+            self.accelerator.wait_for_everyone("after loading auto-resume checkpoint")
+            return
+
+        error_details = "; ".join(load_errors)
+        raise RuntimeError(
+            "Auto-resume found checkpoint artifacts, but none could be loaded: "
+            f"{error_details}"
+        )
+
     def _run(self) -> None:
         """
         Main training loop entry point.
@@ -345,7 +411,10 @@ class EpochTrainer(ABC):
 
             self.setup_current_epoch(0)
 
-            self.load_continue_model()
+            if getattr(self, "continue_model", None):
+                self.load_continue_model()
+            else:
+                self._load_auto_resume_model()
 
             self.accelerator.wait_for_everyone("before training start")
             phase = "training"
@@ -762,12 +831,14 @@ class EpochTrainer(ABC):
                 checkpoint, load_error = checkpoint_list
 
             if load_error is not None:
-                raise RuntimeError(
+                raise _CheckpointReadError(
                     f"Could not load checkpoint {checkpoint_path}: {load_error}"
                 )
 
             if checkpoint is None:
-                raise RuntimeError("Failed to load checkpoint: checkpoint is None")
+                raise _CheckpointReadError(
+                    "Failed to load checkpoint: checkpoint is None"
+                )
 
             # Load model states (allows subclasses to handle multiple models)
             self.load_model_states(checkpoint)
@@ -928,24 +999,7 @@ class EpochTrainer(ABC):
                 filename
             )
 
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="wb",
-                dir=checkpoint_path.parent,
-                prefix=f".{checkpoint_path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as temporary_file:
-                temporary_path = Path(temporary_file.name)
-                torch.save(checkpoint_dict, temporary_file)
-                temporary_file.flush()
-                os.fsync(temporary_file.fileno())
-            os.replace(temporary_path, checkpoint_path)
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+        atomic_torch_save(checkpoint_dict, checkpoint_path)
 
         self.logger.debug(
             f"Saved checkpoint for {self.PROGRESS_UNIT} {epoch}: {checkpoint_path}"
@@ -1853,6 +1907,14 @@ class EpochTrainer(ABC):
 
         labels = batch_data.get("label")
         if not torch.is_tensor(labels):
+            return step_metrics
+        if labels.dtype not in {
+            torch.uint8,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        }:
             return step_metrics
         labels = labels.detach().view(-1)
         if labels.numel() != probs.shape[0]:

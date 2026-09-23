@@ -42,3 +42,21 @@ def test_probability_diagnostics_skip_invalid_labels_safely() -> None:
 
     assert "prob_true_class_mean" not in metrics
     assert metrics["prob_confidence_mean"] == pytest.approx(0.7)
+
+
+def test_probability_diagnostics_do_not_truncate_soft_labels() -> None:
+    """Float targets should not be silently coerced into class indices."""
+
+    trainer = object()
+    metrics = EpochTrainer.compute_probability_diagnostics(
+        trainer,
+        {
+            "probabilities_tensor": torch.tensor(
+                [[0.8, 0.2], [0.1, 0.9]],
+            ),
+        },
+        {"label": torch.tensor([0.2, 0.8])},
+    )
+
+    assert "prob_true_class_mean" not in metrics
+    assert metrics["prob_confidence_mean"] == pytest.approx(0.85)

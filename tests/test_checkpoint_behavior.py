@@ -98,6 +98,11 @@ class _MainProcessAcceleratorStub:
     def load_accelerator_state(self, checkpoint: dict[str, Any]) -> None:
         """Accept an empty accelerator state."""
 
+    def get_accelerator_state(self) -> dict[str, Any]:
+        """Return no additional accelerator checkpoint state."""
+
+        return {}
+
 
 class _TrainingStartCallback(Callback):
     """Callback that records how many times training-start fired."""
@@ -322,18 +327,19 @@ def test_early_stopping_resolves_monitor_aliases() -> None:
     assert callback.metric_states["validation_accuracy"]["best_value"] == 0.65
 
 
-def test_early_stopping_ignores_non_finite_metrics() -> None:
-    """NaN observations should not consume patience or poison best state."""
+def test_early_stopping_counts_non_finite_metrics_toward_patience() -> None:
+    """A persistently non-finite metric should stop instead of running forever."""
 
     trainer = _CheckpointTrainerStub()
-    callback = EarlyStoppingCallback(monitor="loss", mode="min", patience=1)
+    callback = EarlyStoppingCallback(monitor="loss", mode="min", patience=2)
     callback.set_trainer(trainer)
 
     callback.on_epoch_end(1, {"loss": float("nan")})
+    callback.on_epoch_end(2, {"loss": float("inf")})
 
     assert callback.metric_states["loss"]["best_value"] is None
-    assert callback.metric_states["loss"]["wait"] == 0
-    assert trainer.stop_training is False
+    assert callback.metric_states["loss"]["wait"] == 2
+    assert trainer.stop_training is True
 
 
 def test_trainer_reuses_current_checkpoint_for_same_epoch() -> None:
@@ -398,6 +404,8 @@ def test_checkpoint_save_is_atomic_on_write_failure(
     )
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"epoch": 1}, checkpoint_path)
+    stale_path = checkpoint_path.parent / ".latest.pth.stale.tmp"
+    stale_path.write_bytes(b"partial")
 
     def _fail_save(payload: dict[str, int], destination: Any) -> None:
         destination.write(b"partial")
@@ -409,6 +417,7 @@ def test_checkpoint_save_is_atomic_on_write_failure(
         trainer.save_checkpoint(2, filename="latest.pth")
 
     assert torch.load(checkpoint_path, weights_only=False) == {"epoch": 1}
+    assert not stale_path.exists()
     assert not list(checkpoint_path.parent.glob(".latest.pth.*.tmp"))
 
 
@@ -461,6 +470,115 @@ def test_checkpoint_load_restores_criterion_and_progress_state(tmp_path: Path) -
     assert trainer.global_step == 19
     assert trainer.best_metric == pytest.approx(0.2)
     assert trainer.epochs_no_improvement == 3
+
+
+def test_checkpoint_payload_round_trips_callback_state(tmp_path: Path) -> None:
+    """Callback state should survive the trainer's real save/load payload path."""
+
+    source = _ConcreteTrainer()
+    source.logger = logging.getLogger("test_callback_payload_source")
+    source.accelerator = _MainProcessAcceleratorStub()
+    source.models = {"main": torch.nn.Linear(1, 1)}
+    source.optimizers = {}
+    source.schedulers = {}
+    source.criterions = {}
+    source.ema = None
+    source.config = {}
+    source.metrics_history = {
+        "train": {},
+        "validation": {},
+        "test": {},
+        "general": {},
+    }
+    source.best_metric = None
+    source.epochs_no_improvement = 0
+    source.global_step = 5
+    source_callback = CheckpointCallback(monitor="loss", mode="min")
+    source_callback.best_value = 0.25
+    source_callback.best_epoch = 3
+    source.callbacks = CallbackList([source_callback])
+    source.callbacks.set_trainer(source)
+    checkpoint_path = tmp_path / "callback-state.pth"
+    torch.save(source._build_checkpoint_payload(3), checkpoint_path)
+
+    target = _ConcreteTrainer()
+    target.logger = logging.getLogger("test_callback_payload_target")
+    target.accelerator = _MainProcessAcceleratorStub()
+    target.models = {"main": torch.nn.Linear(1, 1)}
+    target.optimizers = {}
+    target.schedulers = {}
+    target.criterions = {}
+    target.ema = None
+    target.dataset_wrapper = type(
+        "DatasetStub",
+        (),
+        {"set_epoch": lambda self, epoch: None},
+    )()
+    target.metric_managers = {}
+    target.best_metric = None
+    target.epochs_no_improvement = 0
+    target.global_step = 0
+    target.current_epoch = 0
+    target_callback = CheckpointCallback(monitor="loss", mode="min")
+    target.callbacks = CallbackList([target_callback])
+    target.callbacks.set_trainer(target)
+
+    target.load_checkpoint(str(checkpoint_path))
+
+    assert target_callback.best_value == pytest.approx(0.25)
+    assert target_callback.best_epoch == 3
+
+
+def test_auto_resume_falls_back_through_real_epoch_layout(
+    tmp_path: Path,
+) -> None:
+    """Trainer auto-resume should load a numbered epoch after corrupt latest."""
+
+    run_dir = tmp_path / "runs" / "demo"
+    checkpoint_dir = run_dir / "final" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "latest.pth").write_bytes(b"truncated")
+
+    trainer = _ConcreteTrainer()
+    trainer.logger = logging.getLogger("test_auto_resume_fallback")
+    trainer.accelerator = _MainProcessAcceleratorStub()
+    trainer.models = {"main": torch.nn.Linear(1, 1)}
+    trainer.optimizers = {}
+    trainer.schedulers = {}
+    trainer.criterions = {}
+    trainer.ema = None
+    trainer.callbacks = CallbackList([])
+    trainer.dataset_wrapper = type(
+        "DatasetStub",
+        (),
+        {"set_epoch": lambda self, epoch: None},
+    )()
+    trainer.metric_managers = {}
+    trainer.best_metric = None
+    trainer.epochs_no_improvement = 0
+    trainer.global_step = 0
+    trainer.current_epoch = 0
+    trainer.continue_model = None
+    trainer.trainer_config = {}
+    trainer.config = {"auto_resume_local": True}
+    trainer.checkpoint_dir = str(checkpoint_dir)
+    epoch_checkpoint = run_dir / "epoch_6" / "checkpoint.pth"
+    epoch_checkpoint.parent.mkdir()
+    torch.save(
+        {
+            "models_state_dict": {
+                "main": trainer.models["main"].state_dict(),
+            },
+            "epoch": 6,
+            "global_step": 17,
+        },
+        epoch_checkpoint,
+    )
+    trainer._load_auto_resume_model()
+
+    assert trainer.continue_model == str(epoch_checkpoint)
+    assert trainer.current_epoch == 6
+    assert trainer.global_step == 17
 
 
 def test_checkpoint_load_broadcasts_main_rank_failure(monkeypatch: Any) -> None:
@@ -580,8 +698,8 @@ def test_run_calls_post_training_before_persisting_analysis(tmp_path: Path) -> N
     assert finalize_sync == [True]
 
 
-def test_checkpoint_dir_cleanup_only_removes_current_run() -> None:
-    """Empty-checkpoint cleanup should only remove the active run directory."""
+def test_checkpoint_cleanup_preserves_failure_artifacts() -> None:
+    """Resume failures should retain config and logs while removing temp files."""
 
     with TemporaryDirectory() as temp_dir:
         active = ArtifactManager(
@@ -599,10 +717,15 @@ def test_checkpoint_dir_cleanup_only_removes_current_run() -> None:
         trainer.artifact_manager = active
         trainer.checkpoint_dir = str(active.get_checkpoints_dir())
 
-        Path(trainer.checkpoint_dir).mkdir(parents=True, exist_ok=True)
+        config_path = active.run_dir / "config.yaml"
+        config_path.write_text("trainer: demo\n", encoding="utf-8")
+        temporary_path = active.get_checkpoints_dir() / ".latest.pth.failed.tmp"
+        temporary_path.write_bytes(b"partial")
         trainer._checkpoint_dir_cleanup()
 
-        assert not active.run_dir.exists()
+        assert active.run_dir.exists()
+        assert config_path.exists()
+        assert not temporary_path.exists()
         assert sibling.run_dir.exists()
         assert Path(temp_dir).exists()
 
@@ -702,19 +825,25 @@ def test_run_fails_when_requested_continue_checkpoint_cannot_load(
         tmp_path
     )
     training_calls: list[bool] = []
+    corrupt_checkpoint = tmp_path / "corrupt.pth"
+    corrupt_checkpoint.write_bytes(b"truncated")
+    config_path = trainer.artifact_manager.run_dir / "config.yaml"
+    config_path.write_text("trainer: demo\n", encoding="utf-8")
     trainer.setup = lambda: None
-    trainer.load_continue_model = lambda: (_ for _ in ()).throw(
-        RuntimeError("corrupt checkpoint")
-    )
+    trainer.models = {"main": torch.nn.Linear(1, 1)}
+    trainer.continue_model = str(corrupt_checkpoint)
+    trainer.load_continue_model = lambda: trainer._load_continue_model()
     trainer.perform_training = lambda: training_calls.append(True)
 
-    with pytest.raises(RuntimeError, match="corrupt checkpoint"):
+    with pytest.raises(RuntimeError, match="Could not load checkpoint"):
         trainer._run()
 
     assert training_calls == []
-    assert persisted == [("failed", "corrupt checkpoint")]
+    assert persisted[0][0] == "failed"
+    assert "Could not load checkpoint" in str(persisted[0][1])
     assert callbacks.training_end_calls[0][0]["status"] == "failed"
     assert finalize_sync == [False]
+    assert config_path.exists()
 
 
 def test_callback_list_syncs_enabled_state_across_ranks(monkeypatch: Any) -> None:

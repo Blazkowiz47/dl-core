@@ -3,60 +3,92 @@
 import os
 import re
 import stat
+import tempfile
 from logging import getLogger
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import torch
 
-from dl_core.utils.config_names import (
-    resolve_config_experiment_name,
-    resolve_config_run_name,
-)
-from dl_core.utils.artifact_manager import resolve_existing_run_artifact_dir
-
 logger = getLogger(__name__)
+
+
+def atomic_torch_save(payload: Any, checkpoint_path: str | Path) -> Path:
+    """Atomically replace one torch checkpoint and remove stale temp files."""
+
+    destination = Path(checkpoint_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for stale_path in destination.parent.glob(f".{destination.name}.*.tmp"):
+        try:
+            stale_path.unlink()
+        except OSError:
+            logger.warning(f"Could not remove stale checkpoint temp file {stale_path}")
+
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            torch.save(payload, temporary_file)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, destination)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+    return destination
 
 
 def _is_loadable_checkpoint(checkpoint_path: Path) -> bool:
     """Return whether a local checkpoint can be deserialized."""
 
     try:
-        torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        torch.load(
+            checkpoint_path,
+            map_location="cpu",
+            weights_only=False,
+            mmap=True,
+        )
+    except RuntimeError as mmap_error:
+        try:
+            torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        except Exception as error:
+            logger.warning(
+                f"Ignoring unreadable checkpoint {checkpoint_path}: {error} "
+                f"(mmap probe: {mmap_error})"
+            )
+            return False
     except Exception as error:
         logger.warning(f"Ignoring unreadable checkpoint {checkpoint_path}: {error}")
         return False
     return True
 
 
-def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
-    """
-    Find the latest checkpoint file in a local directory.
+def find_checkpoint_candidates_local(checkpoint_dir: str) -> list[str]:
+    """Return local resume candidates in deterministic preference order."""
 
-    Args:
-        checkpoint_dir: Path to local checkpoint directory
-
-    Returns:
-        Path to latest checkpoint file or None if no checkpoints found
-    """
     if not checkpoint_dir or not os.path.exists(checkpoint_dir):
         logger.info(f"Checkpoint directory does not exist: {checkpoint_dir}")
-        return None
+        return []
 
     checkpoint_path = Path(checkpoint_dir)
     if not checkpoint_path.is_dir():
         logger.warning(f"Checkpoint path is not a directory: {checkpoint_dir}")
-        return None
+        return []
 
+    ordered_candidates: list[Path] = []
     latest_checkpoint = checkpoint_path / "latest.pth"
     if latest_checkpoint.is_file():
-        if _is_loadable_checkpoint(latest_checkpoint):
-            logger.info(f"Found latest checkpoint: {latest_checkpoint}")
-            return str(latest_checkpoint)
+        ordered_candidates.append(latest_checkpoint)
 
-    checkpoint_pattern = re.compile(
-        r"(epoch|episode|step)_(\d+)\.pth?"
-    )
+    checkpoint_pattern = re.compile(r"(epoch|iteration|episode|step)_(\d+)\.pth?")
+    directory_pattern = re.compile(r"(epoch|iteration)_(\d+)")
     checkpoint_candidates: dict[str, list[tuple[int, int, Path]]] = {}
 
     try:
@@ -65,7 +97,7 @@ def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
         logger.warning(
             f"Failed to inspect checkpoint directory {checkpoint_dir}: {error}"
         )
-        return None
+        return []
 
     for file_path in checkpoint_files:
         match = checkpoint_pattern.fullmatch(file_path.name)
@@ -84,9 +116,30 @@ def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
             (checkpoint_number, file_status.st_mtime_ns, file_path)
         )
 
-    if not checkpoint_candidates:
-        logger.info(f"No checkpoints found in {checkpoint_dir}")
-        return None
+    final_dir = checkpoint_path.parent
+    run_dir = final_dir.parent if final_dir.name == "final" else None
+    if run_dir is not None and run_dir.is_dir():
+        try:
+            progress_directories = list(run_dir.iterdir())
+        except OSError as error:
+            logger.warning(f"Failed to inspect run directory {run_dir}: {error}")
+            progress_directories = []
+        for progress_dir in progress_directories:
+            match = directory_pattern.fullmatch(progress_dir.name)
+            if match is None or not progress_dir.is_dir():
+                continue
+            progress_checkpoint = progress_dir / "checkpoint.pth"
+            try:
+                file_status = progress_checkpoint.stat()
+            except OSError:
+                continue
+            if not stat.S_ISREG(file_status.st_mode):
+                continue
+            checkpoint_type = match.group(1)
+            checkpoint_number = int(match.group(2))
+            checkpoint_candidates.setdefault(checkpoint_type, []).append(
+                (checkpoint_number, file_status.st_mtime_ns, progress_checkpoint)
+            )
 
     for candidates in checkpoint_candidates.values():
         candidates.sort(
@@ -108,72 +161,33 @@ def find_latest_checkpoint_local(checkpoint_dir: str) -> Optional[str]:
                 checkpoint_candidates[kind][0][2].name,
             ),
         )
-        checkpoint_number, _modified_time, latest_path = checkpoint_candidates[
+        _checkpoint_number, _modified_time, latest_path = checkpoint_candidates[
             checkpoint_type
         ].pop(0)
         if not checkpoint_candidates[checkpoint_type]:
             del checkpoint_candidates[checkpoint_type]
-        if not _is_loadable_checkpoint(latest_path):
-            continue
-        logger.info(
-            f"Found latest checkpoint: {checkpoint_type} "
-            f"{checkpoint_number} at {latest_path}"
-        )
-        return str(latest_path)
+        ordered_candidates.append(latest_path)
 
-    logger.info(f"No loadable checkpoints found in {checkpoint_dir}")
+    best_checkpoint = checkpoint_path / "best.pth"
+    if best_checkpoint.is_file():
+        ordered_candidates.append(best_checkpoint)
+
+    return [str(candidate) for candidate in ordered_candidates]
+
+
+def find_latest_checkpoint_local(checkpoint_dir: str) -> str | None:
+    """Return the first loadable local checkpoint in resume order."""
+
+    checkpoint_candidates = find_checkpoint_candidates_local(checkpoint_dir)
+    for checkpoint_path in checkpoint_candidates:
+        candidate = Path(checkpoint_path)
+        if _is_loadable_checkpoint(candidate):
+            logger.info(f"Found latest checkpoint: {candidate}")
+            return checkpoint_path
+
+    if checkpoint_candidates:
+        raise RuntimeError(
+            f"Checkpoint artifacts exist in {checkpoint_dir}, but none can be loaded"
+        )
+    logger.info(f"No checkpoints found in {checkpoint_dir}")
     return None
-
-
-def get_checkpoint_dir_from_config(config: Dict[str, Any]) -> Optional[str]:
-    """
-    Get checkpoint directory path from config.
-
-    This follows the same pattern as the dataset-driven trainers, which use
-    ArtifactManager to determine the checkpoint directory.
-
-    Args:
-        config: Configuration dictionary
-
-    Returns:
-        Checkpoint directory path or None
-    """
-    try:
-        # Try to construct checkpoint dir path from config
-        # This mimics what ArtifactManager and the dataset-driven trainers do
-
-        # Get runtime configuration used by the trainer artifact manager
-        runtime_config = config.get("runtime", {})
-        output_dir = runtime_config.get("output_dir", "artifacts")
-
-        config_path = config.get("_config_path")
-        experiment_name = resolve_config_experiment_name(
-            config,
-            config_path=config_path,
-        )
-        sweep_file = config.get("sweep_file")
-        if sweep_file:
-            sweep_file = Path(sweep_file).name.replace(".yaml", "")
-
-        run_name = resolve_config_run_name(config, config_path=config_path)
-
-        checkpoint_dir = (
-            resolve_existing_run_artifact_dir(
-                run_name=run_name,
-                output_dir=output_dir,
-                experiment_name=experiment_name,
-                sweep_name=sweep_file,
-            )
-            / "final"
-            / "checkpoints"
-        )
-
-        if checkpoint_dir.exists():
-            return str(checkpoint_dir)
-
-        logger.info(f"Checkpoint directory does not exist: {checkpoint_dir}")
-        return None
-
-    except Exception as e:
-        logger.warning(f"Failed to determine checkpoint directory from config: {e}")
-        return None

@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 import torch
 
-from dl_core.utils.checkpoint_utils import find_latest_checkpoint_local
+from dl_core.utils.checkpoint_utils import (
+    find_checkpoint_candidates_local,
+    find_latest_checkpoint_local,
+)
 
 
 def _save_checkpoint(path: Path, value: int) -> None:
@@ -131,14 +134,55 @@ def test_find_latest_checkpoint_falls_back_from_corrupt_latest(
     assert find_latest_checkpoint_local(str(checkpoint_dir)) == str(numbered)
 
 
-def test_find_latest_checkpoint_returns_none_when_all_files_are_corrupt(
+def test_find_latest_checkpoint_supports_epoch_and_iteration_directories(
     tmp_path: Path,
 ) -> None:
-    """Auto-resume should not select an unreadable checkpoint."""
+    """Default trainer checkpoint directories must participate in fallback."""
+
+    run_dir = tmp_path / "runs" / "demo"
+    checkpoint_dir = run_dir / "final" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "latest.pth").write_bytes(b"truncated")
+    epoch_checkpoint = run_dir / "epoch_4" / "checkpoint.pth"
+    epoch_checkpoint.parent.mkdir()
+    _save_checkpoint(epoch_checkpoint, 4)
+    iteration_checkpoint = run_dir / "iteration_8" / "checkpoint.pth"
+    iteration_checkpoint.parent.mkdir()
+    _save_checkpoint(iteration_checkpoint, 8)
+    os.utime(epoch_checkpoint, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(iteration_checkpoint, ns=(2_000_000_000, 2_000_000_000))
+
+    assert find_checkpoint_candidates_local(str(checkpoint_dir)) == [
+        str(checkpoint_dir / "latest.pth"),
+        str(iteration_checkpoint),
+        str(epoch_checkpoint),
+    ]
+    assert find_latest_checkpoint_local(str(checkpoint_dir)) == str(
+        iteration_checkpoint
+    )
+
+
+def test_find_latest_checkpoint_uses_best_as_last_fallback(tmp_path: Path) -> None:
+    """A readable best alias should recover a run with a corrupt latest alias."""
+
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_dir.mkdir()
+    (checkpoint_dir / "latest.pth").write_bytes(b"truncated")
+    best_checkpoint = checkpoint_dir / "best.pth"
+    _save_checkpoint(best_checkpoint, 3)
+
+    assert find_latest_checkpoint_local(str(checkpoint_dir)) == str(best_checkpoint)
+
+
+def test_find_latest_checkpoint_fails_when_all_files_are_corrupt(
+    tmp_path: Path,
+) -> None:
+    """Auto-resume must not silently restart when checkpoint artifacts exist."""
 
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
     (checkpoint_dir / "latest.pth").write_bytes(b"truncated")
     (checkpoint_dir / "epoch_7.pth").write_bytes(b"also-truncated")
 
-    assert find_latest_checkpoint_local(str(checkpoint_dir)) is None
+    with pytest.raises(RuntimeError, match="none can be loaded"):
+        find_latest_checkpoint_local(str(checkpoint_dir))

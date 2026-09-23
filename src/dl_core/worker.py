@@ -21,10 +21,6 @@ import torch.multiprocessing as mp
 
 from dl_core import load_builtin_components, load_local_components
 from dl_core.core import EpochTrainer, IterationTrainer, RLTrainer, TRAINER_REGISTRY
-from dl_core.utils.checkpoint_utils import (
-    find_latest_checkpoint_local,
-    get_checkpoint_dir_from_config,
-)
 from dl_core.utils.logging import setup_logging
 
 
@@ -121,35 +117,6 @@ def main():
         trainer_name = list(trainer_dict.keys())[0]  # Get first trainer name
     else:
         trainer_name = "standard"  # Fallback default
-
-    if config.get("auto_resume_local", False):
-        # Local executors: use local checkpoint
-        # Only rank 0 searches to avoid concurrent filesystem access
-        is_main = not dist.is_initialized() or dist.get_rank() == 0
-
-        ckpt_path = None
-        if is_main:
-            logger.info("Auto-resume enabled, checking for local checkpoint...")
-            checkpoint_dir = get_checkpoint_dir_from_config(config)
-            if checkpoint_dir:
-                ckpt_path = find_latest_checkpoint_local(checkpoint_dir)
-                if ckpt_path:
-                    logger.info(f"Found local checkpoint: {ckpt_path}")
-
-        # Broadcast checkpoint path from rank 0 to all other ranks
-        if dist.is_initialized():
-            # Broadcast using object list
-            ckpt_path_list = [ckpt_path] if is_main else [None]
-            dist.broadcast_object_list(ckpt_path_list, src=0)
-            ckpt_path = ckpt_path_list[0]
-
-            # Barrier to ensure all ranks have the path
-            dist.barrier()
-
-        # All ranks set the checkpoint path in their config
-        if ckpt_path:
-            config["trainer"][trainer_name]["continue_model"] = ckpt_path
-            logger.info(f"Auto-resuming from local checkpoint: {ckpt_path}")
 
     # Create and run trainer (run() calls setup() then train())
     trainer: EpochTrainer | IterationTrainer | RLTrainer = TRAINER_REGISTRY.get(

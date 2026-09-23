@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import torch
 
 from dl_core.core import IterationTrainer
@@ -158,6 +159,52 @@ class _CallbacksStub:
         self.checkpoints.append(iteration)
 
 
+class _CheckpointRequestingCallbacksStub(_CallbacksStub):
+    """Request a callback-managed alias during one accumulation window."""
+
+    def __init__(
+        self,
+        trainer: _ConcreteIterationTrainer,
+        request_iteration: int,
+    ) -> None:
+        super().__init__()
+        self.trainer = trainer
+        self.request_iteration = request_iteration
+
+    def on_batch_end(
+        self,
+        batch_idx: int,
+        split: str,
+        batch_data: dict[str, Any],
+    ) -> None:
+        """Request a best alias while the accumulation window is pending."""
+
+        super().on_batch_end(batch_idx, split, batch_data)
+        iteration = batch_idx + 1
+        if iteration == self.request_iteration:
+            self.trainer.save_checkpoint(iteration, filename="best.pth")
+
+
+class _EarlyStoppingCallbacksStub(_CallbacksStub):
+    """Stop at one reporting window to exercise safe deferred termination."""
+
+    def __init__(
+        self,
+        trainer: _ConcreteIterationTrainer,
+        stop_iteration: int,
+    ) -> None:
+        super().__init__()
+        self.trainer = trainer
+        self.stop_iteration = stop_iteration
+
+    def on_iteration_end(self, iteration: int, logs: dict[str, Any]) -> None:
+        """Set the trainer stop flag at the configured reporting window."""
+
+        super().on_iteration_end(iteration, logs)
+        if iteration == self.stop_iteration:
+            self.trainer.stop_training = True
+
+
 def _build_trainer(iterations: int = 5) -> _ConcreteIterationTrainer:
     """Build a configured iteration trainer without running full setup."""
 
@@ -204,7 +251,7 @@ def test_iteration_training_cycles_finite_loader_and_reports_final_window() -> N
 
     trainer = _build_trainer(5)
     saved: list[tuple[int, str | None]] = []
-    trainer.save_checkpoint = (
+    trainer._save_checkpoint = (
         lambda iteration, filename=None: saved.append((iteration, filename))
     )
 
@@ -234,7 +281,7 @@ def test_iteration_training_restores_train_mode_after_baseline() -> None:
     trainer.train_step = lambda batch_data, batch_idx: (
         observed_modes.append(trainer.model.training) or {"loss": 0.0}
     )
-    trainer.save_checkpoint = lambda iteration, filename=None: None
+    trainer._save_checkpoint = lambda iteration, filename=None: None
 
     trainer.perform_training()
 
@@ -246,6 +293,7 @@ def test_iteration_checkpoint_waits_for_accumulation_boundary() -> None:
 
     trainer = _build_trainer(8)
     trainer.checkpoint_frequency = 3
+    trainer.log_frequency = 100
     trainer.accelerator.accumulation_counter = 0
     saved: list[tuple[int, str | None]] = []
 
@@ -260,7 +308,7 @@ def test_iteration_checkpoint_waits_for_accumulation_boundary() -> None:
         return {"loss": 0.0}
 
     trainer.train_step = _train_step
-    trainer.save_checkpoint = (
+    trainer._save_checkpoint = (
         lambda iteration, filename=None: saved.append((iteration, filename))
     )
 
@@ -268,6 +316,123 @@ def test_iteration_checkpoint_waits_for_accumulation_boundary() -> None:
 
     assert saved == [(4, "latest.pth"), (8, "latest.pth")]
     assert trainer.callbacks.checkpoints == [4, 8]
+    assert trainer.callbacks.iteration_ends == [8]
+    assert sorted(trainer.train_metrics) == [8]
+
+
+def test_callback_checkpoint_waits_for_accumulation_boundary() -> None:
+    """Callback aliases should be deferred until optimizer state is consistent."""
+
+    trainer = _build_trainer(4)
+    trainer.accelerator.accumulation_counter = 0
+    trainer.callbacks = _CheckpointRequestingCallbacksStub(trainer, 2)
+    saved: list[tuple[int, str | None]] = []
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> dict[str, float]:
+        del batch_data, batch_idx
+        trainer.accelerator.accumulation_counter = (
+            trainer.accelerator.accumulation_counter + 1
+        ) % 4
+        return {"loss": 0.0}
+
+    trainer.train_step = _train_step
+    trainer._save_checkpoint = (
+        lambda iteration, filename=None: saved.append((iteration, filename))
+    )
+
+    trainer.perform_training()
+
+    assert saved == [(4, "best.pth"), (4, "latest.pth")]
+    assert trainer.callbacks.checkpoints == [4]
+
+
+def test_early_stop_finishes_pending_accumulation_before_checkpoint() -> None:
+    """Early stopping should finish the active optimizer window before saving."""
+
+    trainer = _build_trainer(8)
+    trainer.log_frequency = 3
+    trainer.accelerator.accumulation_counter = 0
+    trainer.callbacks = _EarlyStoppingCallbacksStub(trainer, 4)
+    saved: list[tuple[int, str | None]] = []
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> dict[str, float]:
+        del batch_data, batch_idx
+        trainer.accelerator.accumulation_counter = (
+            trainer.accelerator.accumulation_counter + 1
+        ) % 4
+        return {"loss": 0.0}
+
+    trainer.train_step = _train_step
+    trainer._save_checkpoint = (
+        lambda iteration, filename=None: saved.append((iteration, filename))
+    )
+
+    trainer.perform_training()
+
+    assert trainer.current_iteration == 4
+    assert trainer.callbacks.iteration_ends == [4]
+    assert saved == [(4, "latest.pth")]
+
+
+def test_final_partial_accumulation_is_flushed_before_checkpoint() -> None:
+    """A trainer honoring the finalization flag should save the final state."""
+
+    trainer = _build_trainer(6)
+    trainer.log_frequency = 100
+    trainer.accelerator.accumulation_counter = 0
+    saved: list[tuple[int, str | None]] = []
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> dict[str, float]:
+        del batch_data, batch_idx
+        trainer.accelerator.accumulation_counter += 1
+        if (
+            trainer.accelerator.accumulation_counter == 4
+            or trainer._finalize_accumulation
+        ):
+            trainer.accelerator.accumulation_counter = 0
+        return {"loss": 0.0}
+
+    trainer.train_step = _train_step
+    trainer._save_checkpoint = (
+        lambda iteration, filename=None: saved.append((iteration, filename))
+    )
+
+    trainer.perform_training()
+
+    assert saved == [(6, "latest.pth")]
+    assert trainer.callbacks.checkpoints == [6]
+
+
+def test_final_pending_accumulation_fails_loudly() -> None:
+    """Custom steps must not silently save a checkpoint with pending gradients."""
+
+    trainer = _build_trainer(6)
+    trainer.log_frequency = 100
+    trainer.accelerator.accumulation_counter = 0
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> dict[str, float]:
+        del batch_data, batch_idx
+        trainer.accelerator.accumulation_counter = (
+            trainer.accelerator.accumulation_counter + 1
+        ) % 4
+        return {"loss": 0.0}
+
+    trainer.train_step = _train_step
+
+    with pytest.raises(RuntimeError, match="finalization flag"):
+        trainer.perform_training()
 
 
 def test_iteration_checkpoint_progress_restores_loader_cursor() -> None:

@@ -227,10 +227,14 @@ class EarlyStoppingCallback(Callback):
 
             current_value = float(logs[resolved_monitor])
             if not math.isfinite(current_value):
+                state["wait"] += 1
                 self.logger.warning(
-                    f"Ignoring non-finite early-stopping metric "
-                    f"{monitor_key}: {current_value}"
+                    f"Treating non-finite early-stopping metric {monitor_key}: "
+                    f"{current_value} as no improvement "
+                    f"({state['wait']}/{self.patience})"
                 )
+                if state["wait"] >= self.patience:
+                    metrics_ready_to_stop.append(monitor_key)
                 continue
             mode = state["mode"]
             target_value = state["target_value"]

@@ -105,7 +105,7 @@ class IterationTrainer(EpochTrainer):
         self.current_iteration = 0
         self.data_cycle = 0
         self.iteration_in_cycle = 0
-        self._checkpoint_pending = False
+        self._pending_checkpoint_filenames: list[str | None] = []
 
     def _set_data_cycle(self, data_cycle: int) -> None:
         """Advance deterministic sampler and dataset state without an epoch hook."""
@@ -124,6 +124,47 @@ class IterationTrainer(EpochTrainer):
             return len(loader) > 0
         except TypeError:
             return True
+
+    def _accumulation_pending(self) -> bool:
+        """Return whether gradients are waiting for an optimizer boundary."""
+
+        return getattr(self.accelerator, "accumulation_counter", 0) > 0
+
+    def _queue_checkpoint(self, filename: str | None) -> None:
+        """Queue one checkpoint filename without duplicating pending requests."""
+
+        if filename not in self._pending_checkpoint_filenames:
+            self._pending_checkpoint_filenames.append(filename)
+
+    def _flush_pending_checkpoints(self) -> bool:
+        """Write queued checkpoints at a completed accumulation boundary."""
+
+        if self._accumulation_pending() or not self._pending_checkpoint_filenames:
+            return False
+
+        filenames = self._pending_checkpoint_filenames
+        self._pending_checkpoint_filenames = []
+        self.accelerator.wait_for_everyone("before deferred checkpoint save")
+        for filename in filenames:
+            super().save_checkpoint(self.current_iteration, filename=filename)
+        self.callbacks.on_checkpoint(
+            self.current_iteration,
+            self.current_metrics,
+        )
+        self.accelerator.wait_for_everyone("after deferred checkpoint save")
+        return True
+
+    def save_checkpoint(
+        self,
+        epoch: int,
+        filename: str | None = None,
+    ) -> None:
+        """Save now or defer callback-driven saves until gradients are applied."""
+
+        if self._accumulation_pending():
+            self._queue_checkpoint(filename)
+            return
+        super().save_checkpoint(epoch, filename=filename)
 
     def _perform_training(self) -> None:
         """Consume training batches until the configured iteration limit."""
@@ -173,6 +214,9 @@ class IterationTrainer(EpochTrainer):
             leave=False,
             disable=not show_progress,
         )
+        report_pending = False
+        validation_pending = False
+        test_pending = False
 
         try:
             while self.current_iteration < self.iterations:
@@ -242,27 +286,39 @@ class IterationTrainer(EpochTrainer):
                     self.test_frequency > 0
                     and self.current_iteration % self.test_frequency == 0
                 )
+                report_pending = report_pending or should_log
+                validation_pending = validation_pending or should_validate
+                test_pending = test_pending or should_test
                 checkpoint_requested = (
                     self.checkpoint_frequency > 0
                     and self.current_iteration % self.checkpoint_frequency == 0
                 )
                 if checkpoint_requested:
-                    self._checkpoint_pending = True
-                accumulation_pending = (
-                    getattr(self.accelerator, "accumulation_counter", 0) > 0
-                )
-                should_checkpoint = (
-                    self._checkpoint_pending and not accumulation_pending
-                )
-                if not any(
-                    (
-                        should_log,
-                        should_validate,
-                        should_test,
-                        should_checkpoint,
-                        is_final,
+                    self._queue_checkpoint("latest.pth")
+                if self.stop_training or is_final:
+                    self._queue_checkpoint("latest.pth")
+
+                accumulation_pending = self._accumulation_pending()
+                if is_final and accumulation_pending:
+                    raise RuntimeError(
+                        "The final iteration left accumulated gradients pending. "
+                        "train_step() must pass the trainer's finalization flag to "
+                        "the accelerator optimizer step."
                     )
-                ):
+
+                if self.stop_training or is_final:
+                    report_pending = True
+                should_report = not accumulation_pending and any(
+                    (report_pending, validation_pending, test_pending)
+                )
+                if not should_report:
+                    self._flush_pending_checkpoints()
+                    if self.stop_training and not self._accumulation_pending():
+                        self.logger.info(
+                            f"Training stopped early at iteration "
+                            f"{self.current_iteration}"
+                        )
+                        break
                     continue
 
                 self.accelerator.wait_for_everyone(
@@ -295,7 +351,7 @@ class IterationTrainer(EpochTrainer):
                 )
                 self.set_metrics("general", general_logs)
 
-                if (should_validate or is_final) and self._loader_has_batches(
+                if (validation_pending or is_final) and self._loader_has_batches(
                     self.validation_loader
                 ):
                     self.callbacks.on_validation_start(self.current_iteration)
@@ -306,7 +362,7 @@ class IterationTrainer(EpochTrainer):
                         validation_metrics,
                     )
 
-                if (should_test or is_final) and self._loader_has_batches(
+                if (test_pending or is_final) and self._loader_has_batches(
                     self.test_loader
                 ):
                     self.callbacks.on_test_start(self.current_iteration)
@@ -320,36 +376,16 @@ class IterationTrainer(EpochTrainer):
                 logs = self.compile_epoch_logs()
                 self.callbacks.on_iteration_end(self.current_iteration, logs)
                 self.log_metrics(self.current_iteration)
-
-                saved_latest = (should_checkpoint or is_final) and not accumulation_pending
-                if saved_latest:
-                    self.save_checkpoint(
-                        self.current_iteration,
-                        filename="latest.pth",
-                    )
-                    self.callbacks.on_checkpoint(
-                        self.current_iteration,
-                        self.current_metrics,
-                    )
-                    self._checkpoint_pending = False
+                report_pending = False
+                validation_pending = False
+                test_pending = False
 
                 self.broadcast_stop_training()
                 if self.stop_training:
-                    if not saved_latest and not accumulation_pending:
-                        self.save_checkpoint(
-                            self.current_iteration,
-                            filename="latest.pth",
-                        )
-                        self.callbacks.on_checkpoint(
-                            self.current_iteration,
-                            self.current_metrics,
-                        )
-                    elif accumulation_pending:
-                        self.logger.warning(
-                            "Skipping an unsafe checkpoint with pending accumulated "
-                            "gradients; the previous completed-window checkpoint remains "
-                            "the resume point"
-                        )
+                    self._queue_checkpoint("latest.pth")
+
+                self._flush_pending_checkpoints()
+                if self.stop_training:
                     self.logger.info(
                         f"Training stopped early at iteration "
                         f"{self.current_iteration}"
@@ -394,6 +430,10 @@ class IterationTrainer(EpochTrainer):
     def restore_progress_state(self, checkpoint: dict[str, Any]) -> None:
         """Restore iteration count and the finite-loader resume cursor."""
 
+        if "best_metric" in checkpoint:
+            self.best_metric = checkpoint["best_metric"]
+        if "epochs_no_improvement" in checkpoint:
+            self.epochs_no_improvement = int(checkpoint["epochs_no_improvement"])
         self.global_step = int(checkpoint.get("global_step", 0))
         self.current_iteration = int(
             checkpoint.get("iteration", self.global_step)

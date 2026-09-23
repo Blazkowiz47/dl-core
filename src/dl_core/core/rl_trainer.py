@@ -20,6 +20,10 @@ from torch.optim.lr_scheduler import LRScheduler
 from tqdm import tqdm
 
 from dl_core.utils import ArtifactManager, set_seeds
+from dl_core.utils.checkpoint_utils import (
+    atomic_torch_save,
+    find_latest_checkpoint_local,
+)
 from dl_core.utils.config_names import (
     resolve_config_experiment_name,
     resolve_config_run_name,
@@ -278,6 +282,21 @@ class RLTrainer(ABC):
         )
         self.setup_episode_managers()
         self.setup_callbacks()
+        if not self.continue_model and self.config.get("auto_resume_local", False):
+            checkpoint_dir = getattr(self, "checkpoint_dir", None)
+            if checkpoint_dir is not None:
+                self.continue_model = find_latest_checkpoint_local(checkpoint_dir)
+                if self.continue_model:
+                    self.trainer_config["continue_model"] = self.continue_model
+                    try:
+                        self.artifact_manager.save_config(self.config)
+                    except Exception as error:
+                        self.logger.warning(
+                            f"Failed to persist auto-resume checkpoint path: {error}"
+                        )
+                    self.logger.info(
+                        f"Auto-resuming from local checkpoint: {self.continue_model}"
+                    )
         if self.continue_model:
             self.load_checkpoint(str(self.continue_model))
 
@@ -1250,9 +1269,7 @@ class RLTrainer(ABC):
         if torch.cuda.is_available():
             checkpoint["cuda_random_state"] = torch.cuda.get_rng_state_all()
         checkpoint_path = self.artifact_manager.get_final_checkpoint_path(filename)
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(checkpoint, checkpoint_path)
-        return checkpoint_path
+        return atomic_torch_save(checkpoint, checkpoint_path)
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
         """Restore common and algorithm-specific RL state."""
