@@ -93,6 +93,12 @@ def _module_is_from_src(module: ModuleType, src_dir: Path) -> bool:
         return False
 
 
+def _class_is_from_src(component_class: type[Any], src_dir: Path) -> bool:
+    """Identify registrations defined by the current local project."""
+    module = sys.modules.get(component_class.__module__)
+    return module is not None and _module_is_from_src(module, src_dir)
+
+
 def load_local_components(start_path: str | Path | None = None) -> list[str]:
     """Import local experiment modules so custom components register themselves."""
     global _LOCAL_SRC_PATH, _LOCAL_SRC_PATH_INSERTED
@@ -149,7 +155,10 @@ def load_local_components(start_path: str | Path | None = None) -> list[str]:
         for registry, snapshot in registry_snapshots.items():
             current_items = registry.registered_items()
             for name, registered_class in current_items.items():
-                if snapshot.get(name) is not registered_class:
+                if (
+                    snapshot.get(name) is not registered_class
+                    and _class_is_from_src(registered_class, src_dir)
+                ):
                     registry.unregister(name, expected_class=registered_class)
         for module_name, module in list(sys.modules.items()):
             if _is_local_module_name(module_name) and _module_is_from_src(
@@ -169,6 +178,14 @@ def load_local_components(start_path: str | Path | None = None) -> list[str]:
         if _is_local_module_name(module_name) and _module_is_from_src(module, src_dir)
     }
 
+    for registry, snapshot in registry_snapshots.items():
+        for name, registered_class in registry.registered_items().items():
+            if (
+                snapshot.get(name) is not registered_class
+                and _class_is_from_src(registered_class, src_dir)
+            ):
+                _LOCAL_REGISTRATIONS.append((registry, name, registered_class))
+
     shadowed_prefixes = {name.split(".", 1)[0] for name in shadowed_modules}
     for module_name, module in list(loaded_local_modules.items()):
         if module_name.split(".", 1)[0] in shadowed_prefixes:
@@ -178,10 +195,6 @@ def load_local_components(start_path: str | Path | None = None) -> list[str]:
     sys.modules.update(shadowed_modules)
 
     _LOCAL_MODULES.update(loaded_local_modules)
-    for registry, snapshot in registry_snapshots.items():
-        for name, registered_class in registry.registered_items().items():
-            if snapshot.get(name) is not registered_class:
-                _LOCAL_REGISTRATIONS.append((registry, name, registered_class))
 
     return imported_modules
 

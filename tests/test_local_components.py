@@ -6,9 +6,11 @@ import inspect
 from pathlib import Path
 import sys
 from types import ModuleType
+from typing import Any
 
 from dl_core import load_builtin_components, load_local_components
 from dl_core.core import (
+    CALLBACK_REGISTRY,
     DATASET_REGISTRY,
     ENVIRONMENT_REGISTRY,
     MODEL_REGISTRY,
@@ -115,3 +117,38 @@ def test_load_local_components_replaces_previous_project_registrations(
     assert "project_one" not in DATASET_REGISTRY.list_registered()
     assert "project_two" in DATASET_REGISTRY.list_registered()
     assert Path(inspect.getfile(second_model_class)).is_relative_to(second_dir)
+
+
+def test_local_reload_preserves_extension_registration(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """Bootstrap-imported extensions remain registered after project reload."""
+
+    first_dir = create_experiment_scaffold("first-project", root_dir=str(tmp_path))
+    second_dir = create_experiment_scaffold("second-project", root_dir=str(tmp_path))
+    extension_name = "reload_test_extension"
+    registration_name = "reload_test_callback"
+    (tmp_path / f"{extension_name}.py").write_text(
+        "from dl_core.core import register_callback\n\n"
+        f"@register_callback('{registration_name}')\n"
+        "class ExtensionCallback:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    for project_dir in (first_dir, second_dir):
+        (project_dir / "src" / "bootstrap.py").write_text(
+            f"import {extension_name}\n",
+            encoding="utf-8",
+        )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    try:
+        load_local_components(first_dir)
+        extension_class = CALLBACK_REGISTRY.get_class(registration_name)
+        load_local_components(second_dir)
+
+        assert CALLBACK_REGISTRY.get_class(registration_name) is extension_class
+    finally:
+        CALLBACK_REGISTRY.unregister(registration_name)
+        sys.modules.pop(extension_name, None)

@@ -27,7 +27,7 @@ Generated sweep runs may also contain `executor` and `tracking`.
 ## Models
 
 `models` is a mapping where the key is the registry name and the value is the
-parameter block.
+parameter block. Component names must match a registered name exactly.
 
 Generated experiment repos default to a self-contained local
 `resnet_example` implemented with torchvision:

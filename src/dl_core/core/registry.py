@@ -25,7 +25,7 @@ class ComponentRegistry:
     """
     Registry for automatic component discovery and instantiation.
 
-    Supports both exact matching and prefix matching for flexible component naming.
+    Component names are resolved exactly to avoid selecting an unrelated class.
     """
 
     def __init__(self, component_type: str = "Component"):
@@ -47,7 +47,7 @@ class ComponentRegistry:
         """
         if name in self._components:
             existing_cls = self._components[name]
-            if existing_cls != cls:
+            if existing_cls is not cls:
                 raise ValueError(
                     f"{self.component_type} '{name}' is already registered "
                     "with class "
@@ -94,18 +94,18 @@ class ComponentRegistry:
             # Convert single name to list
             names_list = [names] if isinstance(names, str) else names
 
-            # Register class under all provided names
+            # Validate every alias before changing the registry.
             for name in names_list:
                 if name in self._components:
                     existing_cls = self._components[name]
-                    if existing_cls != cls:
+                    if existing_cls is not cls:
                         raise ValueError(
                             f"{self.component_type} '{name}' is already registered "
                             "with class "
                             f"{existing_cls.__name__}, cannot register {cls.__name__}"
                         )
-                else:
-                    self._components[name] = cls
+            for name in names_list:
+                self._components[name] = cls
 
             return cls
 
@@ -116,7 +116,7 @@ class ComponentRegistry:
         Get and instantiate a registered component.
 
         Args:
-            name: Name of the component to get (supports prefix matching)
+            name: Exact registered name of the component to get
             *args: Arguments to pass to component constructor
             **kwargs: Keyword arguments to pass to component constructor
 
@@ -127,22 +127,10 @@ class ComponentRegistry:
             NotImplementedError: If component is not found
         """
 
-        # First try exact match
         if name in self._components:
             cls = self._components[name]
             return cls(*args, **kwargs)
 
-        # Then prefer the most specific prefix (e.g., standard_act before standard).
-        matching_names = [
-            registered_name
-            for registered_name in self._components
-            if name.startswith(registered_name)
-        ]
-        if matching_names:
-            cls = self._components[max(matching_names, key=len)]
-            return cls(*args, **kwargs)
-
-        # If no match found, provide helpful error message
         available_names = list(self._components.keys())
         raise NotImplementedError(
             f"{self.component_type} '{name}' not found. "
@@ -168,16 +156,7 @@ class ComponentRegistry:
         Returns:
             True if registered, False otherwise
         """
-        # Check exact match
-        if name in self._components:
-            return True
-
-        # Check prefix match
-        for registered_name in self._components:
-            if name.startswith(registered_name):
-                return True
-
-        return False
+        return name in self._components
 
     def get_class(self, name: str) -> Type:
         """
@@ -202,20 +181,9 @@ class ComponentRegistry:
             f"Available {self.component_type.lower()}s: {list(self._components.keys())}"
         )
 
-        # First try exact match
         if name in self._components:
             return self._components[name]
 
-        # Then prefer the most specific matching prefix.
-        matching_names = [
-            registered_name
-            for registered_name in self._components
-            if name.startswith(registered_name)
-        ]
-        if matching_names:
-            return self._components[max(matching_names, key=len)]
-
-        # If no match found, provide helpful error message
         available_names = list(self._components.keys())
         raise NotImplementedError(
             f"{self.component_type} '{name}' not found. "
