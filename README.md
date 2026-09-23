@@ -43,6 +43,10 @@ Install from PyPI:
 pip install deep-learning-core
 ```
 
+The package keeps PyTorch accelerator selection with the consuming project.
+With uv, the Linux development/test extra resolves CPU-only PyTorch wheels so
+CI does not install CUDA dependencies.
+
 Install WebDataset-backed tar support only when needed:
 
 ```bash
