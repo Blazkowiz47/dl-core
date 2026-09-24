@@ -206,7 +206,8 @@ is strict: if it cannot be loaded, the run fails instead of silently restarting
 from the beginning. Resume restores model, optimizer, scheduler, criterion,
 accelerator, callback, and trainer progress state when those entries are
 present.
-Automatic local resume also searches an existing experiment-grouped run layout
+Automatic local resume also searches existing experiment-grouped runs and the
+previous `artifacts/sweeps/<config_stem>/<run_name>/` layout for standalone runs
 when no suitable checkpoint is found in the flat run directory.
 
 After successful training, the trainer lifecycle calls `select_checkpoint()` and

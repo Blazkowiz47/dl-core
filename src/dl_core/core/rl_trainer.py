@@ -299,6 +299,17 @@ class RLTrainer(ABC):
                     ) / "final" / "checkpoints"
                     if str(legacy_dir) != checkpoint_dir:
                         checkpoint_dirs.append(str(legacy_dir))
+                    config_path = self.config.get("_config_path")
+                    if config_path and not artifact_manager.sweep_name:
+                        old_single_run_dir = (
+                            Path(artifact_manager.output_dir)
+                            / "sweeps"
+                            / Path(config_path).stem
+                            / artifact_manager.run_name
+                            / "final"
+                            / "checkpoints"
+                        )
+                        checkpoint_dirs.append(str(old_single_run_dir))
 
                 unreadable_dirs: list[str] = []
                 for candidate_dir in checkpoint_dirs:

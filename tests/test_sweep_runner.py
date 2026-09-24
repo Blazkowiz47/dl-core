@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from dl_core.core import BaseExecutor
 from dl_core.sweep.runner import _filter_prepared_configs
@@ -131,3 +134,68 @@ def test_parallel_wrapper_skips_runs_claimed_by_another_process(
 
     assert result == {"success": True, "skipped": True}
     assert executor.executed_runs == []
+
+
+def test_sequential_sweep_records_execution_error_and_continues(tmp_path: Path) -> None:
+    """An exception must release the claimed run for a future retry."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(2)]
+    for _, config_path in configs:
+        config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    executor = ClaimingExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        experiment_name="demo",
+        sweep_id="sweep-001",
+    )
+
+    def execute(index: int, config_path: Path) -> dict[str, Any]:
+        if index == 0:
+            raise RuntimeError("submission rejected")
+        return ClaimingExecutor.execute_run(executor, index, config_path)
+
+    executor.execute_run = execute
+    progress = executor.run_sweep(configs, max_workers=1)
+
+    assert executor.executed_runs == [1]
+    assert progress == {"completed": 1, "failed": 1, "skipped": 0, "total": 2}
+    statuses = executor.tracker.get_sweep_data()["runs"]
+    assert statuses["0"]["status"] == "failed"
+    assert "submission rejected" in statuses["0"]["error_message"]
+    assert statuses["1"]["status"] == "completed"
+    assert executor.tracker.try_claim_run(0, config_path=str(configs[0][1]))
+
+
+@pytest.mark.parametrize("max_workers", [1, 2])
+def test_status_hook_is_used_at_any_worker_count(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    max_workers: int,
+) -> None:
+    """A custom executor should classify the same result in both paths."""
+    monkeypatch.setattr(
+        "dl_core.core.base_executor.ProcessPoolExecutor", ThreadPoolExecutor
+    )
+
+    class StatusExecutor(ClaimingExecutor):
+        def execute_run(self, run_index: int, config_path: Path) -> dict[str, Any]:
+            del config_path
+            return {"state": "running" if run_index == 0 else "unknown"}
+
+        def _classify_run_result(self, result: dict[str, Any]) -> str:
+            return str(result["state"])
+
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(2)]
+    for _, config_path in configs:
+        config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    executor = StatusExecutor(
+        {"tracking": {"backend": "local"}},
+        experiment_name="demo",
+        sweep_id="sweep-001",
+    )
+
+    progress = executor.run_sweep(configs, max_workers=max_workers)
+
+    assert executor.submitted_runs == [0]
+    assert executor.unknown_runs == [1]
+    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 2}

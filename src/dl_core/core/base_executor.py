@@ -165,35 +165,6 @@ class BaseExecutor(ABC):
                 config_path = run_index_to_path[run_index]
                 try:
                     result = future.result()
-                    if result.get("skipped", False):
-                        self.skipped_runs.append(run_index)
-                        self.logger.info(
-                            f"Run {run_index + 1}/{total_runs} skipped"
-                        )
-                        continue
-
-                    success = result.get("success", False)
-
-                    if success:
-                        self.completed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "completed",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.info(
-                            f"Run {run_index + 1}/{total_runs} completed successfully"
-                        )
-                    else:
-                        self.failed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "failed",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.error(f"Run {run_index + 1}/{total_runs} failed")
                 except Exception as e:
                     self.failed_runs.append(run_index)
                     self._update_tracker(
@@ -205,6 +176,36 @@ class BaseExecutor(ABC):
                     self.logger.error(
                         f"Run {run_index + 1}/{total_runs} failed with exception: {e}"
                     )
+                    continue
+                if result.get("skipped", False):
+                    self.skipped_runs.append(run_index)
+                    self.logger.info(f"Run {run_index + 1}/{total_runs} skipped")
+                    continue
+
+                status = self._classify_run_result(result)
+                if status == "completed":
+                    self.completed_runs.append(run_index)
+                    self.logger.info(
+                        f"Run {run_index + 1}/{total_runs} completed successfully"
+                    )
+                elif status == "running":
+                    self.submitted_runs.append(run_index)
+                    self.logger.info(f"Run {run_index + 1}/{total_runs} submitted")
+                elif status == "unknown":
+                    self.unknown_runs.append(run_index)
+                    self.logger.warning(
+                        f"Run {run_index + 1}/{total_runs} status unknown"
+                    )
+                else:
+                    self.failed_runs.append(run_index)
+                    status = "failed"
+                    self.logger.error(f"Run {run_index + 1}/{total_runs} failed")
+                self._update_tracker(
+                    run_index,
+                    status,
+                    config_path,
+                    result=result,
+                )
 
     def _execute_single_run_wrapper(
         self, run_index: int, config_path: Path
@@ -308,6 +309,12 @@ class BaseExecutor(ABC):
         """Map one execution result to a sweep-tracker status."""
         return "completed" if result.get("success", False) else "failed"
 
+    def _after_run_execution(
+        self, run_descriptors: List[Tuple[int, Path]]
+    ) -> None:
+        """Allow an executor to finish run-level work before sweep teardown."""
+        pass
+
     # High-level execution methods
 
     def run_sweep(
@@ -393,7 +400,20 @@ class BaseExecutor(ABC):
                         )
                         continue
 
-                    result = self.execute_run(run_index, config_path)
+                    try:
+                        result = self.execute_run(run_index, config_path)
+                    except Exception as error:
+                        self.failed_runs.append(run_index)
+                        self._update_tracker(
+                            run_index,
+                            "failed",
+                            config_path,
+                            error_message=str(error),
+                        )
+                        self.logger.error(
+                            f"Run {run_index + 1}/{total_runs} failed with exception: {error}"
+                        )
+                        continue
                     status = self._classify_run_result(result)
                     if status == "completed":
                         self.completed_runs.append(run_index)
@@ -410,6 +430,8 @@ class BaseExecutor(ABC):
                         config_path,
                         result=result,
                     )
+
+            self._after_run_execution(run_descriptors)
 
             # Teardown
             self.teardown()

@@ -369,6 +369,19 @@ class EpochTrainer(ABC):
                         candidate_paths.extend(
                             find_checkpoint_candidates_local(str(legacy_dir))
                         )
+                    config_path = config.get("_config_path")
+                    if config_path and not artifact_manager.sweep_name:
+                        old_single_run_dir = (
+                            Path(artifact_manager.output_dir)
+                            / "sweeps"
+                            / Path(config_path).stem
+                            / artifact_manager.run_name
+                            / "final"
+                            / "checkpoints"
+                        )
+                        candidate_paths.extend(
+                            find_checkpoint_candidates_local(str(old_single_run_dir))
+                        )
             except Exception as error:
                 discovery_error = f"{type(error).__name__}: {error}"
 

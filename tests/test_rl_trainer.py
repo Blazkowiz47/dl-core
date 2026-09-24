@@ -375,6 +375,43 @@ def test_rl_auto_resume_finds_legacy_run_layout(tmp_path: Path) -> None:
     restored.close()
 
 
+def test_rl_auto_resume_finds_old_standalone_layout(tmp_path: Path) -> None:
+    """Standalone RL runs should resume from their prior sweep-shaped path."""
+
+    load_builtin_components()
+    config = _config(tmp_path, evaluation_episodes=0)
+    config["_config_path"] = str(tmp_path / "training.yaml")
+    trainer = _TestRLTrainer(config)
+    trainer.setup()
+    trainer.run_episode(training=True, episode=0)
+    checkpoint = trainer.save_checkpoint("episode_00000001.pth")
+    assert checkpoint is not None
+    old_dir = (
+        tmp_path
+        / "artifacts"
+        / "sweeps"
+        / "training"
+        / trainer.artifact_manager.run_name
+        / "final"
+        / "checkpoints"
+    )
+    old_dir.mkdir(parents=True)
+    old_checkpoint = old_dir / checkpoint.name
+    checkpoint.rename(old_checkpoint)
+    trainer.close()
+
+    resume_config = _config(tmp_path, evaluation_episodes=0)
+    resume_config["_config_path"] = str(tmp_path / "training.yaml")
+    resume_config["auto_resume_local"] = True
+    restored = _TestRLTrainer(resume_config)
+    restored.setup()
+
+    assert restored.continue_model == str(old_checkpoint)
+    assert restored.current_episode == 1
+    assert restored.global_step == 2
+    restored.close()
+
+
 def test_rl_trainer_counts_updates_without_metrics(tmp_path: Path) -> None:
     load_builtin_components()
     trainer = _EmptyUpdateRLTrainer(_config(tmp_path, evaluation_episodes=0))

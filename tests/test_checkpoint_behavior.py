@@ -535,18 +535,19 @@ def test_checkpoint_payload_round_trips_callback_state(tmp_path: Path) -> None:
     assert target_callback.best_epoch == 3
 
 
-@pytest.mark.parametrize("legacy_layout", [False, True])
+@pytest.mark.parametrize("layout", ["current", "legacy", "old_single_run"])
 def test_auto_resume_falls_back_through_real_epoch_layout(
     tmp_path: Path,
-    legacy_layout: bool,
+    layout: str,
 ) -> None:
-    """Trainer auto-resume should recover from flat and legacy run layouts."""
+    """Trainer auto-resume should recover from each local run layout."""
 
-    run_dir = (
-        tmp_path / "demo-exp" / "demo"
-        if legacy_layout
-        else tmp_path / "runs" / "demo"
-    )
+    if layout == "legacy":
+        run_dir = tmp_path / "demo-exp" / "demo"
+    elif layout == "old_single_run":
+        run_dir = tmp_path / "sweeps" / "training" / "demo"
+    else:
+        run_dir = tmp_path / "runs" / "demo"
     checkpoint_dir = run_dir / "final" / "checkpoints"
     checkpoint_dir.mkdir(parents=True)
     (checkpoint_dir / "latest.pth").write_bytes(b"truncated")
@@ -572,7 +573,10 @@ def test_auto_resume_falls_back_through_real_epoch_layout(
     trainer.current_epoch = 0
     trainer.continue_model = None
     trainer.trainer_config = {}
-    trainer.config = {"auto_resume_local": True}
+    trainer.config = {
+        "auto_resume_local": True,
+        "_config_path": str(tmp_path / "training.yaml"),
+    }
     trainer.artifact_manager = ArtifactManager(
         run_name="demo",
         output_dir=str(tmp_path),
