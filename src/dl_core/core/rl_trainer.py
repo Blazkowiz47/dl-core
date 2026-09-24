@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import LRScheduler
 from tqdm import tqdm
 
 from dl_core.utils import ArtifactManager, set_seeds
-from dl_core.utils.artifact_manager import get_legacy_run_artifact_dir
+from dl_core.utils.artifact_manager import select_auto_resume_run_dir
 from dl_core.utils.checkpoint_utils import (
     atomic_torch_save,
     find_latest_checkpoint_local,
@@ -286,46 +286,7 @@ class RLTrainer(ABC):
         if not self.continue_model and self.config.get("auto_resume_local", False):
             checkpoint_dir = getattr(self, "checkpoint_dir", None)
             if checkpoint_dir is not None:
-                checkpoint_dirs = [checkpoint_dir]
-                artifact_manager = getattr(self, "artifact_manager", None)
-                if artifact_manager is not None:
-                    legacy_dir = Path(
-                        get_legacy_run_artifact_dir(
-                            run_name=artifact_manager.run_name,
-                            output_dir=str(artifact_manager.output_dir),
-                            experiment_name=artifact_manager.experiment_name,
-                            sweep_name=artifact_manager.sweep_name,
-                        )
-                    ) / "final" / "checkpoints"
-                    if str(legacy_dir) != checkpoint_dir:
-                        checkpoint_dirs.append(str(legacy_dir))
-                    config_path = self.config.get("_config_path")
-                    if config_path and not artifact_manager.sweep_name:
-                        old_single_run_dir = (
-                            Path(artifact_manager.output_dir)
-                            / "sweeps"
-                            / Path(config_path).stem
-                            / artifact_manager.run_name
-                            / "final"
-                            / "checkpoints"
-                        )
-                        checkpoint_dirs.append(str(old_single_run_dir))
-
-                unreadable_dirs: list[str] = []
-                for candidate_dir in checkpoint_dirs:
-                    try:
-                        self.continue_model = find_latest_checkpoint_local(
-                            candidate_dir
-                        )
-                    except RuntimeError:
-                        unreadable_dirs.append(candidate_dir)
-                    if self.continue_model:
-                        break
-                if not self.continue_model and unreadable_dirs:
-                    raise RuntimeError(
-                        "Checkpoint artifacts exist but none can be loaded from "
-                        f"{', '.join(unreadable_dirs)}"
-                    )
+                self.continue_model = find_latest_checkpoint_local(checkpoint_dir)
                 if self.continue_model:
                     self.trainer_config["continue_model"] = self.continue_model
                     try:
@@ -453,11 +414,18 @@ class RLTrainer(ABC):
         )
         sweep_file = self.config.get("sweep_file")
         sweep_name = Path(sweep_file).stem if sweep_file else None
+        output_dir = str(runtime_config.get("output_dir", "artifacts"))
+        run_dir = None
+        if self.config.get("auto_resume_local", False) and not self.continue_model:
+            run_dir = select_auto_resume_run_dir(
+                run_name, output_dir, experiment_name, sweep_name, config_path
+            )
         self.artifact_manager = ArtifactManager(
             run_name=run_name,
-            output_dir=str(runtime_config.get("output_dir", "artifacts")),
+            output_dir=output_dir,
             experiment_name=experiment_name,
             sweep_name=sweep_name,
+            run_dir=run_dir,
         )
         self.checkpoint_dir = str(self.artifact_manager.get_checkpoints_dir())
         self.artifact_manager.save_config(self.config)

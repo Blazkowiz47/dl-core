@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from dl_core.core import BaseExecutor
+from dl_core.sweep import runner
 from dl_core.sweep.runner import _filter_prepared_configs
 from dl_core.utils.sweep_tracker import SweepTracker
 
@@ -103,7 +105,10 @@ def test_sequential_sweep_skips_runs_claimed_by_another_process(
     progress = executor.run_sweep([(0, config_0), (1, config_1)], max_workers=1)
 
     assert executor.executed_runs == [0]
-    assert progress == {"completed": 1, "failed": 0, "skipped": 1, "total": 1}
+    assert progress == {
+        "completed": 1, "failed": 0, "skipped": 1,
+        "running": 0, "unknown": 0, "total": 1,
+    }
     sweep_data = tracker.get_sweep_data()
     assert sweep_data["runs"]["0"]["status"] == "completed"
     assert sweep_data["runs"]["1"]["status"] == "running"
@@ -158,7 +163,10 @@ def test_sequential_sweep_records_execution_error_and_continues(tmp_path: Path) 
     progress = executor.run_sweep(configs, max_workers=1)
 
     assert executor.executed_runs == [1]
-    assert progress == {"completed": 1, "failed": 1, "skipped": 0, "total": 2}
+    assert progress == {
+        "completed": 1, "failed": 1, "skipped": 0,
+        "running": 0, "unknown": 0, "total": 2,
+    }
     statuses = executor.tracker.get_sweep_data()["runs"]
     assert statuses["0"]["status"] == "failed"
     assert "submission rejected" in statuses["0"]["error_message"]
@@ -198,4 +206,131 @@ def test_status_hook_is_used_at_any_worker_count(
 
     assert executor.submitted_runs == [0]
     assert executor.unknown_runs == [1]
-    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 2}
+    assert progress == {
+        "completed": 0, "failed": 0, "skipped": 0,
+        "running": 1, "unknown": 1, "total": 2,
+    }
+
+
+def test_interrupt_releases_sequential_claim(tmp_path: Path) -> None:
+    """Ctrl+C leaves the interrupted run eligible for --resume."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    executor = ClaimingExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        experiment_name="demo",
+        sweep_id="sweep-001",
+    )
+    executor.execute_run = lambda index, path: (_ for _ in ()).throw(
+        KeyboardInterrupt()
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        executor.run_sweep([(0, config_path)], max_workers=1)
+
+    assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "failed"
+    assert executor.tracker.try_claim_run(0, config_path=str(config_path))
+
+
+def test_tracker_error_after_accepted_run_aborts_without_releasing_claim(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An accepted job must not become claimable after a tracker write fails."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    executor = ClaimingExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        experiment_name="demo",
+        sweep_id="sweep-001",
+    )
+    executor.execute_run = lambda index, path: {
+        "success": True, "tracking_run_id": "accepted-job"
+    }
+    executor._update_tracker = lambda *args, **kwargs: (_ for _ in ()).throw(
+        OSError("tracker disk failure")
+    )
+
+    with pytest.raises(OSError, match="tracker disk failure"):
+        executor.run_sweep([(0, config_path)], max_workers=1)
+
+    assert "accepted-job" in caplog.text
+    assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "running"
+    assert executor.failed_runs == []
+
+
+def test_sweep_cli_exit_codes_reflect_failed_and_unknown_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Automation should distinguish failed, unknown, and running results."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    run_config = {"executor": {"name": "local"}, "runtime": {"name": "demo"}}
+
+    class Builder:
+        def prepare_configs(self, configs: list[dict[str, Any]]) -> list[Any]:
+            return [(0, configs[0], "demo")]
+
+        def save_configs(self, configs: list[dict[str, Any]], output_dir: Path) -> list[Any]:
+            return [(0, configs[0], config_path)]
+
+    progress = {"completed": 0, "failed": 0, "running": 1, "unknown": 0, "total": 1}
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path)])
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(runner, "load_user_sweep", lambda path: {"base_config": str(config_path)})
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "generate_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(
+        runner, "generate_all_run_configs", lambda *args: (Builder(), [run_config])
+    )
+    monkeypatch.setattr(
+        runner.EXECUTOR_REGISTRY, "get",
+        lambda *args, **kwargs: SimpleNamespace(run_sweep=lambda *a, **k: progress),
+    )
+
+    assert runner.main() == 0
+    progress.update(running=0, unknown=1)
+    assert runner.main() == 2
+    progress.update(unknown=0, failed=1)
+    assert runner.main() == 1
+    assert "1 failed" in capsys.readouterr().out
+
+
+def test_resume_does_not_call_unknown_runs_completed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An unknown run needs reconciliation, not a success message."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    tracker = SweepTracker(sweep_path, "demo", "sweep-1")
+    tracker.initialize_sweep(total_runs=1, user="tester")
+    tracker.update_run_status(0, "unknown")
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(runner, "load_user_sweep", lambda path: {"base_config": str(config_path)})
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "generate_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(
+        runner, "generate_all_run_configs", lambda *args: (None, [{}])
+    )
+
+    assert runner.main() == 2
+    output = capsys.readouterr().out
+    assert "1 unknown" in output
+    assert "All runs are completed" not in output

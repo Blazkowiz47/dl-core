@@ -36,7 +36,7 @@ from dl_core.utils.checkpoint_utils import (
     atomic_torch_save,
     find_checkpoint_candidates_local,
 )
-from dl_core.utils.artifact_manager import get_legacy_run_artifact_dir
+from dl_core.utils.artifact_manager import select_auto_resume_run_dir
 
 from .registry import (
     ACCELERATOR_REGISTRY,
@@ -351,37 +351,10 @@ class EpochTrainer(ABC):
         if self.accelerator.is_main_process():
             try:
                 checkpoint_dir = getattr(self, "checkpoint_dir", None)
-                artifact_manager = getattr(self, "artifact_manager", None)
                 if checkpoint_dir is not None:
                     candidate_paths.extend(
                         find_checkpoint_candidates_local(checkpoint_dir)
                     )
-                if artifact_manager is not None:
-                    legacy_dir = Path(
-                        get_legacy_run_artifact_dir(
-                            run_name=artifact_manager.run_name,
-                            output_dir=str(artifact_manager.output_dir),
-                            experiment_name=artifact_manager.experiment_name,
-                            sweep_name=artifact_manager.sweep_name,
-                        )
-                    ) / "final" / "checkpoints"
-                    if str(legacy_dir) != checkpoint_dir:
-                        candidate_paths.extend(
-                            find_checkpoint_candidates_local(str(legacy_dir))
-                        )
-                    config_path = config.get("_config_path")
-                    if config_path and not artifact_manager.sweep_name:
-                        old_single_run_dir = (
-                            Path(artifact_manager.output_dir)
-                            / "sweeps"
-                            / Path(config_path).stem
-                            / artifact_manager.run_name
-                            / "final"
-                            / "checkpoints"
-                        )
-                        candidate_paths.extend(
-                            find_checkpoint_candidates_local(str(old_single_run_dir))
-                        )
             except Exception as error:
                 discovery_error = f"{type(error).__name__}: {error}"
 
@@ -762,12 +735,19 @@ class EpochTrainer(ABC):
         if sweep_file:
             sweep_file = Path(sweep_file).name.replace(".yaml", "")
 
-        # Initialize artifact manager with the flattened local artifact layout.
+        run_dir = None
+        if self.config.get("auto_resume_local", False) and not self.continue_model:
+            run_dir = select_auto_resume_run_dir(
+                run_name, output_dir, experiment_name, sweep_file, config_path,
+                preserve_yml_name=True,
+            )
+
         self.artifact_manager = ArtifactManager(
             run_name=run_name,
             output_dir=output_dir,
             experiment_name=experiment_name,
             sweep_name=sweep_file,
+            run_dir=run_dir,
         )
         self.checkpoint_dir = str(self.artifact_manager.get_checkpoints_dir())
         self.visualization_dir = str(self.artifact_manager.get_plots_dir())

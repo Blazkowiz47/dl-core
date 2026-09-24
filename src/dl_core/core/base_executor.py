@@ -297,6 +297,8 @@ class BaseExecutor(ABC):
             "completed": len(self.completed_runs),
             "failed": len(self.failed_runs),
             "skipped": len(self.skipped_runs),
+            "running": len(self.submitted_runs),
+            "unknown": len(self.unknown_runs),
             "total": (
                 len(self.completed_runs)
                 + len(self.failed_runs)
@@ -334,7 +336,7 @@ class BaseExecutor(ABC):
             max_workers: Maximum number of parallel workers (default: 1, sequential)
 
         Returns:
-            Dictionary with sweep progress (completed, failed, total)
+            Counts for completed, failed, skipped, running, unknown, and total runs
 
         Example:
             executor = LocalExecutor(sweep_config, "experiment", "sweep_123", dry_run=False)
@@ -402,6 +404,14 @@ class BaseExecutor(ABC):
 
                     try:
                         result = self.execute_run(run_index, config_path)
+                    except KeyboardInterrupt:
+                        self._update_tracker(
+                            run_index,
+                            "failed",
+                            config_path,
+                            error_message="Interrupted before the run completed",
+                        )
+                        raise
                     except Exception as error:
                         self.failed_runs.append(run_index)
                         self._update_tracker(
@@ -424,12 +434,19 @@ class BaseExecutor(ABC):
                     else:
                         self.failed_runs.append(run_index)
                         status = "failed"
-                    self._update_tracker(
-                        run_index,
-                        status,
-                        config_path,
-                        result=result,
-                    )
+                    try:
+                        self._update_tracker(
+                            run_index,
+                            status,
+                            config_path,
+                            result=result,
+                        )
+                    except Exception:
+                        self.logger.exception(
+                            f"Could not record run {run_index} with tracking ID "
+                            f"{result.get('tracking_run_id')}; aborting without retry"
+                        )
+                        raise
 
             self._after_run_execution(run_descriptors)
 

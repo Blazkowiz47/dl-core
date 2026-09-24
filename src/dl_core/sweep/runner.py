@@ -349,6 +349,19 @@ def main():
             print(f"   Using sweep config total ({total_runs}) to detect missing runs")
 
         if not resume_runs:
+            statuses = [
+                run.get("status")
+                for run in sweep_data.get("runs", {}).values()
+            ]
+            running = statuses.count("running")
+            unknown = statuses.count("unknown")
+            if running or unknown:
+                print(
+                    "No failed or pending runs to resume. "
+                    f"{running} running and {unknown} unknown run(s) remain; "
+                    "reconcile unknown jobs before retrying."
+                )
+                return 2 if unknown else 0
             print("No failed or pending runs to resume. All runs are completed!")
             return 0
 
@@ -462,10 +475,17 @@ def main():
         progress = executor.run_sweep(config_paths, max_workers=args.max_workers)
         skipped = progress.get("skipped", 0)
         skipped_text = f" ({skipped} already claimed/skipped)" if skipped else ""
+        failed = progress.get("failed", 0)
+        running = progress.get("running", 0)
+        unknown = progress.get("unknown", 0)
         print(
-            f"\n✓ Sweep complete: {progress['completed']}/{progress['total']} runs"
-            f"{skipped_text}"
+            f"\nSweep finished: {progress['completed']} completed, {failed} failed, "
+            f"{running} running, {unknown} unknown{skipped_text}"
         )
+        if failed:
+            return 1
+        if unknown:
+            return 2
         return 0
 
     except Exception as e:

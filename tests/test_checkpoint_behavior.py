@@ -535,7 +535,9 @@ def test_checkpoint_payload_round_trips_callback_state(tmp_path: Path) -> None:
     assert target_callback.best_epoch == 3
 
 
-@pytest.mark.parametrize("layout", ["current", "legacy", "old_single_run"])
+@pytest.mark.parametrize(
+    "layout", ["current", "legacy", "old_single_run", "old_single_yml"]
+)
 def test_auto_resume_falls_back_through_real_epoch_layout(
     tmp_path: Path,
     layout: str,
@@ -546,6 +548,8 @@ def test_auto_resume_falls_back_through_real_epoch_layout(
         run_dir = tmp_path / "demo-exp" / "demo"
     elif layout == "old_single_run":
         run_dir = tmp_path / "sweeps" / "training" / "demo"
+    elif layout == "old_single_yml":
+        run_dir = tmp_path / "sweeps" / "training.yml" / "demo"
     else:
         run_dir = tmp_path / "runs" / "demo"
     checkpoint_dir = run_dir / "final" / "checkpoints"
@@ -573,18 +577,6 @@ def test_auto_resume_falls_back_through_real_epoch_layout(
     trainer.current_epoch = 0
     trainer.continue_model = None
     trainer.trainer_config = {}
-    trainer.config = {
-        "auto_resume_local": True,
-        "_config_path": str(tmp_path / "training.yaml"),
-    }
-    trainer.artifact_manager = ArtifactManager(
-        run_name="demo",
-        output_dir=str(tmp_path),
-        experiment_name="demo-exp",
-    )
-    trainer.checkpoint_dir = str(
-        trainer.artifact_manager.get_checkpoints_dir()
-    )
     epoch_checkpoint = run_dir / "epoch_6" / "checkpoint.pth"
     epoch_checkpoint.parent.mkdir()
     torch.save(
@@ -597,11 +589,47 @@ def test_auto_resume_falls_back_through_real_epoch_layout(
         },
         epoch_checkpoint,
     )
+    if layout != "current":
+        (checkpoint_dir / "best.pth").write_bytes(epoch_checkpoint.read_bytes())
+    trainer.config = {
+        "auto_resume_local": True,
+        "_config_path": str(
+            tmp_path / ("training.yml" if layout == "old_single_yml" else "training.yaml")
+        ),
+        "runtime": {"name": "demo", "output_dir": str(tmp_path)},
+        "tracking": {"experiment_name": "demo-exp"},
+    }
+    trainer._setup_artifact_manager()
     trainer._load_auto_resume_model()
 
+    assert trainer.artifact_manager.run_dir == run_dir
     assert trainer.continue_model == str(epoch_checkpoint)
     assert trainer.current_epoch == 6
     assert trainer.global_step == 17
+    if layout != "current":
+        assert trainer.select_checkpoint() == checkpoint_dir / "best.pth"
+        assert not (tmp_path / "runs" / "demo").exists()
+
+
+def test_auto_resume_prefers_existing_current_artifacts(tmp_path: Path) -> None:
+    """A current checkpoint must keep writes in the current run directory."""
+    old = tmp_path / "sweeps" / "training" / "demo" / "final" / "checkpoints"
+    current = tmp_path / "runs" / "demo" / "final" / "checkpoints"
+    old.mkdir(parents=True)
+    current.mkdir(parents=True)
+    (old / "best.pth").write_bytes(b"older")
+    (current / "latest.pth").write_bytes(b"current")
+    trainer = _ConcreteTrainer()
+    trainer.config = {
+        "auto_resume_local": True,
+        "_config_path": str(tmp_path / "training.yaml"),
+        "runtime": {"name": "demo", "output_dir": str(tmp_path)},
+    }
+    trainer.continue_model = None
+
+    trainer._setup_artifact_manager()
+
+    assert trainer.artifact_manager.run_dir == tmp_path / "runs" / "demo"
 
 
 def test_checkpoint_load_broadcasts_main_rank_failure(monkeypatch: Any) -> None:

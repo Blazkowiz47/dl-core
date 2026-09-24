@@ -56,6 +56,7 @@ class ArtifactManager:
         output_dir: str = "artifacts",
         experiment_name: str | None = None,
         sweep_name: str | None = None,
+        run_dir: Path | None = None,
     ):
         """
         Initialize artifact manager.
@@ -65,13 +66,14 @@ class ArtifactManager:
             output_dir: Base output directory (default: "artifacts")
             experiment_name: Experiment name to record in metadata
             sweep_name: Sweep name used for grouped run directories
+            run_dir: Existing run directory selected for local resume
         """
         self.run_name = run_name
         self.output_dir = Path(output_dir)
         self.experiment_name = experiment_name
         self.sweep_name = sweep_name
 
-        self.run_dir = Path(
+        self.run_dir = run_dir or Path(
             get_run_artifact_dir(
                 run_name=run_name,
                 output_dir=str(self.output_dir),
@@ -583,6 +585,45 @@ def get_legacy_run_artifact_dir(
     if experiment_name:
         return str(output_root / experiment_name / run_name)
     return str(output_root / run_name)
+
+
+def select_auto_resume_run_dir(
+    run_name: str,
+    output_dir: str,
+    experiment_name: str | None,
+    sweep_name: str | None,
+    config_path: str | None,
+    preserve_yml_name: bool = False,
+) -> Path:
+    """Select the first existing run root with checkpoints without loading them."""
+    from dl_core.utils.checkpoint_utils import find_checkpoint_candidates_local
+
+    output_root = Path(output_dir)
+    current = Path(
+        get_run_artifact_dir(run_name, output_dir, experiment_name, sweep_name)
+    )
+    candidates = [
+        current,
+        Path(
+            get_legacy_run_artifact_dir(
+                run_name, output_dir, experiment_name, sweep_name
+            )
+        ),
+    ]
+    if config_path and not sweep_name:
+        config_file = Path(config_path)
+        old_names = [config_file.stem]
+        if preserve_yml_name and config_file.suffix == ".yml":
+            old_names.insert(0, config_file.name)
+        candidates.extend(
+            output_root / "sweeps" / name / run_name for name in old_names
+        )
+
+    for run_dir in dict.fromkeys(candidates):
+        checkpoint_dir = run_dir / "final" / "checkpoints"
+        if find_checkpoint_candidates_local(str(checkpoint_dir)):
+            return run_dir
+    return current
 
 
 def resolve_existing_run_artifact_dir(

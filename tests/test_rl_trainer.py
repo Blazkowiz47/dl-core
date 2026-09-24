@@ -369,9 +369,11 @@ def test_rl_auto_resume_finds_legacy_run_layout(tmp_path: Path) -> None:
     restored = _TestRLTrainer(resume_config)
     restored.setup()
 
+    assert restored.artifact_manager.run_dir == legacy_dir.parent.parent
     assert restored.continue_model == str(legacy_checkpoint)
     assert restored.current_episode == 1
     assert restored.global_step == 2
+    assert restored.save_checkpoint("latest.pth").parent == legacy_dir
     restored.close()
 
 
@@ -406,9 +408,11 @@ def test_rl_auto_resume_finds_old_standalone_layout(tmp_path: Path) -> None:
     restored = _TestRLTrainer(resume_config)
     restored.setup()
 
+    assert restored.artifact_manager.run_dir == old_dir.parent.parent
     assert restored.continue_model == str(old_checkpoint)
     assert restored.current_episode == 1
     assert restored.global_step == 2
+    assert restored.save_checkpoint("latest.pth").parent == old_dir
     restored.close()
 
 
