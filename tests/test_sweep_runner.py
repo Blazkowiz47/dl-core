@@ -109,8 +109,7 @@ def test_filtered_sweep_keeps_original_index_when_saving_configs(
     monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
     monkeypatch.setattr(runner, "load_local_components", lambda path: None)
     monkeypatch.setattr(runner, "load_user_sweep", lambda path: sweep_config.copy())
-    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: None)
-    monkeypatch.setattr(runner, "generate_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo")
     monkeypatch.setattr(
         runner,
         "generate_all_run_configs",
@@ -125,6 +124,68 @@ def test_filtered_sweep_keeps_original_index_when_saving_configs(
     assert submitted == [(2, tmp_path / "sweep" / "run_002.yaml")]
     saved = yaml.safe_load(submitted[0][1].read_text(encoding="utf-8"))
     assert saved["runtime"]["name"] == "run_002"
+
+
+def test_sweep_constructs_executor_with_base_signature(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Generated executors without their own __init__ must work in dl-sweep."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text("runtime: {}\n", encoding="utf-8")
+    run_config = {"executor": {"name": "generated"}, "runtime": {}}
+
+    class GeneratedExecutor(BaseExecutor):
+        def setup(self, total_runs: int) -> None:
+            pass
+
+        def execute_run(self, run_index: int, config_path: Path) -> dict[str, Any]:
+            return {"success": True}
+
+        def teardown(self) -> None:
+            pass
+
+        def run_sweep(
+            self, descriptors: list[tuple[int, Path]], max_workers: int = 1
+        ) -> dict[str, int]:
+            assert self.executor_config["compute_target"] == "cpu"
+            assert self.executor_config["environment_name"] == "test-env"
+            assert self.executor_config["max_workers"] == 2
+            return {"completed": 1, "failed": 0, "running": 0, "unknown": 0}
+
+    class Builder:
+        def prepare_configs(self, configs: list[dict[str, Any]]) -> list[Any]:
+            return [(0, configs[0], "run_000")]
+
+        def save_configs(self, prepared: list[Any], output_dir: Path) -> list[Any]:
+            return [(0, prepared[0][1], tmp_path / "run_000.yaml")]
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "dl-sweep", str(sweep_path), "--compute", "cpu",
+            "--environment", "test-env", "--max-workers", "2",
+        ],
+    )
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(
+        runner, "load_user_sweep", lambda path: {"base_config": str(base_path)}
+    )
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(
+        runner,
+        "generate_all_run_configs",
+        lambda *args: (Builder(), [run_config]),
+    )
+    monkeypatch.setattr(
+        runner.EXECUTOR_REGISTRY, "get",
+        lambda name, *args, **kwargs: GeneratedExecutor(*args, **kwargs),
+    )
+
+    assert runner.main() == 0
 
 
 def test_sweep_tracker_claims_only_pending_or_failed_runs(tmp_path: Path) -> None:
@@ -477,6 +538,38 @@ def test_local_executor_tracks_legacy_resume_artifacts(
     )
 
 
+def test_local_executor_tracks_old_yml_sweep_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resumed .yml sweep must keep its old directory and tracker path."""
+    sweep_path = tmp_path / "demo_sweep.yml"
+    config_path = tmp_path / "run.yaml"
+    output_dir = tmp_path / "artifacts"
+    old_run = output_dir / "sweeps" / "demo_sweep.yml" / "demo-run"
+    checkpoint_dir = old_run / "final" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "best.pth").write_bytes(b"checkpoint")
+    config_path.write_text(
+        f"runtime:\n  name: demo-run\n  output_dir: {output_dir}\n"
+        f"sweep_file: {sweep_path}\n"
+        "trainer:\n  standard:\n    continue_model: null\n",
+        encoding="utf-8",
+    )
+    executor = LocalExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        "demo", "sweep-1",
+    )
+    executor.build_command = lambda *args: ["unused"]
+    monkeypatch.setattr(
+        "dl_core.executors.local.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0),
+    )
+
+    result = executor.execute_run(0, config_path)
+
+    assert result["artifact_dir"] == str(old_run.resolve())
+
+
 def test_tracker_error_after_accepted_run_aborts_without_releasing_claim(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -533,8 +626,7 @@ def test_sweep_cli_exit_codes_reflect_failed_and_unknown_runs(
     monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
     monkeypatch.setattr(runner, "load_local_components", lambda path: None)
     monkeypatch.setattr(runner, "load_user_sweep", lambda path: {"base_config": str(config_path)})
-    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: None)
-    monkeypatch.setattr(runner, "generate_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo")
     monkeypatch.setattr(
         runner, "generate_all_run_configs", lambda *args: (Builder(), [run_config])
     )
@@ -569,8 +661,7 @@ def test_resume_does_not_call_unknown_runs_completed(
     monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
     monkeypatch.setattr(runner, "load_local_components", lambda path: None)
     monkeypatch.setattr(runner, "load_user_sweep", lambda path: {"base_config": str(config_path)})
-    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: None)
-    monkeypatch.setattr(runner, "generate_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo")
     monkeypatch.setattr(
         runner, "generate_all_run_configs", lambda *args: (None, [{}])
     )
@@ -613,8 +704,7 @@ def test_resume_exit_code_counts_other_unknown_runs(
     monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
     monkeypatch.setattr(runner, "load_local_components", lambda path: None)
     monkeypatch.setattr(runner, "load_user_sweep", lambda path: {"base_config": str(config_path)})
-    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: None)
-    monkeypatch.setattr(runner, "generate_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo")
     monkeypatch.setattr(
         runner, "generate_all_run_configs",
         lambda *args: (Builder(), [run_config.copy(), run_config.copy()]),

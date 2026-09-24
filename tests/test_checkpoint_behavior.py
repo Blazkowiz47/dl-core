@@ -69,6 +69,16 @@ class _CheckpointTrainerStub:
         self.saved_epochs.append((epoch, filename))
 
 
+def test_epoch_trainer_rejects_unknown_callback() -> None:
+    """A callback typo must stop setup instead of silently disabling saves."""
+    trainer = _ConcreteTrainer()
+    trainer.logger = logging.getLogger("test_unknown_callback")
+    trainer.config = {"callbacks": {"missing_checkpoint_callback": {}}}
+
+    with pytest.raises(NotImplementedError, match="missing_checkpoint_callback"):
+        trainer.setup_callbacks()
+
+
 class _MainProcessAcceleratorStub:
     """Simple accelerator test double for trainer helper tests."""
 
@@ -541,7 +551,11 @@ def test_checkpoint_payload_round_trips_callback_state(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "layout", ["current", "legacy", "old_single_run", "old_single_yml"]
+    "layout",
+    [
+        "current", "legacy", "old_single_run", "old_single_yml",
+        "current_sweep_yml", "old_sweep_yml", "old_grouped_sweep_yml",
+    ],
 )
 def test_auto_resume_falls_back_through_real_epoch_layout(
     tmp_path: Path,
@@ -555,6 +569,12 @@ def test_auto_resume_falls_back_through_real_epoch_layout(
         run_dir = tmp_path / "sweeps" / "training" / "demo"
     elif layout == "old_single_yml":
         run_dir = tmp_path / "sweeps" / "training.yml" / "demo"
+    elif layout == "current_sweep_yml":
+        run_dir = tmp_path / "sweeps" / "demo_sweep" / "demo"
+    elif layout == "old_sweep_yml":
+        run_dir = tmp_path / "sweeps" / "demo_sweep.yml" / "demo"
+    elif layout == "old_grouped_sweep_yml":
+        run_dir = tmp_path / "demo-exp" / "demo_sweep.yml" / "demo"
     else:
         run_dir = tmp_path / "runs" / "demo"
     checkpoint_dir = run_dir / "final" / "checkpoints"
@@ -604,6 +624,8 @@ def test_auto_resume_falls_back_through_real_epoch_layout(
         "runtime": {"name": "demo", "output_dir": str(tmp_path)},
         "tracking": {"experiment_name": "demo-exp"},
     }
+    if "sweep_yml" in layout:
+        trainer.config["sweep_file"] = str(tmp_path / "demo_sweep.yml")
     trainer._setup_artifact_manager()
     trainer._load_auto_resume_model()
 

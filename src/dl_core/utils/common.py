@@ -184,6 +184,7 @@ def crop_face_with_bbox(
     Args:
         image: Input image as numpy array
         bbox: Bounding box as [x, y, w, h] format
+        margin: Height and width padding as percentages of the box size
 
     Returns:
         Tuple of (cropped_face_image, adjusted_bboxes)
@@ -195,7 +196,7 @@ def crop_face_with_bbox(
     # Apply margin if configured
     if margin != (0, 0):
         adjusted_bbox = apply_margin_to_bbox(
-            original_bbox, image.shape[0], image.shape[1]
+            original_bbox, image.shape[0], image.shape[1], margin
         )
     else:
         adjusted_bbox = original_bbox

@@ -65,7 +65,9 @@ class LocalExecutor(BaseExecutor):
             tracking_context=tracking_context,
             resume=resume,
         )
-        self.max_workers = kwargs.get("max_workers", 1)
+        self.max_workers = self.executor_config.get(
+            "max_workers", kwargs.get("max_workers", 1)
+        )
 
     def setup(self, total_runs: int) -> None:
         """Setup local executor."""
@@ -126,6 +128,7 @@ class LocalExecutor(BaseExecutor):
                 sweep_name,
                 str(config_path),
                 preserve_yml_name=True,
+                sweep_file=sweep_file,
             )
         else:
             artifact_dir = Path(

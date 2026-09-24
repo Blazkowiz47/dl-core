@@ -594,6 +594,7 @@ def select_auto_resume_run_dir(
     sweep_name: str | None,
     config_path: str | None,
     preserve_yml_name: bool = False,
+    sweep_file: str | None = None,
 ) -> Path:
     """Select the first existing run root with checkpoints without loading them."""
     from dl_core.utils.checkpoint_utils import find_checkpoint_candidates_local
@@ -610,6 +611,11 @@ def select_auto_resume_run_dir(
             )
         ),
     ]
+    if sweep_name and sweep_file and Path(sweep_file).suffix == ".yml":
+        old_name = Path(sweep_file).name
+        candidates.append(output_root / "sweeps" / old_name / run_name)
+        if experiment_name:
+            candidates.append(output_root / experiment_name / old_name / run_name)
     if config_path and not sweep_name:
         config_file = Path(config_path)
         old_names = [config_file.stem]

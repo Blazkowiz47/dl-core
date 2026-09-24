@@ -5,6 +5,7 @@ import os
 import time
 import traceback
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, ContextManager
@@ -730,21 +731,21 @@ class EpochTrainer(ABC):
             fallback=self.__class__.__name__,
         )
         sweep_file = self.config.get("sweep_file")
-        if sweep_file:
-            sweep_file = Path(sweep_file).name.replace(".yaml", "")
+        sweep_name = Path(sweep_file).stem if sweep_file else None
 
         run_dir = None
         if self.config.get("auto_resume_local", False) and not self.continue_model:
             run_dir = select_auto_resume_run_dir(
-                run_name, output_dir, experiment_name, sweep_file, config_path,
+                run_name, output_dir, experiment_name, sweep_name, config_path,
                 preserve_yml_name=True,
+                sweep_file=sweep_file,
             )
 
         self.artifact_manager = ArtifactManager(
             run_name=run_name,
             output_dir=output_dir,
             experiment_name=experiment_name,
-            sweep_name=sweep_file,
+            sweep_name=sweep_name,
             run_dir=run_dir,
         )
         self.checkpoint_dir = str(self.artifact_manager.get_checkpoints_dir())
@@ -784,21 +785,17 @@ class EpochTrainer(ABC):
         callback_instances = []
         callbacks_config = self.config.get("callbacks", {})
 
-        if not isinstance(callbacks_config, dict):
-            self.logger.warning(
-                "Callbacks config must be a dictionary, got: %s", type(callbacks_config)
-            )
-            callbacks_config = {}
+        if not isinstance(callbacks_config, Mapping):
+            raise TypeError("callbacks must be a mapping")
 
         for callback_name, callback_params in callbacks_config.items():
-            if not callback_params:
+            if callback_params is None:
                 callback_params = {}
-            try:
-                callback = CALLBACK_REGISTRY.get(callback_name, **callback_params)
-                callback_instances.append(callback)
-            except Exception as e:
-                self.logger.warning(f"Failed to create callback '{callback_name}': {e}")
-                continue
+            if not isinstance(callback_params, Mapping):
+                raise TypeError(f"callbacks.{callback_name} must be a mapping")
+            callback_instances.append(
+                CALLBACK_REGISTRY.get(callback_name, **callback_params)
+            )
 
         self.callbacks = CallbackList(callback_instances)
         self.callbacks.set_trainer(self)

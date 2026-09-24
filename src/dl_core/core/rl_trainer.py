@@ -418,7 +418,8 @@ class RLTrainer(ABC):
         run_dir = None
         if self.config.get("auto_resume_local", False) and not self.continue_model:
             run_dir = select_auto_resume_run_dir(
-                run_name, output_dir, experiment_name, sweep_name, config_path
+                run_name, output_dir, experiment_name, sweep_name, config_path,
+                sweep_file=sweep_file,
             )
         self.artifact_manager = ArtifactManager(
             run_name=run_name,

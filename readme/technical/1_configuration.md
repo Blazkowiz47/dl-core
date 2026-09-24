@@ -23,6 +23,8 @@ The common top-level sections are:
 - `callbacks`
 
 Generated sweep runs may also contain `executor` and `tracking`.
+Set `runtime.log_level` to control worker logging. Configured callbacks must
+use registered names and mapping-shaped options; invalid callbacks stop setup.
 
 ## Models
 
@@ -211,6 +213,8 @@ artifacts: the flat run directory, an experiment-grouped directory, or a
 standalone `artifacts/sweeps/<config_stem>/<run_name>/` directory. It keeps
 writing checkpoints and final artifacts into that selected directory. A
 `.yml` standalone config also recognizes its filename-with-extension layout.
+For sweeps, `.yml` files use their stem as the artifact group name; automatic
+resume also checks existing extension-named sweep directories.
 
 After successful training, the trainer lifecycle calls `select_checkpoint()` and
 passes that path to `post_training(checkpoint_path)`. The default selector

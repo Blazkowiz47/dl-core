@@ -18,7 +18,6 @@ from .config import ConfigBuilder
 from .config.config_utils import deep_get
 from .template import (
     ensure_tracking_experiment_name,
-    generate_experiment_name,
     load_user_sweep,
 )
 
@@ -285,10 +284,9 @@ def main():
 
     # Add sweep file path to config for sweep naming
     sweep_config["sweep_file"] = str(sweep_path)
-    ensure_tracking_experiment_name(sweep_config, config_path=sweep_path)
-
-    # Determine experiment name (used for tracker and executors)
-    experiment_name = generate_experiment_name(sweep_config, timestamp="")
+    experiment_name = ensure_tracking_experiment_name(
+        sweep_config, config_path=sweep_path
+    )
 
     # Load base config
     base_config_path = sweep_config["base_config"]
@@ -432,7 +430,7 @@ def main():
         print("Error: No run configs generated")
         return 1
 
-    run_executor_config = all_configs[0].get("executor", {})
+    run_executor_config = dict(all_configs[0].get("executor") or {})
     if not run_executor_config:
         print("Error: Executor config not found in generated run configurations")
         print("Ensure your sweep config includes executor configuration")
@@ -446,10 +444,11 @@ def main():
         )
         return 1
 
-    compute_target = args.compute or run_executor_config.get("compute_target")
-    environment_name = args.environment or run_executor_config.get(
-        "environment_name", "dl_lab"
-    )
+    if args.compute is not None:
+        run_executor_config["compute_target"] = args.compute
+    if args.environment is not None:
+        run_executor_config["environment_name"] = args.environment
+    run_executor_config["max_workers"] = args.max_workers
 
     # Display executor info
     print(f"   executor: {executor_name}")
@@ -466,9 +465,6 @@ def main():
         experiment_name,
         sweep_id,
         dry_run=args.dry_run,
-        max_workers=args.max_workers,
-        compute_target=compute_target,
-        environment_name=environment_name,
         tracking_context=resume_tracking_context,
         resume=args.resume,
     )
