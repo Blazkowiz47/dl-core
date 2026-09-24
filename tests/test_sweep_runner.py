@@ -126,6 +126,33 @@ def test_filtered_sweep_keeps_original_index_when_saving_configs(
     assert saved["runtime"]["name"] == "run_002"
 
 
+def test_sweep_components_override_base_before_grid() -> None:
+    """A sweep GPU choice must not be replaced by the base CPU default."""
+    base = {
+        "accelerator": {"type": "cpu"},
+        "executor": {"name": "local"},
+    }
+    sweep = {
+        "accelerator": {"type": "single_gpu"},
+        "executor": {"name": "azure", "compute_target": "gpu-cluster"},
+        "grid": {},
+    }
+
+    run = ConfigBuilder(sweep).generate_run_configs(base, seeds=[1])[0]
+    assert run["accelerator"]["type"] == "single_gpu"
+    assert run["executor"]["name"] == "azure"
+
+    sweep["grid"] = {"accelerator.type": ["multi_gpu"]}
+    overridden = ConfigBuilder(sweep).generate_run_configs(base, seeds=[1])[0]
+    assert overridden["accelerator"]["type"] == "multi_gpu"
+
+
+def test_base_executor_rejects_unexpected_legacy_option() -> None:
+    """The compatibility path must not hide misspelled constructor options."""
+    with pytest.raises(TypeError, match="Unexpected executor options: misspelled"):
+        ClaimingExecutor({}, "demo", "sweep-1", misspelled=True)
+
+
 def test_sweep_constructs_executor_with_base_signature(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -180,12 +207,51 @@ def test_sweep_constructs_executor_with_base_signature(
         "generate_all_run_configs",
         lambda *args: (Builder(), [run_config]),
     )
-    monkeypatch.setattr(
-        runner.EXECUTOR_REGISTRY, "get",
-        lambda name, *args, **kwargs: GeneratedExecutor(*args, **kwargs),
-    )
+    def get_executor(name: str, *args: Any, **kwargs: Any) -> GeneratedExecutor:
+        assert name == "generated"
+        assert kwargs["compute_target"] == "cpu"
+        assert kwargs["environment_name"] == "test-env"
+        assert kwargs["max_workers"] == 2
+        return GeneratedExecutor(*args, **kwargs)
+
+    monkeypatch.setattr(runner.EXECUTOR_REGISTRY, "get", get_executor)
 
     assert runner.main() == 0
+
+
+def test_resume_rejects_mismatched_legacy_filtered_tracker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Old filtered trackers cannot safely map row 0 to the new full grid."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text("runtime: {}\n", encoding="utf-8")
+    tracker = SweepTracker(sweep_path, "demo", "sweep-1")
+    tracker.initialize_sweep(total_runs=1, user="tester")
+    tracker.update_run_status(0, "completed", tracking_run_name="run_000")
+
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(
+        runner, "load_user_sweep", lambda path: {"base_config": str(base_path)}
+    )
+    monkeypatch.setattr(
+        runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo"
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_all_run_configs",
+        lambda *args: (None, [{}, {}, {}]),
+    )
+
+    assert runner.main() == 1
+    assert "Cannot resume" in capsys.readouterr().out
+    assert tracker.get_sweep_data()["runs"]["0"]["status"] == "completed"
 
 
 def test_sweep_tracker_claims_only_pending_or_failed_runs(tmp_path: Path) -> None:

@@ -117,32 +117,17 @@ class ConfigBuilder:
         all_configs = []
         for param_combo in param_combinations:
             for seed in seeds:
-                # Merge: base + fixed + params + seed
-                run_config = self._apply_parameters(
-                    base_config.copy(), self.fixed_params
-                )
+                # Merge: base + sweep components + fixed + grid + seed.
+                run_config = base_config.copy()
+                for component in ("accelerator", "executor"):
+                    sweep_component = self.sweep_config.get(component)
+                    if sweep_component:
+                        run_config[component] = deep_update(
+                            run_config.get(component, {}), sweep_component
+                        )
+                run_config = self._apply_parameters(run_config, self.fixed_params)
                 run_config = self._apply_parameters(run_config, param_combo)
                 run_config["seed"] = seed
-
-                # Merge sweep-level accelerator if present (grid values take precedence)
-                sweep_accelerator = self.sweep_config.get("accelerator")
-                if sweep_accelerator:
-                    # Start with sweep accelerator as defaults, then apply grid overrides
-                    merged_accelerator = copy.deepcopy(sweep_accelerator)
-                    if "accelerator" in run_config:
-                        merged_accelerator = deep_update(
-                            merged_accelerator, run_config["accelerator"]
-                        )
-                    run_config["accelerator"] = merged_accelerator
-
-                sweep_executor = self.sweep_config.get("executor")
-                if sweep_executor:
-                    merged_executor = copy.deepcopy(sweep_executor)
-                    if "executor" in run_config:
-                        merged_executor = deep_update(
-                            merged_executor, run_config["executor"]
-                        )
-                    run_config["executor"] = merged_executor
 
                 all_configs.append(run_config)
 

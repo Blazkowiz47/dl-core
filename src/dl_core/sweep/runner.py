@@ -333,18 +333,21 @@ def main():
                 f"{resume_tracking_context}"
             )
 
+        # A different count can mean an older filtered sweep renumbered its runs.
+        # Never guess which configuration belongs to a tracked index.
+        tracked_total = sweep_data.get("total_runs")
+        if tracked_total is not None and tracked_total != total_runs:
+            print(
+                f"Error: Cannot resume - sweep has {total_runs} runs but tracking "
+                f"file has {tracked_total}. Check for an older filtered sweep "
+                "or a changed sweep configuration."
+            )
+            return 1
+
         # Get failed and pending runs
         failed_runs = temp_tracker.get_failed_runs()
         pending_runs = temp_tracker.get_pending_runs(expected_total_runs=total_runs)
         resume_runs = sorted(failed_runs + pending_runs)
-
-        # Safety check: warn if tracking file has unexpected total_runs
-        tracked_total = sweep_data.get("total_runs")
-        if tracked_total is not None and tracked_total != total_runs:
-            print(
-                f"⚠️  WARNING: Sweep config has {total_runs} runs but tracking file shows {tracked_total}"
-            )
-            print(f"   Using sweep config total ({total_runs}) to detect missing runs")
 
         if not resume_runs:
             statuses = [run.get("status") for run in sweep_data.get("runs", {}).values()]
@@ -449,6 +452,8 @@ def main():
     if args.environment is not None:
         run_executor_config["environment_name"] = args.environment
     run_executor_config["max_workers"] = args.max_workers
+    compute_target = run_executor_config.get("compute_target")
+    environment_name = run_executor_config.get("environment_name", "dl_lab")
 
     # Display executor info
     print(f"   executor: {executor_name}")
@@ -465,6 +470,9 @@ def main():
         experiment_name,
         sweep_id,
         dry_run=args.dry_run,
+        max_workers=args.max_workers,
+        compute_target=compute_target,
+        environment_name=environment_name,
         tracking_context=resume_tracking_context,
         resume=args.resume,
     )

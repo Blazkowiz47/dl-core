@@ -172,6 +172,8 @@ Notes:
   any status is unknown, and code 0 for completed or still-running jobs
 - `--resume` retries failed and pending runs; running and unknown jobs must be
   reconciled with their execution backend before they can be retried
+- `--resume` stops if the tracker's run count differs from the current sweep;
+  check the sweep configuration or start a new sweep instead of guessing indices
 
 ## `dl-sync`
 

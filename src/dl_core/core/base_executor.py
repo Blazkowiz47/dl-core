@@ -32,6 +32,7 @@ class BaseExecutor(ABC):
         dry_run: bool = False,
         tracking_context: Optional[str] = None,
         resume: bool = False,
+        **kwargs: Any,
     ):
         """
         Initialize executor.
@@ -43,7 +44,11 @@ class BaseExecutor(ABC):
             dry_run: If True, print what would be done without executing
             tracking_context: Existing tracker-specific context when resuming
             resume: True if this is resuming an existing sweep
+            **kwargs: Legacy runner options accepted for existing executors
         """
+        unexpected = set(kwargs) - {"max_workers", "compute_target", "environment_name"}
+        if unexpected:
+            raise TypeError(f"Unexpected executor options: {', '.join(sorted(unexpected))}")
         self.sweep_config = sweep_config
         self.experiment_name = experiment_name
         self.sweep_id = sweep_id
