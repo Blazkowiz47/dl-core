@@ -241,7 +241,8 @@ uv run dl-analyze --sweep experiments/lr_sweep.yaml \
 starting runs. Use `--export sweep_preview.csv` or `--export sweep_preview.json`
 when you want to save that expansion for review.
 Use `--only` and `--skip` with glob patterns when you want to execute or
-preview only a subset of generated run names.
+preview only a subset of generated run names. A later `--resume` retries only
+the runs selected when that sweep started, even if you omit the filters.
 
 `dl-inspect-dataset` preserves the configured split behavior, but forces
 single-process loading so you can quickly verify split sizes and inspect one

@@ -164,7 +164,8 @@ Notes:
   or starting runs
 - `--export preview.csv` or `--export preview.json` writes that matrix to disk
 - `--only` and `--skip` accept repeatable run-name glob patterns; selected runs
-  keep their original sweep indices for tracking and `--resume`
+  keep their original sweep indices for tracking. `--resume` only retries that
+  original selection, even when the filters are omitted
 - `--compute` and `--environment` override the matching `executor` config fields
 - `--dry-run` still goes through normal executor wiring, but does not execute
   the generated runs

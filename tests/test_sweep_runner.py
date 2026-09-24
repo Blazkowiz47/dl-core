@@ -126,6 +126,79 @@ def test_filtered_sweep_keeps_original_index_when_saving_configs(
     assert saved["runtime"]["name"] == "run_002"
 
 
+@pytest.mark.parametrize(
+    "filter_args",
+    [
+        ["--only", "run_002"],
+        ["--skip", "run_000", "--skip", "run_001", "--skip", "run_003"],
+    ],
+)
+@pytest.mark.parametrize("resume_status", ["failed", "pending"])
+def test_filtered_sweep_resumes_only_original_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    filter_args: list[str],
+    resume_status: str,
+) -> None:
+    """A filtered sweep stores the grid size but never resumes excluded runs."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text("runtime: {}\n", encoding="utf-8")
+    run_configs = [
+        {"executor": {"name": "local"}, "runtime": {}} for _ in range(4)
+    ]
+    attempts: list[int] = []
+
+    class RecordingExecutor(ClaimingExecutor):
+        def execute_run(self, run_index: int, config_path: Path) -> dict[str, Any]:
+            attempts.append(run_index)
+            return {"success": len(attempts) > 1}
+
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(
+        runner,
+        "load_user_sweep",
+        lambda path: {"base_config": str(base_path), "grid": {}, "tracking": {}},
+    )
+    monkeypatch.setattr(
+        runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo"
+    )
+    monkeypatch.setattr(
+        runner,
+        "generate_all_run_configs",
+        lambda sweep, base: (ConfigBuilder(sweep), run_configs),
+    )
+    monkeypatch.setattr(
+        runner.EXECUTOR_REGISTRY,
+        "get",
+        lambda name, *args, **kwargs: RecordingExecutor(*args, **kwargs),
+    )
+
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), *filter_args])
+    assert runner.main() == 1
+
+    tracker = SweepTracker(sweep_path, "demo", "sweep-1")
+    sweep_data = tracker.get_sweep_data()
+    assert sweep_data["total_runs"] == 4
+    assert sweep_data["selected_run_indices"] == [2]
+    assert set(sweep_data["runs"]) == {"2"}
+    assert sweep_data["runs"]["2"]["status"] == "failed"
+
+    if resume_status == "pending":
+        tracker.update_run_status(2, "pending")
+
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    assert runner.main() == 0
+    assert attempts == [2, 2]
+    assert tracker.get_sweep_data()["runs"]["2"]["status"] == "completed"
+    assert set(tracker.get_sweep_data()["runs"]) == {"2"}
+    assert runner.main() == 0
+    assert attempts == [2, 2]
+
+
 def test_sweep_components_override_base_before_grid() -> None:
     """A sweep GPU choice must not be replaced by the base CPU default."""
     base = {

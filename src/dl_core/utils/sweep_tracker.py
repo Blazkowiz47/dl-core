@@ -67,19 +67,32 @@ class SweepTracker:
         tracking_backend: Optional[str] = None,
         metrics_source_backend: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        selected_run_indices: Optional[List[int]] = None,
     ) -> None:
         """
-        Create initial JSON file with all runs as pending.
+        Create initial JSON file with selected runs as pending.
 
         Args:
-            total_runs: Total number of runs in sweep
+            total_runs: Number of runs in the full sweep grid
             user: Username running the sweep
             tracking_context: Optional tracker-specific parent or sweep context
             tracking_uri: Optional tracker endpoint or workspace URI
             tracking_backend: Tracker backend name for this sweep
             metrics_source_backend: Metrics source backend name for this sweep
             metadata: Additional metadata to store (optional)
+            selected_run_indices: Original grid indices selected for this sweep
         """
+        selected_indices = (
+            list(range(total_runs))
+            if selected_run_indices is None
+            else list(selected_run_indices)
+        )
+        if any(
+            type(index) is not int or index < 0 or index >= total_runs
+            for index in selected_indices
+        ) or len(selected_indices) != len(set(selected_indices)):
+            raise ValueError("Selected run indices must be unique grid indices")
+
         with self._locked_access():
             # Initialize sweep data structure
             sweep_data = {
@@ -88,6 +101,7 @@ class SweepTracker:
                 "sweep_id": self.sweep_id,
                 "user": user,
                 "total_runs": total_runs,
+                "selected_run_indices": selected_indices,
                 "tracking_context": tracking_context,
                 "tracking_uri": tracking_uri,
                 "tracking_backend": tracking_backend or "local",
@@ -100,8 +114,8 @@ class SweepTracker:
             if metadata:
                 sweep_data["metadata"] = metadata
 
-            # Initialize all runs as pending
-            for i in range(total_runs):
+            # Unselected grid runs must not appear as pending.
+            for i in selected_indices:
                 sweep_data["runs"][str(i)] = {
                     "tracking_run_id": None,
                     "tracking_run_name": None,
@@ -119,7 +133,9 @@ class SweepTracker:
             # Write JSON file
             self._write_json(sweep_data)
 
-            logger.info(f"Initialized sweep with {total_runs} runs")
+            logger.info(
+                f"Initialized sweep with {len(selected_indices)}/{total_runs} selected runs"
+            )
 
     def update_run_status(
         self,

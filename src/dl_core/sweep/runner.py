@@ -344,20 +344,47 @@ def main():
             )
             return 1
 
-        # Get failed and pending runs
-        failed_runs = temp_tracker.get_failed_runs()
-        pending_runs = temp_tracker.get_pending_runs(expected_total_runs=total_runs)
+        selected_indices = sweep_data.get("selected_run_indices")
+        if selected_indices is None:
+            selected_indices = list(range(total_runs))
+        if (
+            not isinstance(selected_indices, list)
+            or any(
+                type(index) is not int or index < 0 or index >= total_runs
+                for index in selected_indices
+            )
+            or len(selected_indices) != len(set(selected_indices))
+        ):
+            print("Error: Cannot resume - tracking file has invalid selected run indices")
+            return 1
+        selected_set = set(selected_indices)
+
+        # Only the original selection may be retried. Missing unselected rows
+        # are not pending runs, even though they belong to the full grid.
+        failed_runs = [
+            index for index in temp_tracker.get_failed_runs() if index in selected_set
+        ]
+        pending_runs = [
+            index
+            for index in temp_tracker.get_pending_runs(expected_total_runs=total_runs)
+            if index in selected_set
+        ]
         resume_runs = sorted(failed_runs + pending_runs)
 
         if not resume_runs:
-            statuses = [run.get("status") for run in sweep_data.get("runs", {}).values()]
+            statuses = [
+                run.get("status")
+                for index, run in sweep_data.get("runs", {}).items()
+                if int(index) in selected_set
+            ]
             running = statuses.count("running")
             unknown = statuses.count("unknown")
             if running or unknown:
                 unresolved_indices = [
                     index
                     for index, run in sweep_data.get("runs", {}).items()
-                    if run.get("status") in {"running", "unknown"}
+                    if int(index) in selected_set
+                    and run.get("status") in {"running", "unknown"}
                 ]
                 print(
                     "No failed or pending runs to resume. "
@@ -412,6 +439,12 @@ def main():
             _export_preview_rows(export_path, preview_rows)
             print(f"   Exported preview: {export_path}")
         return 0
+
+    if not args.resume:
+        sweep_config["_grid_total_runs"] = total_runs
+        sweep_config["_selected_run_indices"] = [
+            index for index, _, _ in prepared_configs
+        ]
 
     # Save configurations to disk once (before executors run)
     config_output_dir = get_config_output_dir(sweep_config, sweep_id)
@@ -495,7 +528,11 @@ def main():
                 raise RuntimeError(
                     f"Sweep tracking data disappeared: {temp_tracker.json_path}"
                 )
-            statuses = [run.get("status") for run in sweep_data.get("runs", {}).values()]
+            statuses = [
+                run.get("status")
+                for index, run in sweep_data.get("runs", {}).items()
+                if int(index) in selected_set
+            ]
             failed = statuses.count("failed")
             unknown = statuses.count("unknown")
         if failed:

@@ -434,8 +434,15 @@ class BaseExecutor(ABC):
 
             # Initialize sweep tracker (only if not resuming - avoid overwriting existing data)
             if self.tracker and not self.dry_run and not self.resume:
+                selected_indices = self.sweep_config.get(
+                    "_selected_run_indices",
+                    [run_index for run_index, _ in run_descriptors],
+                )
+                grid_total = self.sweep_config.get(
+                    "_grid_total_runs", max(selected_indices, default=-1) + 1
+                )
                 self.tracker.initialize_sweep(
-                    total_runs=total_runs,
+                    total_runs=grid_total,
                     user=self.sweep_config.get("user", "unknown"),
                     tracking_context=self.tracking_context,
                     tracking_uri=self.tracking_uri,
@@ -445,6 +452,7 @@ class BaseExecutor(ABC):
                         "base_config": self.sweep_config.get("base_config"),
                         "executor": self.__class__.__name__,
                     },
+                    selected_run_indices=selected_indices,
                 )
 
             # Execute runs (parallel or sequential)
