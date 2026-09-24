@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
 import yaml
-from pytest import CaptureFixture
+from pytest import CaptureFixture, MonkeyPatch
 
 import dl_core
 from dl_core.analysis.sweep_analyzer import (
@@ -16,6 +17,7 @@ from dl_core.analysis.sweep_analyzer import (
 )
 from dl_core.core import METRICS_SOURCE_REGISTRY, TRACKER_REGISTRY
 from dl_core.executors.local import LocalExecutor
+from dl_core import single_run
 from dl_core.sweep.template import generate_experiment_name
 from dl_core.utils.artifact_manager import (
     get_run_artifact_dir,
@@ -417,3 +419,67 @@ def test_artifact_paths_use_flat_layout_with_legacy_fallback(
         experiment_name="demo-exp",
     )
     assert resolved_new == new_run_dir
+
+
+def test_single_local_run_does_not_keep_a_stale_sweep_directory(
+    tmp_path: Path,
+) -> None:
+    """A standalone run should save under one run-name directory."""
+    output_dir = tmp_path / "artifacts"
+    config_path = tmp_path / "demo-run.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "runtime": {"name": "demo-run", "output_dir": str(output_dir)},
+                "sweep_file": str(tmp_path / "old_sweep.yaml"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    executor = LocalExecutor(
+        {"tracking": {"backend": "local"}},
+        experiment_name="demo",
+        sweep_id="single-run",
+        dry_run=True,
+    )
+
+    result = executor.execute_run(0, config_path)
+
+    assert result["artifact_dir"] == str((output_dir / "runs" / "demo-run").resolve())
+    assert "sweep_file" not in yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+
+def test_dl_run_does_not_pass_a_synthetic_sweep_file(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The CLI must not classify a standalone config as a sweep file."""
+    config_path = tmp_path / "demo-run.yaml"
+    config_path.write_text("runtime: {}\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class FakeExecutor:
+        def run(self, path: str, run_name: str) -> bool:
+            captured["path"] = path
+            captured["run_name"] = run_name
+            return True
+
+    def fake_get(mode: str, sweep_config: dict[str, object], *args: object, **kwargs: object) -> FakeExecutor:
+        captured["mode"] = mode
+        captured["sweep_config"] = sweep_config
+        return FakeExecutor()
+
+    monkeypatch.setattr(single_run, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(single_run, "load_local_components", lambda path: None)
+    monkeypatch.setattr(single_run, "validate_config", lambda path, verbose: True)
+    monkeypatch.setattr(
+        single_run,
+        "_load_run_config",
+        lambda path: {"runtime": {}, "tracking": {}, "experiment": {}},
+    )
+    monkeypatch.setattr(single_run.EXECUTOR_REGISTRY, "get", fake_get)
+    monkeypatch.setattr(sys, "argv", ["dl-run", "--config", str(config_path)])
+
+    assert single_run.main() == 0
+    assert "sweep_file" not in captured["sweep_config"]
+    assert captured["run_name"] == "demo-run"

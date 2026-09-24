@@ -175,7 +175,7 @@ uv run dl-analyze --sweep experiments/lr_sweep.yaml --metric test/eer --mode min
 
 New local runs use the flattened artifact layout:
 
-- `artifacts/runs/<run_name>/...`
+- `dl-run`: `artifacts/runs/<run_name>/...`
 - `artifacts/sweeps/<sweep_name>/<run_name>/...`
 
 `dl-core` does not create a `latest` symlink for these run directories. Use the

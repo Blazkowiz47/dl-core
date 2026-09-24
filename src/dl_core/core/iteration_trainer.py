@@ -327,7 +327,8 @@ class IterationTrainer(EpochTrainer):
                 accumulation_pending = self._accumulation_pending()
                 if not accumulation_pending:
                     self.broadcast_stop_training()
-                if self.stop_training or is_final:
+                stop_at_boundary = self.stop_training and not accumulation_pending
+                if stop_at_boundary or is_final:
                     self._queue_checkpoint("latest.pth")
 
                 if is_final and accumulation_pending:
@@ -337,7 +338,7 @@ class IterationTrainer(EpochTrainer):
                         "the accelerator optimizer step."
                     )
 
-                if self.stop_training or is_final:
+                if stop_at_boundary or is_final:
                     report_pending = True
                 should_report = not accumulation_pending and any(
                     (report_pending, validation_pending, test_pending)

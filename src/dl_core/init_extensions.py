@@ -5,9 +5,13 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from importlib.metadata import EntryPoint, entry_points
+import logging
 from pathlib import Path
 import re
+import sys
 from typing import Any
+
+from dl_core.core.registry import COMPONENT_REGISTRIES
 
 try:
     import tomllib
@@ -15,6 +19,7 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 ENTRY_POINT_GROUP = "dl_core.init_extensions"
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -55,8 +60,13 @@ class ScaffoldContext:
         """Replace text inside a generated file."""
         relative = Path(relative_path)
         content = self.files[relative]
-        if not old or old not in content:
+        count = content.count(old) if old else 0
+        if count == 0:
             raise ValueError(f"Scaffold anchor not found in {relative}: {old!r}")
+        if count != 1:
+            raise ValueError(
+                f"Expected one scaffold anchor in {relative}, found {count}: {old!r}"
+            )
         self.files[relative] = content.replace(old, new, 1)
 
     def append_line(self, relative_path: str | Path, line: str) -> None:
@@ -85,19 +95,33 @@ class ScaffoldContext:
         ):
             return
         dependency_line = f'    "{requirement}",\n'
-        marker = "dependencies = [\n"
-        if marker in content:
-            self.files[relative] = content.replace(
-                marker, f"{marker}{dependency_line}", 1
-            )
-        elif "dependencies = []" in content:
-            self.files[relative] = content.replace(
-                "dependencies = []",
-                f"dependencies = [\n{dependency_line}]",
-                1,
+        project_header = re.search(r"(?m)^\[project\][ \t]*$", content)
+        if project_header is None:
+            raise ValueError(f"Scaffold [project] table not found in {relative}")
+        section_start = project_header.end()
+        next_table = re.search(r"(?m)^\[[^\n]+\][ \t]*$", content[section_start:])
+        section_end = (
+            section_start + next_table.start() if next_table else len(content)
+        )
+        section = content[section_start:section_end]
+        marker = re.search(
+            r"(?m)^[ \t]*dependencies[ \t]*=[ \t]*\[([ \t]*\n|[ \t]*\])",
+            section,
+        )
+        if marker is None:
+            raise ValueError(f"Scaffold dependency anchor not found in {relative}")
+        if marker.group(1).endswith("\n"):
+            insert_at = section_start + marker.end()
+            self.files[relative] = (
+                f"{content[:insert_at]}{dependency_line}{content[insert_at:]}"
             )
         else:
-            raise ValueError(f"Scaffold dependency anchor not found in {relative}")
+            start = section_start + marker.start()
+            end = section_start + marker.end()
+            opening = content[start:end].split("[", 1)[0]
+            self.files[relative] = (
+                f"{content[:start]}{opening}[\n{dependency_line}]{content[end:]}"
+            )
 
     def add_gitignore_patterns(self, *patterns: str) -> None:
         """Append missing ignore patterns to the generated project gitignore."""
@@ -198,7 +222,31 @@ def discover_init_extensions(
         discovered.update(_builtin_init_extensions())
 
     for entry_point in _iter_entry_points(ENTRY_POINT_GROUP):
-        discovered[entry_point.name] = _normalize_loaded_extension(entry_point.load())
+        registered_before = {
+            registry: registry.registered_items() for registry in COMPONENT_REGISTRIES
+        }
+        modules_before = set(sys.modules)
+        try:
+            discovered[entry_point.name] = _normalize_loaded_extension(
+                entry_point.load()
+            )
+        except Exception as error:
+            for registry, previous in registered_before.items():
+                for name, registered_class in registry.registered_items().items():
+                    if previous.get(name) is not registered_class:
+                        registry.unregister(name, expected_class=registered_class)
+            module_root = entry_point.value.partition(":")[0].split(".", 1)[0]
+            for module_name in set(sys.modules) - modules_before:
+                if module_name == module_root or module_name.startswith(
+                    f"{module_root}."
+                ):
+                    sys.modules.pop(module_name, None)
+            _LOGGER.warning(
+                "Skipping init extension %r from %r: %s",
+                entry_point.name,
+                entry_point.value,
+                error,
+            )
     return discovered
 
 

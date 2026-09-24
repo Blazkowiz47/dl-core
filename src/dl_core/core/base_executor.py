@@ -53,6 +53,7 @@ class BaseExecutor(ABC):
         self.completed_runs = []
         self.failed_runs = []
         self.skipped_runs = []
+        self.submitted_runs = []
         self.unknown_runs = []  # Jobs with indeterminate status due to connection issues
         self.logger = logging.getLogger(self.__class__.__name__)
         self.tracking_uri: Optional[str] = None
@@ -295,8 +296,17 @@ class BaseExecutor(ABC):
             "completed": len(self.completed_runs),
             "failed": len(self.failed_runs),
             "skipped": len(self.skipped_runs),
-            "total": len(self.completed_runs) + len(self.failed_runs),
+            "total": (
+                len(self.completed_runs)
+                + len(self.failed_runs)
+                + len(self.submitted_runs)
+                + len(self.unknown_runs)
+            ),
         }
+
+    def _classify_run_result(self, result: Dict[str, Any]) -> str:
+        """Map one execution result to a sweep-tracker status."""
+        return "completed" if result.get("success", False) else "failed"
 
     # High-level execution methods
 
@@ -384,24 +394,22 @@ class BaseExecutor(ABC):
                         continue
 
                     result = self.execute_run(run_index, config_path)
-                    success = result.get("success", False)
-
-                    if success:
+                    status = self._classify_run_result(result)
+                    if status == "completed":
                         self.completed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "completed",
-                            config_path,
-                            result=result,
-                        )
+                    elif status == "running":
+                        self.submitted_runs.append(run_index)
+                    elif status == "unknown":
+                        self.unknown_runs.append(run_index)
                     else:
                         self.failed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "failed",
-                            config_path,
-                            result=result,
-                        )
+                        status = "failed"
+                    self._update_tracker(
+                        run_index,
+                        status,
+                        config_path,
+                        result=result,
+                    )
 
             # Teardown
             self.teardown()
@@ -735,3 +743,5 @@ class BaseExecutor(ABC):
         # Inject sweep_file for artifact directory structure
         if "sweep_file" in self.sweep_config:
             config["sweep_file"] = self.sweep_config["sweep_file"]
+        else:
+            config.pop("sweep_file", None)

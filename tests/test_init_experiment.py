@@ -204,6 +204,60 @@ def test_in_place_extension_supports_uv_init_pyproject(tmp_path: Path) -> None:
     assert '"deep-learning-wandb",' in pyproject.read_text(encoding="utf-8")
 
 
+def test_extension_dependency_is_added_only_to_project_table(tmp_path: Path) -> None:
+    """A preceding tool table must not capture the project dependency."""
+    target = tmp_path / "demo"
+    target.mkdir()
+    pyproject = target / "pyproject.toml"
+    pyproject.write_text(
+        '[tool.uv]\ndependencies = [\n    "tool-only",\n]\n\n'
+        '[project]\nname = "demo"\nversion = "0.1.0"\n'
+        'dependencies = [\n    "deep-learning-core",\n]\n',
+        encoding="utf-8",
+    )
+
+    class DependencyExtension(InitExtension):
+        name = "dependency"
+
+        def apply(self, context: ScaffoldContext) -> None:
+            context.add_dependency("deep-learning-wandb")
+
+    create_experiment_scaffold(
+        root_dir=str(target),
+        enabled_extensions={"dependency"},
+        discovered_extensions={"dependency": DependencyExtension()},
+    )
+
+    rendered = pyproject.read_text(encoding="utf-8")
+    assert '"deep-learning-wandb"' not in rendered.split("[project]", 1)[0]
+    assert '"deep-learning-wandb"' in rendered.split("[project]", 1)[1]
+
+
+def test_in_place_scaffold_rejects_ambiguous_anchor_without_writing(
+    tmp_path: Path,
+) -> None:
+    """Repeated anchors should fail before changing an existing file."""
+    target = tmp_path / "demo"
+    target.mkdir()
+    readme = target / "README.md"
+    readme.write_text("anchor\nanchor\n", encoding="utf-8")
+
+    class AmbiguousExtension(InitExtension):
+        name = "ambiguous"
+
+        def apply(self, context: ScaffoldContext) -> None:
+            context.replace_in_file("README.md", "anchor", "replacement")
+
+    with pytest.raises(ValueError, match="Expected one scaffold anchor"):
+        create_experiment_scaffold(
+            root_dir=str(target),
+            enabled_extensions={"ambiguous"},
+            discovered_extensions={"ambiguous": AmbiguousExtension()},
+        )
+
+    assert readme.read_text(encoding="utf-8") == "anchor\nanchor\n"
+
+
 def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None:
     """Generated wrapper files and base config should use the expected names."""
     target_dir = create_experiment_scaffold("named-demo", root_dir=str(tmp_path))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from torch.optim import SGD
 
 from dl_core.accelerators.cpu import CPUAccelerator
 from dl_core.accelerators.multi_gpu import MultiGPUAccelerator
+from dl_core.trainers.standard_trainer import StandardTrainer
 
 
 def _loss(model: torch.nn.Module, value: float, target: float) -> torch.Tensor:
@@ -78,6 +80,44 @@ def test_final_partial_accumulation_window_is_rescaled_and_stepped() -> None:
     reference_optimizer.step()
 
     assert torch.allclose(partial_model.weight, reference_model.weight)
+
+
+def test_epoch_trainer_finalizes_custom_step_without_explicit_flag() -> None:
+    """Custom epoch steps may use ordinary accelerator calls on the last batch."""
+    trainer = StandardTrainer({"trainer": {"standard": {"epochs": 1}}})
+    trainer.accelerator = CPUAccelerator({"gradient_accumulation_steps": 4})
+    model = torch.nn.Linear(1, 1, bias=False)
+    with torch.no_grad():
+        model.weight.fill_(0.25)
+    trainer.models["main"] = model
+    optimizer = SGD(model.parameters(), lr=0.1)
+    trainer.optimizers["main"] = optimizer
+    trainer.callbacks = SimpleNamespace(
+        on_batch_start=lambda *args: None,
+        on_batch_end=lambda *args: None,
+    )
+    trainer.data_loader["train"] = [
+        {"image": torch.tensor([[1.0]]), "target": torch.tensor([[2.0]])},
+        {"image": torch.tensor([[3.0]]), "target": torch.tensor([[-1.0]])},
+    ]
+    trainer.current_epoch = 1
+
+    def custom_train_step(
+        batch_data: dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> dict[str, float]:
+        del batch_idx
+        loss = (model(batch_data["image"]) - batch_data["target"]).square().mean()
+        trainer.accelerator.backward(loss, model)
+        trainer.accelerator.optimizer_step(optimizer, model)
+        return {"loss": loss.item()}
+
+    trainer.train_step = custom_train_step
+    trainer.train_epoch()
+
+    assert model.weight.item() != pytest.approx(0.25)
+    assert trainer.accelerator.accumulation_counter == 0
+    assert trainer.accelerator.finalize_accumulation is False
 
 
 def test_distributed_final_window_does_not_skip_gradient_sync(

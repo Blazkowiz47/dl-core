@@ -473,6 +473,38 @@ def test_batch_callback_stop_waits_for_accumulation_boundary() -> None:
     assert saved == [(4, "latest.pth")]
 
 
+def test_rank_local_stop_does_not_latch_an_unscheduled_report() -> None:
+    """A non-main stop flag should wait for the boundary broadcast decision."""
+    trainer = _build_trainer(4)
+    trainer.log_frequency = 4
+    trainer.accelerator.accumulation_counter = 0
+
+    def _train_step(
+        batch_data: dict[str, torch.Tensor], batch_idx: int
+    ) -> dict[str, float]:
+        del batch_data, batch_idx
+        trainer.accelerator.accumulation_counter = (
+            trainer.accelerator.accumulation_counter + 1
+        ) % 2
+        return {"loss": 0.0}
+
+    def _stop_on_first_batch(
+        batch_idx: int, split: str, batch_data: dict[str, Any]
+    ) -> None:
+        del split, batch_data
+        if batch_idx == 0:
+            trainer.stop_training = True
+
+    trainer.train_step = _train_step
+    trainer.callbacks.on_batch_end = _stop_on_first_batch
+    trainer.broadcast_stop_training = lambda: setattr(trainer, "stop_training", False)
+    trainer._save_checkpoint = lambda iteration, filename=None: None
+
+    trainer.perform_training()
+
+    assert trainer.callbacks.iteration_ends == [4]
+
+
 def test_final_partial_accumulation_is_flushed_before_checkpoint() -> None:
     """A trainer honoring the finalization flag should save the final state."""
 

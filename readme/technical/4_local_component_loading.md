@@ -19,6 +19,11 @@ registrations:
 - schedulers
 - trainers
 
+Installed runtime extensions are loaded after the built-ins. A broken optional
+extension emits a warning and its partial registrations are removed, so it does
+not block unrelated components. A config that selects a component from that
+extension still fails when the missing component is resolved.
+
 ## Local Experiment Components
 
 `load_local_components()` looks for the nearest parent directory that contains:

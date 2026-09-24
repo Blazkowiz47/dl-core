@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib import import_module, invalidate_caches
 from importlib.metadata import entry_points
+import logging
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -40,6 +41,7 @@ _LOCAL_MODULES: dict[str, ModuleType] = {}
 _LOCAL_REGISTRATIONS: list[tuple[Any, str, type[Any]]] = []
 _LOCAL_SRC_PATH: str | None = None
 _LOCAL_SRC_PATH_INSERTED = False
+_LOGGER = logging.getLogger(__name__)
 
 
 def load_builtin_components() -> None:
@@ -51,19 +53,38 @@ def load_builtin_components() -> None:
 
 def load_runtime_extensions() -> list[str]:
     """Import installed extension entry points for their registrations."""
+    from dl_core.core.registry import COMPONENT_REGISTRIES
+
     loaded: list[str] = []
     extensions = sorted(
         entry_points(group="dl_core.runtime_extensions"),
         key=lambda extension: (extension.name, extension.value),
     )
     for extension in extensions:
+        registered_before = {
+            registry: registry.registered_items() for registry in COMPONENT_REGISTRIES
+        }
+        modules_before = set(sys.modules)
         try:
             extension.load()
         except Exception as error:
-            raise RuntimeError(
-                f"Could not load runtime extension {extension.name!r} "
-                f"from {extension.value!r}"
-            ) from error
+            for registry, previous in registered_before.items():
+                for name, registered_class in registry.registered_items().items():
+                    if previous.get(name) is not registered_class:
+                        registry.unregister(name, expected_class=registered_class)
+            module_root = extension.value.partition(":")[0].split(".", 1)[0]
+            for module_name in set(sys.modules) - modules_before:
+                if module_name == module_root or module_name.startswith(
+                    f"{module_root}."
+                ):
+                    sys.modules.pop(module_name, None)
+            _LOGGER.warning(
+                "Skipping runtime extension %r from %r: %s",
+                extension.name,
+                extension.value,
+                error,
+            )
+            continue
         loaded.append(extension.name)
     return loaded
 

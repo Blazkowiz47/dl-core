@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -38,10 +40,55 @@ def test_builtin_loading_imports_runtime_entry_points(
         CALLBACK_REGISTRY.unregister("test_runtime_callback")
 
 
-def test_runtime_extension_import_failure_is_explicit(
+def test_broken_runtime_extension_rolls_back_and_does_not_block_others(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A broken optional package must not poison registries or other imports."""
+
+    class PartialCallback:
+        pass
+
+    class HealthyCallback:
+        pass
+
+    class BrokenExtension:
+        name = "broken"
+        value = "broken_package:load"
+
+        def load(self) -> Any:
+            CALLBACK_REGISTRY.register_class("partial_callback", PartialCallback)
+            sys.modules["broken_package.partial"] = ModuleType("broken_package.partial")
+            raise ImportError("missing dependency")
+
+    class HealthyExtension:
+        name = "healthy"
+        value = "healthy_package:load"
+
+        def load(self) -> type[HealthyCallback]:
+            CALLBACK_REGISTRY.register_class("healthy_callback", HealthyCallback)
+            return HealthyCallback
+
+    monkeypatch.setattr(
+        "dl_core.entry_points",
+        lambda *, group: [BrokenExtension(), HealthyExtension()],
+    )
+
+    try:
+        assert load_runtime_extensions() == ["healthy"]
+        assert not CALLBACK_REGISTRY.is_registered("partial_callback")
+        assert CALLBACK_REGISTRY.get_class("healthy_callback") is HealthyCallback
+        assert "broken_package.partial" not in sys.modules
+        assert "Skipping runtime extension 'broken'" in caplog.text
+        assert "missing dependency" in caplog.text
+    finally:
+        CALLBACK_REGISTRY.unregister("healthy_callback")
+
+
+def test_builtin_loading_continues_past_broken_runtime_extension(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A broken installed integration must not disappear silently."""
+    """Unrelated CLI paths can still load their built-in components."""
 
     class BrokenExtension:
         name = "broken"
@@ -50,12 +97,8 @@ def test_runtime_extension_import_failure_is_explicit(
         def load(self) -> Any:
             raise ImportError("missing dependency")
 
-    monkeypatch.setattr(
-        "dl_core.entry_points",
-        lambda *, group: [BrokenExtension()],
-    )
+    monkeypatch.setattr("dl_core.entry_points", lambda *, group: [BrokenExtension()])
 
-    with pytest.raises(RuntimeError, match="broken.*broken_package") as error:
-        load_runtime_extensions()
+    load_builtin_components()
 
-    assert isinstance(error.value.__cause__, ImportError)
+    assert CALLBACK_REGISTRY.is_registered("checkpoint")

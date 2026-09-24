@@ -2033,7 +2033,11 @@ class EpochTrainer(ABC):
                 batch_data,
             )
             # Perform training step
-            step_metrics = self.train_step(batch_data, batch_idx)
+            self.accelerator.finalize_accumulation = self._finalize_accumulation
+            try:
+                step_metrics = self.train_step(batch_data, batch_idx)
+            finally:
+                self.accelerator.finalize_accumulation = False
             step_metrics = self.compute_probability_diagnostics(
                 step_metrics, batch_data
             )

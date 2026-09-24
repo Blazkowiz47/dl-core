@@ -123,7 +123,6 @@ def _run_preflight(
         {
             "tracking": dict(tracking_config),
             "experiment": config.get("experiment", {}),
-            "sweep_file": str(config_path),
         },
         config_path=config_path,
     )
@@ -478,7 +477,6 @@ Typical first use:
     single_run_tracking = {
         "tracking": tracking_payload,
         "experiment": run_config.get("experiment", {}),
-        "sweep_file": str(config_path),
     }
     experiment_name = ensure_tracking_experiment_name(
         single_run_tracking,
@@ -488,7 +486,6 @@ Typical first use:
     # Create minimal sweep config for executor initialization
     # (executors expect sweep_config even for single runs)
     sweep_config = {
-        "sweep_file": str(config_path),
         "tracking": tracking_payload,
         "executor": {"mode": args.mode},
         "accelerator": run_config.get("accelerator", {}),

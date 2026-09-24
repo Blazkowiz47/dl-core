@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
-from dl_core.init_experiment import create_experiment_scaffold
+from dl_core.core import CALLBACK_REGISTRY
+from dl_core.init_experiment import create_experiment_scaffold, main as init_main
 from dl_core.init_extensions import (
     ENTRY_POINT_GROUP,
     InitExtension,
@@ -23,6 +25,7 @@ class FakeEntryPoint:
     def __init__(self, name: str, target: object) -> None:
         self.name = name
         self.group = ENTRY_POINT_GROUP
+        self.value = f"{name}_package:InitExtension"
         self._target = target
 
     def load(self) -> object:
@@ -112,6 +115,33 @@ def test_discover_init_extensions_loads_entry_points(
 
     assert "wandb" in discovered
     assert resolve_enabled_extensions(args, discovered) == {"wandb"}
+
+
+def test_broken_init_extension_does_not_break_help_or_leave_registrations(
+    monkeypatch: MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A broken optional init package should not block dl-init help."""
+
+    class PartialCallback:
+        pass
+
+    class BrokenEntryPoint(FakeEntryPoint):
+        def load(self) -> object:
+            CALLBACK_REGISTRY.register_class("partial_init_callback", PartialCallback)
+            raise ImportError("missing optional SDK")
+
+    monkeypatch.setattr(
+        "dl_core.init_extensions.entry_points",
+        lambda: FakeEntryPoints([BrokenEntryPoint("broken", None)]),
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        init_main(["--help"])
+
+    assert exit_info.value.code == 0
+    assert not CALLBACK_REGISTRY.is_registered("partial_init_callback")
+    assert "Skipping init extension 'broken'" in caplog.text
 
 
 def test_scaffold_applies_selected_init_extension(tmp_path: Path) -> None:

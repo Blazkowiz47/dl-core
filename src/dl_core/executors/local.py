@@ -213,10 +213,6 @@ class LocalExecutor(BaseExecutor):
             run_name=run_name if isinstance(run_name, str) else None,
         )
 
-        # Inject sweep_file for artifact directory structure
-        if "sweep_file" in self.sweep_config:
-            config["sweep_file"] = self.sweep_config["sweep_file"]
-
         # Enable auto-resume for local executor
         config["auto_resume_local"] = True
 
