@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deep-learning-core"
-version = "0.1.7"
+version = "0.1.8"
 description = "Reusable deep learning framework core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,7 +44,7 @@ dependencies = [
     "psutil",
     "pyyaml",
     "scikit-learn",
-    "torch>=2.11,<3",
+    "torch>2.3",
     "tomli>=2; python_version < '3.11'",
     "tqdm",
 ]
@@ -66,7 +66,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.12",
-    "torch>=2.11,<3",
+    "torch>2.3",
     "torchvision",
     "twine>=6.0",
     "webdataset>=1,<2",

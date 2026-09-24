@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.7`.
-Current development version: `0.1.7`.
+Current public release: `deep-learning-core==0.1.8`.
+Current development version: `0.1.8`.
 
 Compatible companion package floors:
 
@@ -21,17 +21,15 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.7?
+## What's New in 0.1.8?
 
-- standard training now preserves accumulated gradients, clips only on real
-  optimizer updates, advances schedulers with those updates, and flushes a
-  shorter final accumulation window
-- FP16 gradients are unscaled before clipping
-- automatic partitions are created before sampling, and dataset access no
-  longer rewinds global random state; worker seeds vary deterministically by
-  epoch
-- iteration-based training restores train mode immediately after baseline
-  evaluation
+- checkpoint resume now fails loudly when all candidates are corrupt, and
+  checkpoint writes are atomic across trainers
+- sweep run names are unique before any configs are written; resume matches
+  saved run names even when grid order changes
+- an existing sweep tracker requires confirmation before a fresh run replaces it
+- the PyTorch requirement is `torch>2.3`, with no upper cap; select the version
+  appropriate for your project and accelerator
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -242,7 +240,10 @@ starting runs. Use `--export sweep_preview.csv` or `--export sweep_preview.json`
 when you want to save that expansion for review.
 Use `--only` and `--skip` with glob patterns when you want to execute or
 preview only a subset of generated run names. A later `--resume` retries only
-the runs selected when that sweep started, even if you omit the filters.
+the runs selected when that sweep started, even if you omit the filters. Run
+names must be unique and include the grid fields they represent. If existing
+sweep data would be overwritten, a fresh run asks for confirmation before
+writing; `--resume` keeps the existing tracker.
 
 `dl-inspect-dataset` preserves the configured split behavior, but forces
 single-process loading so you can quickly verify split sizes and inspect one

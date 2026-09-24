@@ -4,17 +4,16 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.7`.
-Current development version: `0.1.7`.
+Current public release: `deep-learning-core==0.1.8`.
+Current development version: `0.1.8`.
 
-## What's New in 0.1.7?
+## What's New in 0.1.8?
 
-- gradient accumulation, FP16 clipping, scheduler stepping, and final partial
-  updates now share one optimizer-step contract
-- auto-splitting uses raw records before sampling, while worker random streams
-  vary reproducibly by epoch without resetting process-wide RNG state
-- iteration training explicitly returns models to train mode after its baseline
-  evaluation
+- checkpoint resume and saves are safer across epoch, iteration, and RL trainers
+- sweep names are checked for uniqueness, and resume uses saved names to
+  identify originally selected runs after a grid reorder
+- fresh sweeps ask before replacing an existing tracker
+- PyTorch versions above 2.3 are allowed without an upper cap
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

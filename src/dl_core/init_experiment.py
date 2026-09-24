@@ -81,7 +81,7 @@ description = "Experiment repository for {project_name}."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "deep-learning-core>=0.1.7,<0.2",
+    "deep-learning-core>=0.1.8,<0.2",
     "torchvision",
 ]
 

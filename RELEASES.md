@@ -3,6 +3,21 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.8
+
+- checkpoint writes are atomic, corrupt auto-resume candidates fail loudly,
+  and trainer state restores consistently across epoch, iteration, and RL runs
+- gradient accumulation, final reporting, early stopping, and probability
+  diagnostics handle their default-path edge cases
+- sweep execution preserves selected grid indices and run names, checks name
+  uniqueness, rejects edited selected runs on resume, and confirms fresh
+  tracker overwrites
+- sweep defaults honor explicit accelerator and worker settings, and parallel
+  interruption no longer pre-dispatches extra local runs
+- runtime extensions load independently, scaffold edits are safer, and
+  standalone artifacts use one run-name directory rather than a nested pair
+- the PyTorch requirement is `torch>2.3` with no upper cap
+
 ## 0.1.7
 
 - standard training preserves accumulated gradients, clips only when an
