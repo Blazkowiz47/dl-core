@@ -79,6 +79,41 @@ def test_filter_prepared_configs_applies_only_and_skip_patterns() -> None:
     assert filtered == [(0, {"seed": 2025}, "backbone_swin_s_seed_2025")]
 
 
+def test_sweep_run_names_must_be_unique_before_saving(tmp_path: Path) -> None:
+    """Duplicate grid values cannot silently overwrite the same run YAML."""
+    builder = ConfigBuilder({"grid": {"optimizers.lr": [0.1, 0.1]}})
+    configs = builder.generate_run_configs({"optimizers": {"lr": 0.1}}, seeds=[7])
+
+    with pytest.raises(ValueError, match="Duplicate sweep run name"):
+        builder.prepare_configs(configs)
+    assert not list(tmp_path.iterdir())
+
+
+def test_sweep_run_name_template_must_cover_grid_fields() -> None:
+    """A custom name cannot hide a variable that changes between runs."""
+    builder = ConfigBuilder(
+        {
+            "grid": {"optimizers.lr": [0.1, 0.2], "trainer.batch_size": [16]},
+            "tracking": {"run_name_template": "lr_{optimizers.lr}"},
+        }
+    )
+    with pytest.raises(ValueError, match="trainer.batch_size"):
+        builder.prepare_configs([{"optimizers": {"lr": 0.1}, "seed": 7}])
+
+
+def test_default_run_names_encode_exact_float_values_and_seeds() -> None:
+    """Names distinguish values that the previous float format rounded together."""
+    builder = ConfigBuilder({"grid": {"optimizers.lr": [0.00101, 0.00102]}})
+    configs = builder.generate_run_configs({"optimizers": {"lr": 0.1}}, seeds=[7])
+    names = [name for _, _, name in builder.prepare_configs(configs)]
+    assert names == ["lr_0.00101_seed_7", "lr_0.00102_seed_7"]
+
+    seed_builder = ConfigBuilder({"grid": {}})
+    seed_configs = seed_builder.generate_run_configs({}, seeds=[7, 8])
+    seed_names = [name for _, _, name in seed_builder.prepare_configs(seed_configs)]
+    assert seed_names == ["run_000_seed_7", "run_001_seed_8"]
+
+
 @pytest.mark.parametrize(
     "filter_args",
     [
@@ -187,6 +222,12 @@ def test_filtered_sweep_resumes_only_original_selection(
     assert set(sweep_data["runs"]) == {"2"}
     assert sweep_data["runs"]["2"]["status"] == "failed"
 
+    monkeypatch.setattr(
+        "sys.argv", ["dl-sweep", str(sweep_path), "--resume", "--only", "run_001"]
+    )
+    assert runner.main() == 1
+    assert attempts == [2]
+
     if resume_status == "pending":
         tracker.update_run_status(2, "pending")
 
@@ -199,6 +240,67 @@ def test_filtered_sweep_resumes_only_original_selection(
     assert attempts == [2, 2]
 
 
+def test_resume_matches_selected_run_by_name_after_grid_reorder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A reordered grid retries the original named run, not its new index."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text(
+        "executor:\n  name: local\noptimizers:\n  lr: 0.1\nruntime: {}\n",
+        encoding="utf-8",
+    )
+    sweep_spec = {
+        "base_config": str(base_path),
+        "grid": {"optimizers.lr": [0.1, 0.2]},
+        "seeds": [7],
+    }
+    attempts: list[tuple[int, float]] = []
+
+    class RecordingExecutor(ClaimingExecutor):
+        def execute_run(self, run_index: int, config_path: Path) -> dict[str, Any]:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            attempts.append((run_index, config["optimizers"]["lr"]))
+            return {"success": len(attempts) > 1}
+
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(runner, "load_user_sweep", lambda path: sweep_spec.copy())
+    monkeypatch.setattr(
+        runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo"
+    )
+    monkeypatch.setattr(
+        runner.EXECUTOR_REGISTRY,
+        "get",
+        lambda name, *args, **kwargs: RecordingExecutor(*args, **kwargs),
+    )
+
+    monkeypatch.setattr(
+        "sys.argv", ["dl-sweep", str(sweep_path), "--only", "lr_0.2_seed_7"]
+    )
+    assert runner.main() == 1
+    tracker = SweepTracker(sweep_path, "demo", "sweep-1")
+    assert tracker.get_sweep_data()["selected_run_names"] == {"1": "lr_0.2_seed_7"}
+
+    sweep_spec["grid"]["optimizers.lr"] = [0.2, 0.1]
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    assert runner.main() == 0
+    assert attempts == [(1, 0.2), (1, 0.2)]
+    assert tracker.get_sweep_data()["runs"]["1"]["status"] == "completed"
+
+    original_tracking = tracker.json_path.read_bytes()
+    original_config = (tmp_path / "sweep" / "lr_0.2_seed_7.yaml").read_bytes()
+    sweep_spec["grid"]["optimizers.lr"] = [0.3, 0.1]
+    assert runner.main() == 1
+    assert "selected run names changed" in capsys.readouterr().out
+    assert tracker.json_path.read_bytes() == original_tracking
+    assert (tmp_path / "sweep" / "lr_0.2_seed_7.yaml").read_bytes() == original_config
+
+
 def test_sweep_components_override_base_before_grid() -> None:
     """A sweep GPU choice must not be replaced by the base CPU default."""
     base = {
@@ -208,6 +310,10 @@ def test_sweep_components_override_base_before_grid() -> None:
     sweep = {
         "accelerator": {"type": "single_gpu"},
         "executor": {"name": "azure", "compute_target": "gpu-cluster"},
+        "fixed": {
+            "accelerators": {"accelerator.type": "cpu"},
+            "executors": {"executor.name": "local"},
+        },
         "grid": {},
     }
 
@@ -292,6 +398,94 @@ def test_sweep_constructs_executor_with_base_signature(
     assert runner.main() == 0
 
 
+@pytest.mark.parametrize(
+    ("answer", "interactive"), [("n", True), ("y", True), (None, False)]
+)
+def test_fresh_sweep_confirms_before_overwriting_tracker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: str | None,
+    interactive: bool,
+) -> None:
+    """Declining an overwrite leaves both tracking and run configs untouched."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text("executor:\n  name: local\nruntime: {}\n", encoding="utf-8")
+    tracker = SweepTracker(sweep_path, "demo", "old-sweep")
+    tracker.initialize_sweep(
+        total_runs=1, user="tester", selected_run_names={0: "old-run"}
+    )
+    original = tracker.json_path.read_bytes()
+
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path)])
+    monkeypatch.setattr(
+        runner.sys, "stdin", SimpleNamespace(isatty=lambda: interactive)
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(
+        runner, "load_user_sweep", lambda path: {"base_config": str(base_path)}
+    )
+    monkeypatch.setattr(
+        runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo"
+    )
+    monkeypatch.setattr(
+        runner.EXECUTOR_REGISTRY,
+        "get",
+        lambda name, *args, **kwargs: ClaimingExecutor(*args, **kwargs),
+    )
+
+    assert runner.main() == (0 if answer == "y" else 1)
+    if answer != "y":
+        assert tracker.json_path.read_bytes() == original
+        assert not list(tracker.json_path.parent.glob("*.yaml"))
+    else:
+        assert tracker.get_sweep_data()["selected_run_names"] == {
+            "0": "run_000_seed_42"
+        }
+
+
+def test_sweep_uses_configured_worker_count_without_cli_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The parser default must not replace executor.max_workers."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text(
+        "executor:\n  name: local\n  max_workers: 3\nruntime: {}\n",
+        encoding="utf-8",
+    )
+    seen_workers: list[int] = []
+
+    def get_executor(name: str, *args: Any, **kwargs: Any) -> SimpleNamespace:
+        assert kwargs["max_workers"] == 3
+        return SimpleNamespace(
+            run_sweep=lambda descriptors, max_workers: (
+                seen_workers.append(max_workers)
+                or {"completed": 1, "failed": 0, "running": 0, "unknown": 0}
+            )
+        )
+
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path)])
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(
+        runner, "load_user_sweep", lambda path: {"base_config": str(base_path)}
+    )
+    monkeypatch.setattr(
+        runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo"
+    )
+    monkeypatch.setattr(runner.EXECUTOR_REGISTRY, "get", get_executor)
+
+    assert runner.main() == 0
+    assert seen_workers == [3]
+
+
 def test_resume_rejects_mismatched_legacy_filtered_tracker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -325,6 +519,54 @@ def test_resume_rejects_mismatched_legacy_filtered_tracker(
     assert runner.main() == 1
     assert "Cannot resume" in capsys.readouterr().out
     assert tracker.get_sweep_data()["runs"]["0"]["status"] == "completed"
+
+
+def test_resume_keeps_legacy_float_run_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Older unfiltered trackers keep their original generated config path."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text(
+        "executor:\n  name: local\noptimizers:\n  lr: 0.1\nruntime: {}\n",
+        encoding="utf-8",
+    )
+    tracker = SweepTracker(sweep_path, "demo", "old-sweep")
+    tracker.initialize_sweep(total_runs=2, user="tester")
+    tracker.update_run_status(0, "completed")
+    tracker.update_run_status(1, "failed")
+    saved_paths: list[Path] = []
+
+    def run_sweep(descriptors: list[tuple[int, Path]], max_workers: int) -> dict[str, int]:
+        saved_paths.extend(path for _, path in descriptors)
+        tracker.update_run_status(1, "completed")
+        return {"completed": 1, "failed": 0, "running": 0, "unknown": 0}
+
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(
+        runner,
+        "load_user_sweep",
+        lambda path: {
+            "base_config": str(base_path),
+            "grid": {"optimizers.lr": [0.1, 0.2]},
+            "seeds": [7],
+        },
+    )
+    monkeypatch.setattr(
+        runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo"
+    )
+    monkeypatch.setattr(
+        runner.EXECUTOR_REGISTRY,
+        "get",
+        lambda *args, **kwargs: SimpleNamespace(run_sweep=run_sweep),
+    )
+
+    assert runner.main() == 0
+    assert [path.name for path in saved_paths] == ["lr_2.0e-01_seed_7.yaml"]
 
 
 def test_sweep_tracker_claims_only_pending_or_failed_runs(tmp_path: Path) -> None:

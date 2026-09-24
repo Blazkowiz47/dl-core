@@ -246,8 +246,7 @@ def main():
     parser.add_argument(
         "--max-workers",
         type=int,
-        default=1,
-        help="Maximum number of parallel workers for local executor (default: 1, sequential)",
+        help="Maximum parallel workers (defaults to executor.max_workers or 1)",
     )
     parser.add_argument(
         "--log-level",
@@ -358,6 +357,36 @@ def main():
             print("Error: Cannot resume - tracking file has invalid selected run indices")
             return 1
         selected_set = set(selected_indices)
+        selected_names = sweep_data.get("selected_run_names")
+        prepared_by_name = None
+        if selected_names is None:
+            # Existing trackers still refer to the pre-release run filenames.
+            sweep_config["_legacy_run_names"] = True
+        if selected_names is not None:
+            expected_keys = {str(index) for index in selected_indices}
+            if (
+                not isinstance(selected_names, dict)
+                or set(selected_names) != expected_keys
+                or any(not isinstance(name, str) or not name for name in selected_names.values())
+                or len(set(selected_names.values())) != len(selected_names)
+            ):
+                print("Error: Cannot resume - tracking file has invalid run names")
+                return 1
+            try:
+                prepared_by_name = {
+                    name: (index, config, name)
+                    for index, config, name in builder.prepare_configs(all_configs)
+                }
+            except ValueError as error:
+                print(f"Error: Cannot resume - {error}")
+                return 1
+            missing_names = set(selected_names.values()) - set(prepared_by_name)
+            if missing_names:
+                print(
+                    "Error: Cannot resume - selected run names changed: "
+                    f"{', '.join(sorted(missing_names))}. Start a fresh sweep instead."
+                )
+                return 1
 
         # Only the original selection may be retried. Missing unselected rows
         # are not pending runs, even though they belong to the full grid.
@@ -396,14 +425,23 @@ def main():
             print("No failed or pending runs to resume. All runs are completed!")
             return 0
 
-        # Filter configs to only include resume runs and store original indices
-        filtered_configs = []
-        for idx, cfg in enumerate(all_configs):
-            if idx in resume_runs:
-                # Store original index in config for tracker
-                cfg["_sweep_run_index"] = idx
-                filtered_configs.append(cfg)
-        all_configs = filtered_configs
+        # A run may have moved within the grid, but its tracker row stays put.
+        if prepared_by_name is not None:
+            prepared_configs = []
+            for index in resume_runs:
+                _, config, name = prepared_by_name[selected_names[str(index)]]
+                config["_sweep_run_index"] = index
+                prepared_configs.append((index, config, name))
+            all_configs = [config for _, config, _ in prepared_configs]
+        else:
+            # Older unfiltered trackers have no run-name map.
+            filtered_configs = []
+            for idx, cfg in enumerate(all_configs):
+                if idx in resume_runs:
+                    cfg["_sweep_run_index"] = idx
+                    filtered_configs.append(cfg)
+            all_configs = filtered_configs
+            prepared_configs = None
 
         print(f"\n🔄 Resuming Sweep: {sweep_path.name}")
         print(f"   Failed runs: {len(failed_runs)} {failed_runs}")
@@ -415,7 +453,12 @@ def main():
 
     # Determine sweep identifier for this execution (used for fallbacks)
     sweep_id = f"sweep_{int(time.time())}"
-    prepared_configs = builder.prepare_configs(all_configs)
+    if not args.resume or prepared_configs is None:
+        try:
+            prepared_configs = builder.prepare_configs(all_configs)
+        except ValueError as error:
+            print(f"Error: {error}")
+            return 1
     prepared_configs = _filter_prepared_configs(
         prepared_configs,
         args.only,
@@ -423,7 +466,7 @@ def main():
     )
     if not prepared_configs:
         print("No sweep runs matched the requested filters.")
-        return 0
+        return 1 if args.resume else 0
 
     if args.only or args.skip:
         print(f"   Filtered runs: {len(prepared_configs)}/{len(all_configs)}")
@@ -441,10 +484,31 @@ def main():
         return 0
 
     if not args.resume:
+        tracker_path = SweepTracker(sweep_path, experiment_name, sweep_id).json_path
+        if tracker_path.exists():
+            if not sys.stdin.isatty():
+                print(
+                    f"Existing sweep data at {tracker_path}; run interactively "
+                    "to confirm overwrite, or use --resume."
+                )
+                return 1
+            try:
+                answer = input(
+                    f"Existing sweep data at {tracker_path} will be overwritten. "
+                    "Continue? [y/N] "
+                ).strip().lower()
+            except EOFError:
+                answer = ""
+            if answer not in {"y", "yes"}:
+                print("Sweep overwrite cancelled.")
+                return 1
         sweep_config["_grid_total_runs"] = total_runs
         sweep_config["_selected_run_indices"] = [
             index for index, _, _ in prepared_configs
         ]
+        sweep_config["_selected_run_names"] = {
+            index: name for index, _, name in prepared_configs
+        }
 
     # Save configurations to disk once (before executors run)
     config_output_dir = get_config_output_dir(sweep_config, sweep_id)
@@ -484,7 +548,15 @@ def main():
         run_executor_config["compute_target"] = args.compute
     if args.environment is not None:
         run_executor_config["environment_name"] = args.environment
-    run_executor_config["max_workers"] = args.max_workers
+    max_workers = (
+        args.max_workers
+        if args.max_workers is not None
+        else run_executor_config.get("max_workers", 1)
+    )
+    if type(max_workers) is not int or max_workers < 1:
+        print("Error: executor.max_workers must be a positive integer")
+        return 1
+    run_executor_config["max_workers"] = max_workers
     compute_target = run_executor_config.get("compute_target")
     environment_name = run_executor_config.get("environment_name", "dl_lab")
 
@@ -503,7 +575,7 @@ def main():
         experiment_name,
         sweep_id,
         dry_run=args.dry_run,
-        max_workers=args.max_workers,
+        max_workers=max_workers,
         compute_target=compute_target,
         environment_name=environment_name,
         tracking_context=resume_tracking_context,
@@ -512,7 +584,7 @@ def main():
 
     # Run sweep using executor - now passing only config paths
     try:
-        progress = executor.run_sweep(config_paths, max_workers=args.max_workers)
+        progress = executor.run_sweep(config_paths, max_workers=max_workers)
         skipped = progress.get("skipped", 0)
         skipped_text = f" ({skipped} already claimed/skipped)" if skipped else ""
         failed = progress.get("failed", 0)

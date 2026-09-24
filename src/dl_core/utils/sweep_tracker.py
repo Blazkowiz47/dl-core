@@ -68,6 +68,7 @@ class SweepTracker:
         metrics_source_backend: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         selected_run_indices: Optional[List[int]] = None,
+        selected_run_names: Optional[Dict[int, str]] = None,
     ) -> None:
         """
         Create initial JSON file with selected runs as pending.
@@ -81,6 +82,7 @@ class SweepTracker:
             metrics_source_backend: Metrics source backend name for this sweep
             metadata: Additional metadata to store (optional)
             selected_run_indices: Original grid indices selected for this sweep
+            selected_run_names: Generated run name for each selected grid index
         """
         selected_indices = (
             list(range(total_runs))
@@ -92,6 +94,11 @@ class SweepTracker:
             for index in selected_indices
         ) or len(selected_indices) != len(set(selected_indices)):
             raise ValueError("Selected run indices must be unique grid indices")
+        if selected_run_names is not None and (
+            set(selected_run_names) != set(selected_indices)
+            or len(set(selected_run_names.values())) != len(selected_run_names)
+        ):
+            raise ValueError("Selected run names must match the selected grid indices")
 
         with self._locked_access():
             # Initialize sweep data structure
@@ -102,6 +109,11 @@ class SweepTracker:
                 "user": user,
                 "total_runs": total_runs,
                 "selected_run_indices": selected_indices,
+                "selected_run_names": (
+                    {str(index): name for index, name in selected_run_names.items()}
+                    if selected_run_names is not None
+                    else None
+                ),
                 "tracking_context": tracking_context,
                 "tracking_uri": tracking_uri,
                 "tracking_backend": tracking_backend or "local",

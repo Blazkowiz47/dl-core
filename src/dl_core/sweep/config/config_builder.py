@@ -117,15 +117,15 @@ class ConfigBuilder:
         all_configs = []
         for param_combo in param_combinations:
             for seed in seeds:
-                # Merge: base + sweep components + fixed + grid + seed.
+                # Merge: base + fixed defaults + explicit sweep choices + grid + seed.
                 run_config = base_config.copy()
+                run_config = self._apply_parameters(run_config, self.fixed_params)
                 for component in ("accelerator", "executor"):
                     sweep_component = self.sweep_config.get(component)
                     if sweep_component:
                         run_config[component] = deep_update(
                             run_config.get(component, {}), sweep_component
                         )
-                run_config = self._apply_parameters(run_config, self.fixed_params)
                 run_config = self._apply_parameters(run_config, param_combo)
                 run_config["seed"] = seed
 
@@ -170,6 +170,16 @@ class ConfigBuilder:
         """Attach runtime names to expanded configs without saving them."""
         run_name_template = self.tracking_config.get("run_name_template")
         prepared_configs = []
+        seen_names: Dict[str, int] = {}
+
+        if run_name_template:
+            named_fields = set(re.findall(r"\{([^}]+)\}", run_name_template))
+            missing_fields = set(self._resolve_preset_references(self.grid)) - named_fields
+            if missing_fields:
+                raise ValueError(
+                    "Run name template must include every grid field: "
+                    f"{', '.join(sorted(missing_fields))}"
+                )
 
         for idx, run_config in enumerate(run_configs):
             prepared_config = copy.deepcopy(run_config)
@@ -185,6 +195,13 @@ class ConfigBuilder:
                     prepared_config,
                     run_index,
                 )
+
+            if run_name in seen_names:
+                raise ValueError(
+                    f"Duplicate sweep run name '{run_name}' for grid indices "
+                    f"{seen_names[run_name]} and {run_index}"
+                )
+            seen_names[run_name] = run_index
 
             runtime_config = prepared_config.setdefault("runtime", {})
             runtime_config["name"] = run_name
@@ -476,6 +493,10 @@ class ConfigBuilder:
     ) -> str:
         """Generate run name from grid parameters (fallback)."""
         if not self.grid:
+            if not self.sweep_config.get("_legacy_run_names"):
+                seed = config.get("seed")
+                if seed is not None:
+                    return f"run_{run_index:03d}_seed_{seed}"
             return f"run_{run_index:03d}"
 
         parts = []
@@ -484,7 +505,12 @@ class ConfigBuilder:
                 value = deep_get(config, param_path)
                 param_name = param_path.split(".")[-1]
                 if isinstance(value, float):
-                    parts.append(f"{param_name}_{value:.1e}")
+                    value_text = (
+                        f"{value:.1e}"
+                        if self.sweep_config.get("_legacy_run_names")
+                        else repr(value)
+                    )
+                    parts.append(f"{param_name}_{value_text}")
                 else:
                     parts.append(f"{param_name}_{value}")
             except (KeyError, IndexError, TypeError, ValueError):

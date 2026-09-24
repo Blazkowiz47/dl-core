@@ -165,16 +165,21 @@ Notes:
 - `--export preview.csv` or `--export preview.json` writes that matrix to disk
 - `--only` and `--skip` accept repeatable run-name glob patterns; selected runs
   keep their original sweep indices for tracking. `--resume` only retries that
-  original selection, even when the filters are omitted
+  original selection, even when the filters are omitted. Run names must be
+  unique and custom name templates must include each grid field
+- a fresh execution asks before replacing an existing sweep tracker and its
+  generated configs; without an interactive confirmation it stops safely
 - `--compute` and `--environment` override the matching `executor` config fields
+- `--max-workers` overrides `executor.max_workers`; when neither is set the
+  runner uses one worker
 - `--dry-run` still goes through normal executor wiring, but does not execute
   the generated runs
 - `dl-sweep` exits with code 1 if any run failed, code 3 if no run failed but
   any status is unknown, and code 0 for completed or still-running jobs
 - `--resume` retries failed and pending runs; running and unknown jobs must be
   reconciled with their execution backend before they can be retried
-- `--resume` stops if the tracker's run count differs from the current sweep;
-  check the sweep configuration or start a new sweep instead of guessing indices
+- `--resume` matches selected runs by their names even if grid order changes;
+  it stops if a selected name is no longer generated or the grid size changes
 
 ## `dl-sync`
 

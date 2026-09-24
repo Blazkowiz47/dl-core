@@ -51,14 +51,17 @@ When you run a sweep, `dl-core`:
 
 1. loads the base config
 2. resolves presets and expands the grid across seeds
-3. for each run, layers sweep-level accelerator and executor settings over the
-   base config, then applies fixed parameters and grid values (grid values win)
+3. for each run, applies fixed defaults to the base config, then explicit
+   sweep-level accelerator and executor choices, then grid values (grid wins)
 4. resolves a concrete run name using `tracking.run_name_template` when present,
-   otherwise the grid values and run index
+   otherwise the grid values and seed; names must be unique and templates must
+   include every grid field
 5. writes concrete configs next to the sweep file under `experiments/<sweep_name>/`
 
-That last step is important because it prevents artifact collisions between run
-directories without requiring an explicit `runtime.name` in the scaffold.
+Unique names prevent config and artifact collisions without requiring an
+explicit `runtime.name` in the scaffold. A fresh execution asks for confirmation
+before replacing existing sweep data. Resume uses the stored run names to keep
+the original selection and tracker rows even if grid order changes.
 
 During execution, the local sweep path also writes:
 

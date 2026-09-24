@@ -453,6 +453,7 @@ class BaseExecutor(ABC):
                         "executor": self.__class__.__name__,
                     },
                     selected_run_indices=selected_indices,
+                    selected_run_names=self.sweep_config.get("_selected_run_names"),
                 )
 
             # Execute runs (parallel or sequential)
