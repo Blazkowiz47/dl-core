@@ -149,18 +149,22 @@ class BaseExecutor(ABC):
         )
 
         pool = ProcessPoolExecutor(max_workers=max_workers)
+        run_iterator = iter(run_descriptors)
         futures = {}
-        pending = set()
         aborted = False
         try:
-            for run_index, config_path in run_descriptors:
+            for _ in range(max_workers):
+                try:
+                    run_index, config_path = next(run_iterator)
+                except StopIteration:
+                    break
                 future = pool.submit(
                     self._execute_single_run_wrapper, run_index, config_path
                 )
                 futures[future] = (run_index, config_path)
-                pending.add(future)
 
-            for future in as_completed(futures):
+            while futures:
+                future = next(as_completed(futures))
                 run_index, config_path = futures[future]
                 try:
                     result = future.result()
@@ -175,50 +179,75 @@ class BaseExecutor(ABC):
                     self.logger.error(
                         f"Run {run_index + 1}/{total_runs} failed with exception: {error}"
                     )
-                    pending.discard(future)
-                    continue
-                if result.get("skipped", False):
-                    self.skipped_runs.append(run_index)
-                    self.logger.info(f"Run {run_index + 1}/{total_runs} skipped")
-                    pending.discard(future)
-                    continue
-
-                status = self._classify_run_result(result)
-                if status == "completed":
-                    self.completed_runs.append(run_index)
-                    self.logger.info(
-                        f"Run {run_index + 1}/{total_runs} completed successfully"
-                    )
-                elif status == "running":
-                    self.submitted_runs.append(run_index)
-                    self.logger.info(f"Run {run_index + 1}/{total_runs} submitted")
-                elif status == "unknown":
-                    self.unknown_runs.append(run_index)
-                    self.logger.warning(
-                        f"Run {run_index + 1}/{total_runs} status unknown"
-                    )
                 else:
-                    self.failed_runs.append(run_index)
-                    status = "failed"
-                    self.logger.error(f"Run {run_index + 1}/{total_runs} failed")
-                self._update_tracker(
-                    run_index,
-                    status,
-                    config_path,
-                    result=result,
+                    if result.get("skipped", False):
+                        self.skipped_runs.append(run_index)
+                        self.logger.info(f"Run {run_index + 1}/{total_runs} skipped")
+                    else:
+                        status = self._classify_run_result(result)
+                        if status == "completed":
+                            self.completed_runs.append(run_index)
+                            self.logger.info(
+                                f"Run {run_index + 1}/{total_runs} completed successfully"
+                            )
+                        elif status == "running":
+                            self.submitted_runs.append(run_index)
+                            self.logger.info(f"Run {run_index + 1}/{total_runs} submitted")
+                        elif status == "unknown":
+                            self.unknown_runs.append(run_index)
+                            self.logger.warning(
+                                f"Run {run_index + 1}/{total_runs} status unknown"
+                            )
+                        else:
+                            self.failed_runs.append(run_index)
+                            status = "failed"
+                            self.logger.error(f"Run {run_index + 1}/{total_runs} failed")
+                        self._update_tracker(
+                            run_index,
+                            status,
+                            config_path,
+                            result=result,
+                        )
+
+                del futures[future]
+                try:
+                    next_index, next_path = next(run_iterator)
+                except StopIteration:
+                    continue
+                next_future = pool.submit(
+                    self._execute_single_run_wrapper, next_index, next_path
                 )
-                pending.discard(future)
+                futures[next_future] = (next_index, next_path)
         except KeyboardInterrupt:
             aborted = True
-            for future in pending:
+            for future in futures:
                 future.cancel()
             pool.shutdown(wait=False, cancel_futures=True)
-            for future in pending:
-                if not future.cancelled():
-                    run_index, config_path = futures[future]
+            for future, (run_index, config_path) in futures.items():
+                if future.cancelled():
+                    continue
+                if future.done():
+                    try:
+                        result = future.result()
+                    except BaseException as error:
+                        status = (
+                            self._classify_run_result({"unknown": True})
+                            if isinstance(error, KeyboardInterrupt)
+                            else "failed"
+                        )
+                        self._update_tracker(
+                            run_index, status, config_path, error_message=str(error)
+                        )
+                        continue
+                    if result.get("skipped", False):
+                        continue
+                    status = self._classify_run_result(result)
+                    self._update_tracker(run_index, status, config_path, result=result)
+                else:
+                    status = self._classify_run_result({"unknown": True})
                     self._update_tracker(
                         run_index,
-                        "unknown",
+                        status,
                         config_path,
                         error_message="Interrupted while run may still be active",
                     )

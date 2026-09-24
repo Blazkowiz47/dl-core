@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import threading
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -43,6 +44,22 @@ class ClaimingExecutor(BaseExecutor):
 
     def teardown(self) -> None:
         """No-op teardown for tests."""
+
+
+class _SlowExecutor(ClaimingExecutor):
+    """Record real process-pool starts until a test releases the workers."""
+
+    def __init__(self, *args: Any, started_dir: Path, release_file: Path, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.started_dir = started_dir
+        self.release_file = release_file
+
+    def execute_run(self, run_index: int, config_path: Path) -> dict[str, Any]:
+        (self.started_dir / str(run_index)).touch()
+        deadline = time.monotonic() + 5
+        while not self.release_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return {"success": True}
 
 
 def test_filter_prepared_configs_applies_only_and_skip_patterns() -> None:
@@ -348,7 +365,7 @@ def test_unknown_interrupt_policy_keeps_claim_non_retryable(tmp_path: Path) -> N
 def test_parallel_interrupt_cancels_queued_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only started runs become unknown; unstarted jobs remain pending."""
+    """Only started local runs become retryable; unstarted jobs stay pending."""
     monkeypatch.setattr(
         "dl_core.core.base_executor.ProcessPoolExecutor", ThreadPoolExecutor
     )
@@ -381,10 +398,47 @@ def test_parallel_interrupt_cancels_queued_runs(
         with pytest.raises(KeyboardInterrupt):
             executor.run_sweep(configs, max_workers=2)
         statuses = executor.tracker.get_sweep_data()["runs"]
-        assert statuses["0"]["status"] == "unknown"
+        assert statuses["0"]["status"] == "failed"
         assert statuses["2"]["status"] == "pending"
     finally:
         release.set()
+
+
+def test_real_process_pool_does_not_start_more_runs_after_interrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Queued process-pool work must not outlive the interrupted submission loop."""
+    started_dir = tmp_path / "started"
+    started_dir.mkdir()
+    release_file = tmp_path / "release"
+
+    def interrupt(futures: Any) -> Any:
+        deadline = time.monotonic() + 5
+        while len(list(started_dir.iterdir())) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert len(list(started_dir.iterdir())) == 2
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("dl_core.core.base_executor.as_completed", interrupt)
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(6)]
+    executor = _SlowExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        experiment_name="demo", sweep_id="sweep-1",
+        started_dir=started_dir, release_file=release_file,
+    )
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            executor.run_sweep(configs, max_workers=2)
+        statuses = executor.tracker.get_sweep_data()["runs"]
+        assert statuses["0"]["status"] == "failed"
+        assert statuses["1"]["status"] == "failed"
+        assert all(statuses[str(index)]["status"] == "pending" for index in range(2, 6))
+    finally:
+        release_file.touch()
+    time.sleep(0.3)
+    assert {path.name for path in started_dir.iterdir()} == {"0", "1"}
 
 
 def test_local_executor_tracks_legacy_resume_artifacts(
