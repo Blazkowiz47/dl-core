@@ -415,7 +415,7 @@ def main():
     # Save configurations to disk once (before executors run)
     config_output_dir = get_config_output_dir(sweep_config, sweep_id)
     saved_config_descriptors = builder.save_configs(
-        all_configs,
+        prepared_configs,
         config_output_dir,
     )
     print(f"   Generated configs in: {config_output_dir}")

@@ -10,10 +10,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 from dl_core.core import BaseExecutor
 from dl_core.executors.local import LocalExecutor
 from dl_core.sweep import runner
+from dl_core.sweep.config.config_builder import ConfigBuilder
 from dl_core.sweep.runner import _filter_prepared_configs
 from dl_core.utils.sweep_tracker import SweepTracker
 
@@ -58,6 +60,54 @@ def test_filter_prepared_configs_applies_only_and_skip_patterns() -> None:
     )
 
     assert filtered == [(0, {"seed": 2025}, "backbone_swin_s_seed_2025")]
+
+
+@pytest.mark.parametrize(
+    "filter_args",
+    [
+        ["--only", "run_002"],
+        ["--skip", "run_000", "--skip", "run_001"],
+    ],
+)
+def test_filtered_sweep_keeps_original_index_when_saving_configs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filter_args: list[str]
+) -> None:
+    """Filtering must not rename run 2 or record it as tracker run 0."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text("runtime: {}\n", encoding="utf-8")
+    sweep_config = {"base_config": str(base_path), "grid": {}, "tracking": {}}
+    run_configs = [{"executor": {"name": "local"}, "runtime": {}} for _ in range(3)]
+    submitted: list[tuple[int, Path]] = []
+
+    def run_sweep(
+        descriptors: list[tuple[int, Path]], max_workers: int
+    ) -> dict[str, int]:
+        submitted.extend(descriptors)
+        return {"completed": 1, "failed": 0, "running": 0, "unknown": 0}
+
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), *filter_args])
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(runner, "load_user_sweep", lambda path: sweep_config.copy())
+    monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runner, "generate_experiment_name", lambda *args, **kwargs: "demo")
+    monkeypatch.setattr(
+        runner,
+        "generate_all_run_configs",
+        lambda sweep, base: (ConfigBuilder(sweep), run_configs),
+    )
+    monkeypatch.setattr(
+        runner.EXECUTOR_REGISTRY, "get",
+        lambda *args, **kwargs: SimpleNamespace(run_sweep=run_sweep),
+    )
+
+    assert runner.main() == 0
+    assert submitted == [(2, tmp_path / "sweep" / "run_002.yaml")]
+    saved = yaml.safe_load(submitted[0][1].read_text(encoding="utf-8"))
+    assert saved["runtime"]["name"] == "run_002"
 
 
 def test_sweep_tracker_claims_only_pending_or_failed_runs(tmp_path: Path) -> None:
@@ -418,8 +468,10 @@ def test_sweep_cli_exit_codes_reflect_failed_and_unknown_runs(
         def prepare_configs(self, configs: list[dict[str, Any]]) -> list[Any]:
             return [(0, configs[0], "demo")]
 
-        def save_configs(self, configs: list[dict[str, Any]], output_dir: Path) -> list[Any]:
-            return [(0, configs[0], config_path)]
+        def save_configs(
+            self, prepared: list[tuple[int, dict[str, Any], str]], output_dir: Path
+        ) -> list[Any]:
+            return [(prepared[0][0], prepared[0][1], config_path)]
 
     progress = {"completed": 0, "failed": 0, "running": 1, "unknown": 0, "total": 1}
     monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path)])
@@ -493,8 +545,10 @@ def test_resume_exit_code_counts_other_unknown_runs(
         def prepare_configs(self, configs: list[dict[str, Any]]) -> list[Any]:
             return [(0, configs[0], "demo")]
 
-        def save_configs(self, configs: list[dict[str, Any]], output_dir: Path) -> list[Any]:
-            return [(0, configs[0], config_path)]
+        def save_configs(
+            self, prepared: list[tuple[int, dict[str, Any], str]], output_dir: Path
+        ) -> list[Any]:
+            return [(prepared[0][0], prepared[0][1], config_path)]
 
     def run_sweep(*args: Any, **kwargs: Any) -> dict[str, int]:
         tracker.update_run_status(0, "completed")

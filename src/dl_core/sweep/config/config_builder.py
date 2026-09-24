@@ -39,7 +39,8 @@ class ConfigBuilder:
     Example:
         >>> builder = ConfigBuilder(sweep_config)
         >>> run_configs = builder.generate_run_configs(base_config)
-        >>> config_paths = builder.save_configs(run_configs, output_dir)
+        >>> prepared = builder.prepare_configs(run_configs)
+        >>> config_paths = builder.save_configs(prepared, output_dir)
     """
 
     def __init__(
@@ -149,16 +150,15 @@ class ConfigBuilder:
 
     def save_configs(
         self,
-        run_configs: List[Dict[str, Any]],
+        prepared_configs: List[Tuple[int, Dict[str, Any], str]],
         output_dir: Path,
     ) -> List[Tuple[int, Dict[str, Any], Path]]:
         """
-        Generate run names and save all configs to disk.
+        Save prepared run configs without changing their names or indices.
 
         Args:
-            run_configs: List of complete run configurations
+            prepared_configs: Indexed configs from prepare_configs
             output_dir: Directory to save config files
-            dry_run: If True, don't actually save files
 
         Returns:
             List of tuples (run_index, run_config, config_path)
@@ -167,7 +167,7 @@ class ConfigBuilder:
 
         config_paths = []
 
-        for run_index, run_config, run_name in self.prepare_configs(run_configs):
+        for run_index, run_config, run_name in prepared_configs:
             config_file = f"{run_name}.yaml"
             config_path = output_dir / config_file
 

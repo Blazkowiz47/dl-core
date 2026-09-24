@@ -627,7 +627,7 @@ def test_numbered_checkpoint_uses_iteration_directory(tmp_path: Path) -> None:
         run_name="iteration-checkpoint",
         output_dir=str(tmp_path),
     )
-    trainer._get_current_checkpoint = lambda iteration: {"iteration": iteration}
+    trainer._build_checkpoint_payload = lambda iteration: {"iteration": iteration}
 
     trainer.save_checkpoint(3)
 

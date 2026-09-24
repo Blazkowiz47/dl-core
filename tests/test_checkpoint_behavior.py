@@ -348,48 +348,53 @@ def test_early_stopping_counts_non_finite_metrics_toward_patience() -> None:
     assert trainer.stop_training is True
 
 
-def test_trainer_reuses_current_checkpoint_for_same_epoch() -> None:
-    """Trainer should cache the current checkpoint payload within one epoch."""
+def test_same_epoch_checkpoint_saves_capture_current_callback_state(
+    tmp_path: Path,
+) -> None:
+    """A later checkpoint must not reuse an earlier callback payload."""
+
+    class _StatefulCallback(Callback):
+        def __init__(self) -> None:
+            super().__init__()
+            self.value = 1
+
+        def get_state(self) -> dict[str, int]:
+            return {"value": self.value}
 
     trainer = _ConcreteTrainer()
-    trainer.callbacks = type("CallbackContainer", (), {"callbacks": []})()
-    trainer.current_checkpoint = None
-    trainer.current_checkpoint_epoch = None
-    build_calls: list[int] = []
+    trainer.logger = logging.getLogger("test_checkpoint_payload")
+    trainer.accelerator = _MainProcessAcceleratorStub()
+    trainer.artifact_manager = ArtifactManager("payload", output_dir=str(tmp_path))
+    trainer.models = {}
+    trainer.criterions = {}
+    trainer.optimizers = {}
+    trainer.schedulers = {}
+    trainer.ema = None
+    trainer.metrics_history = {"train": {}, "test": {}}
+    trainer.config = {}
+    trainer.best_metric = None
+    trainer.epochs_no_improvement = 0
+    trainer.global_step = 1
+    callback = _StatefulCallback()
+    trainer.callbacks = CallbackList([callback])
 
-    def _build_checkpoint_payload(epoch: int) -> dict[str, int]:
-        build_calls.append(epoch)
-        return {"epoch": epoch}
+    trainer.save_checkpoint(2, filename="best.pth")
+    callback.value = 2
+    trainer.global_step = 2
+    trainer.save_checkpoint(2, filename="latest.pth")
 
-    trainer._build_checkpoint_payload = _build_checkpoint_payload
-
-    first = trainer._get_current_checkpoint(2)
-    second = trainer._get_current_checkpoint(2)
-
-    assert first == {"epoch": 2}
-    assert second == {"epoch": 2}
-    assert build_calls == [2]
-
-
-def test_trainer_rebuilds_current_checkpoint_for_new_epoch() -> None:
-    """Trainer should rebuild the cached checkpoint payload on epoch changes."""
-
-    trainer = _ConcreteTrainer()
-    trainer.callbacks = type("CallbackContainer", (), {"callbacks": []})()
-    trainer.current_checkpoint = None
-    trainer.current_checkpoint_epoch = None
-    build_calls: list[int] = []
-
-    def _build_checkpoint_payload(epoch: int) -> dict[str, int]:
-        build_calls.append(epoch)
-        return {"epoch": epoch}
-
-    trainer._build_checkpoint_payload = _build_checkpoint_payload
-
-    trainer._get_current_checkpoint(1)
-    trainer._get_current_checkpoint(2)
-
-    assert build_calls == [1, 2]
+    best = torch.load(
+        trainer.artifact_manager.get_final_checkpoint_path("best.pth"),
+        weights_only=False,
+    )
+    latest = torch.load(
+        trainer.artifact_manager.get_final_checkpoint_path("latest.pth"),
+        weights_only=False,
+    )
+    state_key = "callback_0__StatefulCallback"
+    assert best["callback_states"][state_key] == {"value": 1}
+    assert latest["callback_states"][state_key] == {"value": 2}
+    assert latest["global_step"] == 2
 
 
 def test_checkpoint_save_is_atomic_on_write_failure(
@@ -404,7 +409,7 @@ def test_checkpoint_save_is_atomic_on_write_failure(
         run_name="atomic-save",
         output_dir=str(tmp_path),
     )
-    trainer._get_current_checkpoint = lambda epoch: {"epoch": epoch}
+    trainer._build_checkpoint_payload = lambda epoch: {"epoch": epoch}
     checkpoint_path = trainer.artifact_manager.get_final_checkpoint_path(
         "latest.pth"
     )

@@ -291,8 +291,6 @@ class EpochTrainer(ABC):
         self.global_step: int = 0
 
         self.stop_training = False  # For early stopping
-        self.current_checkpoint: dict[str, Any] | None = None
-        self.current_checkpoint_epoch: int | None = None
         self.selected_checkpoint_path: Path | None = None
 
         self.logger.info(f"Initialized {self.__class__.__name__}")
@@ -976,17 +974,6 @@ class EpochTrainer(ABC):
 
         return checkpoint_dict
 
-    def _get_current_checkpoint(self, epoch: int) -> dict[str, Any]:
-        """Return the cached checkpoint payload for the active epoch."""
-
-        if (
-            self.current_checkpoint is None
-            or self.current_checkpoint_epoch != epoch
-        ):
-            self.current_checkpoint = self._build_checkpoint_payload(epoch)
-            self.current_checkpoint_epoch = epoch
-        return self.current_checkpoint
-
     def _save_checkpoint(self, epoch: int, filename: str | None = None) -> None:
         """
         Save model checkpoint with simplified approach.
@@ -999,7 +986,7 @@ class EpochTrainer(ABC):
         if not self.accelerator.is_main_process():
             return
 
-        checkpoint_dict = self._get_current_checkpoint(epoch)
+        checkpoint_dict = self._build_checkpoint_payload(epoch)
         if filename is None:
             checkpoint_path = getattr(
                 self.artifact_manager,
