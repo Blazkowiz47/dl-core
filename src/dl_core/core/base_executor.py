@@ -148,38 +148,39 @@ class BaseExecutor(ABC):
             f"Running {total_runs} runs in parallel (max_workers={max_workers})"
         )
 
-        # Execute runs in parallel using ProcessPoolExecutor
-        run_index_to_path = dict(run_descriptors)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all runs
-            future_to_index = {
-                executor.submit(
+        pool = ProcessPoolExecutor(max_workers=max_workers)
+        futures = {}
+        pending = set()
+        aborted = False
+        try:
+            for run_index, config_path in run_descriptors:
+                future = pool.submit(
                     self._execute_single_run_wrapper, run_index, config_path
-                ): run_index
-                for run_index, config_path in run_descriptors
-            }
+                )
+                futures[future] = (run_index, config_path)
+                pending.add(future)
 
-            # Process completed runs
-            for future in as_completed(future_to_index):
-                run_index = future_to_index[future]
-                config_path = run_index_to_path[run_index]
+            for future in as_completed(futures):
+                run_index, config_path = futures[future]
                 try:
                     result = future.result()
-                except Exception as e:
+                except Exception as error:
                     self.failed_runs.append(run_index)
                     self._update_tracker(
                         run_index,
                         "failed",
                         config_path,
-                        error_message=str(e),
+                        error_message=str(error),
                     )
                     self.logger.error(
-                        f"Run {run_index + 1}/{total_runs} failed with exception: {e}"
+                        f"Run {run_index + 1}/{total_runs} failed with exception: {error}"
                     )
+                    pending.discard(future)
                     continue
                 if result.get("skipped", False):
                     self.skipped_runs.append(run_index)
                     self.logger.info(f"Run {run_index + 1}/{total_runs} skipped")
+                    pending.discard(future)
                     continue
 
                 status = self._classify_run_result(result)
@@ -206,6 +207,29 @@ class BaseExecutor(ABC):
                     config_path,
                     result=result,
                 )
+                pending.discard(future)
+        except KeyboardInterrupt:
+            aborted = True
+            for future in pending:
+                future.cancel()
+            pool.shutdown(wait=False, cancel_futures=True)
+            for future in pending:
+                if not future.cancelled():
+                    run_index, config_path = futures[future]
+                    self._update_tracker(
+                        run_index,
+                        "unknown",
+                        config_path,
+                        error_message="Interrupted while run may still be active",
+                    )
+            raise
+        except Exception:
+            aborted = True
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        finally:
+            if not aborted:
+                pool.shutdown(wait=True)
 
     def _execute_single_run_wrapper(
         self, run_index: int, config_path: Path
@@ -405,12 +429,17 @@ class BaseExecutor(ABC):
                     try:
                         result = self.execute_run(run_index, config_path)
                     except KeyboardInterrupt:
+                        status = self._classify_run_result({"unknown": True})
                         self._update_tracker(
                             run_index,
-                            "failed",
+                            status,
                             config_path,
                             error_message="Interrupted before the run completed",
                         )
+                        if status == "unknown":
+                            self.unknown_runs.append(run_index)
+                        else:
+                            self.failed_runs.append(run_index)
                         raise
                     except Exception as error:
                         self.failed_runs.append(run_index)

@@ -349,19 +349,22 @@ def main():
             print(f"   Using sweep config total ({total_runs}) to detect missing runs")
 
         if not resume_runs:
-            statuses = [
-                run.get("status")
-                for run in sweep_data.get("runs", {}).values()
-            ]
+            statuses = [run.get("status") for run in sweep_data.get("runs", {}).values()]
             running = statuses.count("running")
             unknown = statuses.count("unknown")
             if running or unknown:
+                unresolved_indices = [
+                    index
+                    for index, run in sweep_data.get("runs", {}).items()
+                    if run.get("status") in {"running", "unknown"}
+                ]
                 print(
                     "No failed or pending runs to resume. "
                     f"{running} running and {unknown} unknown run(s) remain; "
-                    "reconcile unknown jobs before retrying."
+                    f"check runs {unresolved_indices} in {temp_tracker.json_path} "
+                    "and reconcile them before retrying."
                 )
-                return 2 if unknown else 0
+                return 3 if unknown else 0
             print("No failed or pending runs to resume. All runs are completed!")
             return 0
 
@@ -482,10 +485,19 @@ def main():
             f"\nSweep finished: {progress['completed']} completed, {failed} failed, "
             f"{running} running, {unknown} unknown{skipped_text}"
         )
+        if args.resume and not args.dry_run:
+            sweep_data = temp_tracker.get_sweep_data()
+            if not sweep_data:
+                raise RuntimeError(
+                    f"Sweep tracking data disappeared: {temp_tracker.json_path}"
+                )
+            statuses = [run.get("status") for run in sweep_data.get("runs", {}).values()]
+            failed = statuses.count("failed")
+            unknown = statuses.count("unknown")
         if failed:
             return 1
         if unknown:
-            return 2
+            return 3
         return 0
 
     except Exception as e:

@@ -166,7 +166,7 @@ Notes:
 - `--only` and `--skip` accept repeatable run-name glob patterns
 - `--dry-run` still goes through normal executor wiring, but does not execute
   the generated runs
-- `dl-sweep` exits with code 1 if any run failed, code 2 if no run failed but
+- `dl-sweep` exits with code 1 if any run failed, code 3 if no run failed but
   any status is unknown, and code 0 for completed or still-running jobs
 - `--resume` retries failed and pending runs; running and unknown jobs must be
   reconciled with their execution backend before they can be retried

@@ -154,8 +154,9 @@ class SweepTracker:
             sweep_data = self._read_json()
 
             if not sweep_data:
-                logger.warning(f"Sweep JSON not found, cannot update run {run_index}")
-                return
+                raise FileNotFoundError(
+                    f"Sweep JSON not found, cannot update run {run_index}: {self.json_path}"
+                )
 
             # Update run data
             run_key = str(run_index)
@@ -228,8 +229,9 @@ class SweepTracker:
             sweep_data = self._read_json()
 
             if not sweep_data:
-                logger.warning(f"Sweep JSON not found, cannot claim run {run_index}")
-                return False
+                raise FileNotFoundError(
+                    f"Sweep JSON not found, cannot claim run {run_index}: {self.json_path}"
+                )
 
             run_key = str(run_index)
             runs = sweep_data.setdefault("runs", {})
@@ -274,8 +276,9 @@ class SweepTracker:
             sweep_data = self._read_json()
 
             if not sweep_data:
-                logger.warning("Sweep JSON not found, cannot update tracking_context")
-                return
+                raise FileNotFoundError(
+                    f"Sweep JSON not found, cannot update tracking_context: {self.json_path}"
+                )
 
             sweep_data["tracking_context"] = tracking_context
             if tracking_uri:
@@ -403,9 +406,9 @@ class SweepTracker:
         try:
             with open(self.json_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to read sweep JSON: {e}")
-            return {}
+        except Exception:
+            logger.exception(f"Failed to read sweep JSON: {self.json_path}")
+            raise
 
     def _write_json(self, data: Dict[str, Any]) -> None:
         """
@@ -430,7 +433,11 @@ class SweepTracker:
                 os.fsync(handle.fileno())
 
             temp_path.replace(self.json_path)
-        except Exception as e:
-            logger.error(f"Failed to write sweep JSON: {e}")
-            if temp_path and temp_path.exists():
-                temp_path.unlink(missing_ok=True)
+        except Exception:
+            logger.exception(f"Failed to write sweep JSON: {self.json_path}")
+            if temp_path:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning(f"Could not remove failed sweep temp file {temp_path}")
+            raise

@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dl_core.core import BaseExecutor, config_field, register_executor
-from dl_core.utils.artifact_manager import get_run_artifact_dir
+from dl_core.utils.artifact_manager import (
+    get_run_artifact_dir,
+    select_auto_resume_run_dir,
+)
 from dl_core.utils.config_names import (
     resolve_config_experiment_name,
     resolve_config_run_name,
@@ -112,14 +115,25 @@ class LocalExecutor(BaseExecutor):
         if sweep_file:
             sweep_name = Path(sweep_file).stem
 
-        artifact_dir = Path(
-            get_run_artifact_dir(
-                run_name=run_name,
-                output_dir=output_dir,
-                experiment_name=experiment_name,
-                sweep_name=sweep_name,
+        trainer_config = run_config.get("trainer", {})
+        selected_trainer = next(iter(trainer_config.values()), {})
+        continue_model = selected_trainer.get("continue_model")
+        if run_config.get("auto_resume_local") and not continue_model:
+            artifact_dir = select_auto_resume_run_dir(
+                run_name,
+                output_dir,
+                experiment_name,
+                sweep_name,
+                str(config_path),
+                preserve_yml_name=True,
             )
-        ).resolve()
+        else:
+            artifact_dir = Path(
+                get_run_artifact_dir(
+                    run_name, output_dir, experiment_name, sweep_name
+                )
+            )
+        artifact_dir = artifact_dir.resolve()
         cmd = self.build_command(str(config_path), run_config)
         cmd_str = " ".join(cmd)
 
