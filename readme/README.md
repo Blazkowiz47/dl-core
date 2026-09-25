@@ -4,16 +4,15 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.8`.
-Current development version: `0.1.8`.
+Current public release: `deep-learning-core==0.1.9`.
+Current development version: `0.1.9`.
 
-## What's New in 0.1.8?
+## What's New in 0.1.9?
 
-- checkpoint resume and saves are safer across epoch, iteration, and RL trainers
-- sweep names are checked for uniqueness, and resume uses saved names to
-  identify originally selected runs after a grid reorder
-- fresh sweeps ask before replacing an existing tracker
-- PyTorch versions above 2.3 are allowed without an upper cap
+- custom sweep name templates may choose their fields while final names stay
+  unique
+- `--overwrite` makes intentional non-interactive fresh sweep replacement
+  possible
 
 Previous versions are recorded in the [release history](../RELEASES.md).
 

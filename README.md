@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.8`.
-Current development version: `0.1.8`.
+Current public release: `deep-learning-core==0.1.9`.
+Current development version: `0.1.9`.
 
 Compatible companion package floors:
 
@@ -21,15 +21,12 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.8?
+## What's New in 0.1.9?
 
-- checkpoint resume now fails loudly when all candidates are corrupt, and
-  checkpoint writes are atomic across trainers
-- sweep run names are unique before any configs are written; resume matches
-  saved run names even when grid order changes
-- an existing sweep tracker requires confirmation before a fresh run replaces it
-- the PyTorch requirement is `torch>2.3`, with no upper cap; select the version
-  appropriate for your project and accelerator
+- custom sweep name templates may choose which fields define a run; final run
+  names must still be unique
+- `dl-sweep --overwrite` permits an intentional non-interactive replacement of
+  existing sweep data and generated run configs
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

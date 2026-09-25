@@ -3,7 +3,7 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
-## Unreleased
+## 0.1.9
 
 - custom sweep name templates may choose their grid fields; final run names
   must still be unique
