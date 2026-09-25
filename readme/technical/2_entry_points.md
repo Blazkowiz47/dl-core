@@ -154,6 +154,7 @@ Useful flags:
 - `--skip`
 - `--dry-run`
 - `--resume`
+- `--overwrite`
 - `--max-workers`
 - `--compute`
 - `--environment`
@@ -165,15 +166,15 @@ Notes:
 - `--export preview.csv` or `--export preview.json` writes that matrix to disk
 - `--only` and `--skip` accept repeatable run-name glob patterns; selected runs
   keep their original sweep indices for tracking. `--resume` only retries that
-  original selection, even when the filters are omitted. Run names must be
-  unique and custom name templates must include each grid field
+  original selection, even when the filters are omitted. Final run names must
+  be unique; templates may choose which grid fields define a run name
 - a fresh execution asks before replacing an existing sweep tracker and its
-  generated configs; without an interactive confirmation it stops safely
+  generated configs; use `--overwrite` to allow this in non-interactive runs
 - `--compute` and `--environment` override the matching `executor` config fields
 - `--max-workers` overrides `executor.max_workers`; when neither is set the
   runner uses one worker
-- `--dry-run` still goes through normal executor wiring, but does not execute
-  the generated runs
+- `--dry-run` still writes generated run YAML and goes through normal executor
+  wiring, but does not execute the runs or replace the tracker
 - `dl-sweep` exits with code 1 if any run failed, code 3 if no run failed but
   any status is unknown, and code 0 for completed or still-running jobs
 - `--resume` retries failed and pending runs; running and unknown jobs must be

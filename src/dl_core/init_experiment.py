@@ -176,7 +176,7 @@ def _project_agents_md(project_name: str) -> str:
 - `uv run dl-inspect-dataset --config configs/base.yaml` inspects realized split sizes and one batch.
 - `uv run dl-smoke --config configs/base.yaml` runs the built-in one-batch smoke test.
 - `uv run dl-sweep experiments/lr_sweep.yaml --preview` shows the expanded sweep matrix without execution.
-- `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` exercises sweep generation and executor wiring without execution.
+- `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` writes generated run YAML and exercises executor wiring without execution; use `--overwrite` only when replacing existing generated configs is intended.
 - `uv run dl-sweep experiments/lr_sweep.yaml` runs the sweep after a single run already works.
 - `uv run dl-analyze --sweep experiments/lr_sweep.yaml` summarizes a finished sweep.
 - `uv run dl-analyze --sweep experiments/lr_sweep.yaml --compare latest` compares against the latest saved analysis.
@@ -204,7 +204,7 @@ def _project_agents_md(project_name: str) -> str:
 - Never run `rm -rf experiments/<sweep_name>` or any equivalent cleanup to refresh sweep configs.
 - Treat `experiments/<sweep_name>/` as sweep state once a sweep has started. That includes generated YAMLs, `sweep_tracking.json`, and `analysis/`.
 - If run YAMLs need to be regenerated, overwrite specific YAML files in place. Do not delete the whole sweep directory.
-- Use `--preview` or `--dry-run` to inspect sweep changes without executing runs.
+- Use `--preview` to inspect sweep changes without writing files. `--dry-run` writes generated run YAML; use `--overwrite` only when replacing existing configs is intended.
 
 ## Workflow
 

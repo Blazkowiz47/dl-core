@@ -241,9 +241,11 @@ when you want to save that expansion for review.
 Use `--only` and `--skip` with glob patterns when you want to execute or
 preview only a subset of generated run names. A later `--resume` retries only
 the runs selected when that sweep started, even if you omit the filters. Run
-names must be unique and include the grid fields they represent. If existing
-sweep data would be overwritten, a fresh run asks for confirmation before
-writing; `--resume` keeps the existing tracker.
+names must be unique; include any fields whose changes should define a new run.
+If existing sweep data would be overwritten, a fresh run asks for confirmation
+before writing. Use `--overwrite` for an intentional non-interactive replacement;
+`--resume` keeps the existing tracker. `--dry-run` still writes generated YAML,
+while `--preview` does not.
 
 `dl-inspect-dataset` preserves the configured split behavior, but forces
 single-process loading so you can quickly verify split sizes and inspect one

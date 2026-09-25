@@ -261,8 +261,15 @@ def main():
         action="store_true",
         help="Resume sweep: only run failed and pending runs (skip completed)",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace existing sweep data without prompting (fresh sweeps only)",
+    )
 
     args = parser.parse_args()
+    if args.resume and args.overwrite:
+        parser.error("--overwrite cannot be used with --resume")
     if args.sweep_path and args.sweep_flag and args.sweep_path != args.sweep_flag:
         parser.error("Pass the sweep file either positionally or with --sweep.")
     sweep_arg = args.sweep_flag or args.sweep_path
@@ -485,7 +492,7 @@ def main():
 
     if not args.resume:
         tracker_path = SweepTracker(sweep_path, experiment_name, sweep_id).json_path
-        if tracker_path.exists():
+        if tracker_path.exists() and not args.overwrite:
             if not sys.stdin.isatty():
                 print(
                     f"Existing sweep data at {tracker_path}; run interactively "

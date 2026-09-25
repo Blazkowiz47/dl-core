@@ -172,15 +172,6 @@ class ConfigBuilder:
         prepared_configs = []
         seen_names: Dict[str, int] = {}
 
-        if run_name_template:
-            named_fields = set(re.findall(r"\{([^}]+)\}", run_name_template))
-            missing_fields = set(self._resolve_preset_references(self.grid)) - named_fields
-            if missing_fields:
-                raise ValueError(
-                    "Run name template must include every grid field: "
-                    f"{', '.join(sorted(missing_fields))}"
-                )
-
         for idx, run_config in enumerate(run_configs):
             prepared_config = copy.deepcopy(run_config)
             run_index = prepared_config.get("_sweep_run_index", idx)

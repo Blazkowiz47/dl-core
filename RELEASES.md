@@ -3,6 +3,13 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## Unreleased
+
+- custom sweep name templates may choose their grid fields; final run names
+  must still be unique
+- `dl-sweep --overwrite` explicitly permits non-interactive replacement of
+  existing sweep data and generated configs
+
 ## 0.1.8
 
 - checkpoint writes are atomic, corrupt auto-resume candidates fail loudly,

@@ -89,16 +89,43 @@ def test_sweep_run_names_must_be_unique_before_saving(tmp_path: Path) -> None:
     assert not list(tmp_path.iterdir())
 
 
-def test_sweep_run_name_template_must_cover_grid_fields() -> None:
-    """A custom name cannot hide a variable that changes between runs."""
+def test_sweep_run_name_template_can_omit_grid_fields() -> None:
+    """Preset grids can name their resolved values without naming the preset key."""
     builder = ConfigBuilder(
         {
-            "grid": {"optimizers.lr": [0.1, 0.2], "trainer.batch_size": [16]},
+            "grid": {
+                "optim": ["preset:small", "preset:large"],
+                "trainer.batch_size": [16],
+            },
             "tracking": {"run_name_template": "lr_{optimizers.lr}"},
+        },
+        template_presets={
+            "small": {"optimizers.lr": 0.001},
+            "large": {"optimizers.lr": 0.01},
+        },
+    )
+    configs = builder.generate_run_configs(
+        {"optimizers": {"lr": 0.1}, "trainer": {"batch_size": 8}}, seeds=[7]
+    )
+
+    assert [name for _, _, name in builder.prepare_configs(configs)] == [
+        "lr_0.001_seed_7",
+        "lr_0.01_seed_7",
+    ]
+
+
+def test_sweep_run_name_template_still_rejects_duplicates() -> None:
+    """Omitting distinguishing fields is allowed only when final names differ."""
+    builder = ConfigBuilder(
+        {
+            "grid": {"optimizers.lr": [0.1, 0.2]},
+            "tracking": {"run_name_template": "same"},
         }
     )
-    with pytest.raises(ValueError, match="trainer.batch_size"):
-        builder.prepare_configs([{"optimizers": {"lr": 0.1}, "seed": 7}])
+    configs = builder.generate_run_configs({"optimizers": {"lr": 0.1}}, seeds=[7])
+
+    with pytest.raises(ValueError, match="Duplicate sweep run name"):
+        builder.prepare_configs(configs)
 
 
 def test_default_run_names_encode_exact_float_values_and_seeds() -> None:
@@ -399,15 +426,25 @@ def test_sweep_constructs_executor_with_base_signature(
 
 
 @pytest.mark.parametrize(
-    ("answer", "interactive"), [("n", True), ("y", True), (None, False)]
+    ("answer", "interactive", "overwrite", "dry_run"),
+    [
+        ("n", True, False, False),
+        ("y", True, False, False),
+        (None, False, False, False),
+        (None, False, True, False),
+        (None, False, False, True),
+        (None, False, True, True),
+    ],
 )
 def test_fresh_sweep_confirms_before_overwriting_tracker(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     answer: str | None,
     interactive: bool,
+    overwrite: bool,
+    dry_run: bool,
 ) -> None:
-    """Declining an overwrite leaves both tracking and run configs untouched."""
+    """An explicit flag permits non-interactive config replacement."""
     sweep_path = tmp_path / "sweep.yaml"
     sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
     base_path = tmp_path / "base.yaml"
@@ -418,7 +455,12 @@ def test_fresh_sweep_confirms_before_overwriting_tracker(
     )
     original = tracker.json_path.read_bytes()
 
-    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path)])
+    argv = ["dl-sweep", str(sweep_path)]
+    if overwrite:
+        argv.append("--overwrite")
+    if dry_run:
+        argv.append("--dry-run")
+    monkeypatch.setattr("sys.argv", argv)
     monkeypatch.setattr(
         runner.sys, "stdin", SimpleNamespace(isatty=lambda: interactive)
     )
@@ -438,14 +480,31 @@ def test_fresh_sweep_confirms_before_overwriting_tracker(
         lambda name, *args, **kwargs: ClaimingExecutor(*args, **kwargs),
     )
 
-    assert runner.main() == (0 if answer == "y" else 1)
-    if answer != "y":
+    proceed = answer == "y" or overwrite
+    assert runner.main() == (0 if proceed else 1)
+    if not proceed or dry_run:
         assert tracker.json_path.read_bytes() == original
-        assert not list(tracker.json_path.parent.glob("*.yaml"))
     else:
         assert tracker.get_sweep_data()["selected_run_names"] == {
             "0": "run_000_seed_42"
         }
+    if not proceed:
+        assert not list(tracker.json_path.parent.glob("*.yaml"))
+    else:
+        assert list(tracker.json_path.parent.glob("*.yaml"))
+
+
+def test_overwrite_cannot_be_used_with_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An overwrite flag must never silently turn resume into a fresh sweep."""
+    monkeypatch.setattr(
+        "sys.argv", ["dl-sweep", "sweep.yaml", "--resume", "--overwrite"]
+    )
+
+    with pytest.raises(SystemExit) as error:
+        runner.main()
+    assert error.value.code == 2
 
 
 def test_sweep_uses_configured_worker_count_without_cli_override(

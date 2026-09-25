@@ -357,6 +357,12 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "uv run python scripts/temporary/test_dataset.py" in agents_text
     assert "uv run python scripts/temporary/test_model.py" in agents_text
     assert "uv run dl-sweep experiments/lr_sweep.yaml --dry-run" in agents_text
+    assert "Use `--preview` to inspect sweep changes without writing files." in (
+        agents_text
+    )
+    assert "use `--overwrite` only when replacing existing configs is intended." in (
+        agents_text
+    )
     assert "uv run dl-analyze --sweep experiments/lr_sweep.yaml" in agents_text
     assert "`experiments/experiments.log` automatically when it exists" in agents_text
     assert "# named-demo Experiment Repository Guidelines" in agents_text
