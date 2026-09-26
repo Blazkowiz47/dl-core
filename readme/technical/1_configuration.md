@@ -108,8 +108,24 @@ and splits shards with `split_by_node` and `split_by_worker`. Training can use a
 resampled stream with `IterationTrainer`; validation and test should normally
 remain finite. `shard_shuffle`, `sample_shuffle`, `sample_shuffle_initial`,
 `resampled`, and `empty_check` may be scalars or split-specific mappings.
+`empty_check` defaults to `false`, allowing a rank or worker with no assigned
+shards to finish its stream. An epoch with no shared training batches still
+fails clearly. Set `empty_check: true` to treat an empty worker stream as an
+error. `strict_pairs: false` skips missing-member samples with a warning;
+the default raises instead. Transform errors still raise unless a project
+wrapper handles them.
 `mix_longest` controls whether a finite weighted mix continues after one source
 is exhausted and defaults to `true` for non-resampled streams.
+
+`EpochTrainer` supports finite iterable training loaders by stopping every rank
+before the first unmatched batch. It finalizes a partial gradient-accumulation
+window on the last shared batch; valid tail samples on longer ranks are not
+trained on. Use `IterationTrainer` for infinite or resampled training streams.
+Validation/test do not use that shortest-rank cutoff: each rank evaluates all
+its valid samples, and globally empty splits raise. For uneven evaluation, use
+the metric manager's default `gather` mode rather than `average`. Custom model
+forwards and batch callbacks must avoid their own per-batch distributed
+collectives in evaluation.
 
 `dataset.shards` and `shard_patterns` are default conveniences. A project
 wrapper can instead override `build_shard_sources(split)` and return entries

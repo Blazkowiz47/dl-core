@@ -310,6 +310,21 @@ class MultiGPUAccelerator(BaseAccelerator):
             return model.module
         return model
 
+    def prepare_eval_models(
+        self, models: Dict[str, nn.Module]
+    ) -> Dict[str, nn.Module]:
+        """Sync buffers once, then avoid DDP collectives in uneven eval loops."""
+
+        prepared = {}
+        for name, model in models.items():
+            if isinstance(model, DDP):
+                for buffer in model.module.buffers():
+                    dist.broadcast(buffer, src=0)
+                prepared[name] = model.module
+            else:
+                prepared[name] = model
+        return prepared
+
     def get_accelerator_state(self) -> Dict[str, Any]:
         """Return scaler state if using mixed precision."""
         if self.scaler is not None:

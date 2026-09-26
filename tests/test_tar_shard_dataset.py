@@ -164,11 +164,14 @@ def test_dynamic_source_weights_are_passed_to_webdataset_random_mix(
 
     loader = wrapper.get_split("train")
     assert loader is not None
+    assert loader.dataset.is_resampled
     assert loader.dataset.probs == [0.6, 0.4]
     assert next(iter(loader))["source_name"][0] in {"bonafide", "attack"}
 
 
-def test_tar_wrapper_skips_incomplete_pairs_when_not_strict(tmp_path: Path) -> None:
+def test_tar_wrapper_skips_incomplete_pairs_when_not_strict(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     tar_path = tmp_path / "mixed.tar"
     _write_tar(
         tar_path,
@@ -180,8 +183,35 @@ def test_tar_wrapper_skips_incomplete_pairs_when_not_strict(tmp_path: Path) -> N
     loader = _wrapper(tar_path, strict_pairs=False).get_split("train")
     assert loader is not None
 
-    batch = next(iter(loader))
-    assert batch["key"] == ["complete"]
+    batches = list(loader)
+    assert [batch["key"] for batch in batches] == [["complete"]]
+    assert "Skipping sample 'incomplete'" in caplog.text
+
+
+@pytest.mark.parametrize("split", ["train", "validation"])
+def test_tar_wrapper_allows_empty_rank_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, split: str
+) -> None:
+    tar_path = tmp_path / "samples.tar"
+    _write_tar(tar_path, {"sample": {"png": b"image", "json": b"{}"}})
+    monkeypatch.setattr(dist, "is_available", lambda: True)
+    monkeypatch.setattr(dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(dist, "get_world_size", lambda *args, **kwargs: 2)
+    monkeypatch.setattr(dist, "get_rank", lambda *args, **kwargs: 1)
+
+    wrapper = _BytesTarWrapper(
+        {
+            "shards": {split: [str(tar_path)]},
+            "required_extensions": ["png", "json"],
+            "batch_size": 1,
+            "num_workers": 0,
+            "shuffle": False,
+            "auto_split": False,
+        }
+    )
+    loader = wrapper.get_split(split)
+    assert loader is not None
+    assert list(loader) == []
 
 
 def test_webdataset_is_required_only_when_tar_wrapper_is_used(
@@ -260,3 +290,50 @@ def test_webdataset_splits_shards_between_distributed_ranks(
         "sample-2",
         "sample-3",
     }
+
+
+def test_skipped_sample_inside_shard_changes_rank_batch_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.tar"
+    second = tmp_path / "second.tar"
+    _write_tar(
+        first,
+        {
+            f"first-{index}": {"png": b"image", "json": b"{}"}
+            for index in range(3)
+        },
+    )
+    _write_tar(
+        second,
+        {
+            "second-0": {"png": b"image", "json": b"{}"},
+            "second-1": {"png": b"image", "json": b"{}"},
+            "malformed": {"png": b"image"},
+        },
+    )
+    monkeypatch.setattr(dist, "is_available", lambda: True)
+    monkeypatch.setattr(dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(dist, "get_world_size", lambda *args, **kwargs: 2)
+
+    counts = []
+    for rank in range(2):
+        monkeypatch.setattr(
+            dist, "get_rank", lambda *args, current_rank=rank, **kwargs: current_rank
+        )
+        wrapper = _BytesTarWrapper(
+            {
+                "shards": {"train": [str(first), str(second)]},
+                "required_extensions": ["png", "json"],
+                "strict_pairs": False,
+                "batch_size": 1,
+                "num_workers": 0,
+                "shuffle": False,
+                "auto_split": False,
+            }
+        )
+        loader = wrapper.get_split("train")
+        assert loader is not None
+        counts.append(len(list(loader)))
+
+    assert counts == [3, 2]

@@ -339,6 +339,13 @@ class BaseAccelerator(ABC):
         """
         pass
 
+    def prepare_eval_models(
+        self, models: Dict[str, nn.Module]
+    ) -> Dict[str, nn.Module]:
+        """Return models to use for local evaluation forwards."""
+
+        return models
+
     @abstractmethod
     def get_accelerator_state(self) -> Dict[str, Any]:
         """

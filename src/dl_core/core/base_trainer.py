@@ -6,9 +6,10 @@ import time
 import traceback
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
+from itertools import islice
 from pathlib import Path
-from typing import Any, ContextManager
+from typing import Any, Iterator
 
 import numpy as np
 import torch
@@ -16,7 +17,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 from tqdm import tqdm
 
 from dl_core.core import BaseAccelerator, BaseCriterion, BaseModel, BaseWrapper
@@ -684,11 +685,39 @@ class EpochTrainer(ABC):
             self.use_ema_for_eval,
         )
 
-    def _get_eval_param_context(self) -> ContextManager[Any]:
-        """Return EMA parameter swap context for evaluation when configured."""
-        if self.ema is None or not self.use_ema_for_eval:
-            return nullcontext()
-        return self.ema.average_parameters()
+    @contextmanager
+    def _get_eval_param_context(self) -> Iterator[None]:
+        """Apply EMA and use local replicas without per-batch DDP collectives."""
+
+        ema_context = (
+            self.ema.average_parameters()
+            if self.ema is not None and self.use_ema_for_eval
+            else nullcontext()
+        )
+        with ema_context:
+            wrapped_models = self.models.copy()
+            try:
+                self.models.update(
+                    self.accelerator.prepare_eval_models(wrapped_models)
+                )
+                yield
+            finally:
+                self.models.update(wrapped_models)
+
+    def _eval_loader_available(self, split: str) -> bool:
+        """Make the decision to enter evaluation identical on every rank."""
+
+        available = self.data_loader.get(split) is not None
+        if not getattr(self.accelerator, "use_distributed", False):
+            return available
+
+        count = torch.tensor(
+            int(available), dtype=torch.int32, device=self.accelerator.get_device()
+        )
+        dist.all_reduce(count, op=dist.ReduceOp.SUM)
+        if 0 < count.item() < dist.get_world_size():
+            raise RuntimeError(f"{split} loader is missing on some ranks")
+        return bool(count.item())
 
     def _setup_data(self) -> None:
         """Setup data loaders."""
@@ -713,7 +742,14 @@ class EpochTrainer(ABC):
                 self.logger.info(f"  {stat}")
             dataloader = self.data_loader[split]
             if dataloader is not None:
-                loader_info = f"{capitalized_split}: {len(dataloader)} batches"
+                if isinstance(dataloader.dataset, IterableDataset):
+                    batch_count = "unknown"
+                else:
+                    try:
+                        batch_count = len(dataloader)
+                    except TypeError:
+                        batch_count = "unknown"
+                loader_info = f"{capitalized_split}: {batch_count} batches"
 
         self.logger.info(f"Setup data loaders - {loader_info}")
 
@@ -1084,8 +1120,7 @@ class EpochTrainer(ABC):
             # Validation phase
             if (
                 (epoch % self.validation_frequency == 0 or epoch == self.epochs)
-                and self.validation_loader is not None
-                and len(self.validation_loader)
+                and self._eval_loader_available("validation")
             ):
                 self.callbacks.on_validation_start(self.current_epoch)
                 self.accelerator.wait_for_everyone("after on_validation_start")
@@ -1100,8 +1135,7 @@ class EpochTrainer(ABC):
             # Testing phase (periodic based on config)
             if (
                 (epoch % self.test_frequency == 0 or epoch == self.epochs)
-                and self.test_loader is not None
-                and len(self.test_loader)
+                and self._eval_loader_available("test")
             ):
                 self.callbacks.on_test_start(self.current_epoch)
                 self.accelerator.wait_for_everyone("after on_test_start")
@@ -1918,6 +1952,54 @@ class EpochTrainer(ABC):
 
         return step_metrics
 
+    def _iter_unsized_train_batches(
+        self, data_loader: DataLoader
+    ) -> Iterator[tuple[int, dict[str, Any], bool]]:
+        """Stop all ranks at the shortest finite stream before a DDP forward."""
+
+        iterator = iter(data_loader)
+        current_batch: dict[str, Any] | None = None
+        has_current = False
+        batch_idx = 0
+        while True:
+            load_error: Exception | None = None
+            try:
+                next_batch = next(iterator)
+                local_status = 1
+            except StopIteration:
+                next_batch = None
+                local_status = 0
+            except Exception as error:
+                next_batch = None
+                local_status = -1
+                load_error = error
+
+            status = local_status
+            if self.accelerator.use_distributed:
+                status_tensor = torch.tensor(
+                    local_status,
+                    dtype=torch.int32,
+                    device=self.accelerator.get_device(),
+                )
+                dist.all_reduce(status_tensor, op=dist.ReduceOp.MIN)
+                status = int(status_tensor.item())
+
+            if status < 0:
+                if load_error is not None:
+                    raise load_error
+                raise RuntimeError("Training data stream failed on another rank")
+            if has_current:
+                assert current_batch is not None
+                yield batch_idx, current_batch, status == 0
+                batch_idx += 1
+            if status == 0:
+                self.logger.info(
+                    f"Streaming epoch stopped after {batch_idx} shared batches"
+                )
+                return
+            current_batch = next_batch
+            has_current = True
+
     def _train_epoch(self) -> dict[str, float]:
         """
         Training loop for one epoch.
@@ -1947,58 +2029,74 @@ class EpochTrainer(ABC):
         for manager in self.metric_managers.values():
             manager.reset_metrics(split_text)
 
-        # Create progress bar for training (only on rank 0)
-        show_progress = self.show_progress and self.accelerator.is_main_process()
         data_loader = self.data_loader[split_text]
         if data_loader is None:
             self.logger.warning(
                 f"No data loader for split: {split_text} - skipping epoch"
             )
             return {}
+        dataset = getattr(data_loader, "dataset", None)
+        if getattr(dataset, "is_resampled", False):
+            raise ValueError(
+                "EpochTrainer needs a finite training stream; use "
+                "IterationTrainer for resampled data"
+            )
 
+        self.logger.debug(f"Starting training epoch {self.current_epoch}")
+
+        if isinstance(dataset, IterableDataset):
+            local_batch_count = None
+        else:
+            try:
+                local_batch_count = len(data_loader)
+            except TypeError:
+                local_batch_count = None
+
+        if local_batch_count is None:
+            batches = self._iter_unsized_train_batches(data_loader)
+            total_batches = None
+        else:
+            min_batch_count = local_batch_count
+            if self.accelerator.use_distributed:
+                batch_count_tensor = torch.tensor(
+                    local_batch_count,
+                    dtype=torch.int64,
+                    device=self.accelerator.get_device(),
+                )
+                batch_counts = [
+                    torch.zeros_like(batch_count_tensor)
+                    for _ in range(dist.get_world_size())
+                ]
+                dist.all_gather(batch_counts, batch_count_tensor)
+                min_batch_count = min(bc.item() for bc in batch_counts)
+                if local_batch_count != min_batch_count:
+                    self.logger.info(
+                        f"Adjusting batch count from {local_batch_count} to "
+                        f"{min_batch_count} for consistency across ranks"
+                    )
+            total_batches = min_batch_count
+            batches = (
+                (batch_idx, batch_data, batch_idx + 1 == min_batch_count)
+                for batch_idx, batch_data in islice(
+                    enumerate(data_loader), min_batch_count
+                )
+            )
+
+        show_progress = self.show_progress and self.accelerator.is_main_process()
         pbar = tqdm(
-            data_loader,
+            batches,
+            total=total_batches,
             desc=f"Epoch {self.current_epoch} [{split_text.capitalize()}]",
             leave=False,
             disable=not show_progress,
         )
 
-        self.logger.debug(f"Starting training epoch {self.current_epoch}")
-
-        # Synchronize batch counts across all ranks to ensure consistent training
-        local_batch_count = len(data_loader)
-        min_batch_count = local_batch_count
-
-        if self.accelerator.use_distributed:
-            # Only synchronize for training, not validation/test
-            batch_count_tensor = torch.tensor(
-                local_batch_count,
-                dtype=torch.int64,
-                device=self.accelerator.get_device(),
-            )
-            batch_counts = [
-                torch.zeros_like(batch_count_tensor)
-                for _ in range(dist.get_world_size())
-            ]
-            dist.all_gather(batch_counts, batch_count_tensor)
-            min_batch_count = min(bc.item() for bc in batch_counts)
-
-            if local_batch_count != min_batch_count:
-                self.logger.info(
-                    f"Adjusting batch count from {local_batch_count} to {min_batch_count} for consistency across ranks"
-                )
-
         for optimizer in self.optimizers.values():
             optimizer.zero_grad()
 
-        for batch_idx, batch_data in enumerate(pbar):
-            # Stop at minimum batch count to ensure all ranks process same number of batches
-            if batch_idx >= min_batch_count:
-                self.logger.debug(
-                    f"Stopping at batch {batch_idx} (min_batch_count={min_batch_count})"
-                )
-                break
-            self._finalize_accumulation = batch_idx + 1 == min_batch_count
+        processed_batches = 0
+        for batch_idx, batch_data, is_final in pbar:
+            self._finalize_accumulation = is_final
             # Move batch to device
             start = time.time()
             batch_data = self.preprocess_batch(batch_data, split_text)
@@ -2027,17 +2125,22 @@ class EpochTrainer(ABC):
 
             # Logging (reduced frequency since we have progress bar)
             if batch_idx % self.print_freq == 0 and batch_idx > 0:
-                text = f"Epoch {self.current_epoch} [{batch_idx}/{len(self.train_loader)}] "
+                total_text = total_batches if total_batches is not None else "?"
+                text = f"Epoch {self.current_epoch} [{batch_idx}/{total_text}] "
                 for key, meter in meters.get_averages().items():
                     text += f"{key.capitalize()}: {meter:.4f}  "
                 self.logger.info(text)
 
             self.global_step += 1
+            processed_batches += 1
 
             # # DIAGNOSTIC: Early exit after 100 batches
             # if batch_idx >= 99:
             #     self.logger.info("[DIAGNOSTIC] Early exit after 100 training batches")
             #     break
+
+        if processed_batches == 0:
+            raise RuntimeError("No shared training batches were available this epoch")
 
         for optimizer in self.optimizers.values():
             optimizer.zero_grad()
@@ -2061,6 +2164,66 @@ class EpochTrainer(ABC):
             )
 
         return epoch_metrics
+
+    @contextmanager
+    def _synchronize_eval_errors(self, split: str) -> Iterator[None]:
+        """Propagate local stream or step failures before the final barrier."""
+
+        local_error: Exception | None = None
+        try:
+            yield
+        except Exception as error:
+            local_error = error
+
+        if self.accelerator.use_distributed:
+            failed = torch.tensor(
+                int(local_error is not None),
+                dtype=torch.int32,
+                device=self.accelerator.get_device(),
+            )
+            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
+            if failed.item() and local_error is None:
+                raise RuntimeError(f"{split} evaluation failed on another rank")
+        if local_error is not None:
+            raise local_error
+
+    def _collect_eval_meters(
+        self, meters: MeterTracker, local_samples: int, split: str
+    ) -> dict[str, float]:
+        """Combine sample-weighted step metrics after all local eval batches."""
+
+        local_state = (
+            local_samples,
+            {
+                name: (meter.sum, meter.count)
+                for name, meter in meters.meters.items()
+            },
+        )
+        gathered_states = [local_state]
+        if self.accelerator.use_distributed:
+            gathered_states = [None] * dist.get_world_size()
+            dist.all_gather_object(gathered_states, local_state)
+
+        sample_counts = [state[0] for state in gathered_states]
+        if sum(sample_counts) == 0:
+            raise RuntimeError(f"No valid {split} samples were evaluated")
+        if len(set(sample_counts)) > 1 and any(
+            manager.mode == "average" for manager in self.metric_managers.values()
+        ):
+            raise RuntimeError(
+                f"Uneven {split} streams require metric manager mode='gather'"
+            )
+
+        totals: dict[str, tuple[float, int]] = {}
+        for _, rank_meters in gathered_states:
+            for name, (value_sum, count) in rank_meters.items():
+                previous_sum, previous_count = totals.get(name, (0.0, 0))
+                totals[name] = (previous_sum + value_sum, previous_count + count)
+        return {
+            name: value_sum / count
+            for name, (value_sum, count) in totals.items()
+            if count
+        }
 
     def _test_epoch(self) -> dict[str, float]:
         """
@@ -2087,12 +2250,13 @@ class EpochTrainer(ABC):
 
         # Metrics tracking
         meters = MeterTracker()
+        local_samples = 0
 
         # Reset metrics for new epoch
         for manager in self.metric_managers.values():
             manager.reset_metrics(split_text)
 
-        with torch.no_grad():
+        with self._synchronize_eval_errors(split_text), torch.no_grad():
             # Create progress bar for testing (only on rank 0)
             show_progress = self.show_progress and self.accelerator.is_main_process()
             pbar = tqdm(
@@ -2117,6 +2281,7 @@ class EpochTrainer(ABC):
                 self.callbacks.on_batch_end(batch_idx, split_text, batch_data)
                 batch_size = self._get_batch_size(batch_data)
                 meters.update(step_metrics, batch_size)
+                local_samples += batch_size
                 pbar.set_postfix(meters.get_postfix(self.pbar_metrics[split_text]))
 
                 # # DIAGNOSTIC: Early exit after 100 batches
@@ -2128,7 +2293,7 @@ class EpochTrainer(ABC):
         self.accelerator.wait_for_everyone(f"after {split_text} loop completion")
 
         # Compute epoch metrics using all metric managers
-        epoch_metrics: dict[str, float] = meters.get_averages()
+        epoch_metrics = self._collect_eval_meters(meters, local_samples, split_text)
         for manager_name, manager in self.metric_managers.items():
             manager_metrics = manager.compute(split_text)
             self.accelerator.wait_for_everyone(
@@ -2169,12 +2334,13 @@ class EpochTrainer(ABC):
 
         # Metrics tracking
         meters = MeterTracker()
+        local_samples = 0
 
         # Reset metrics for new epoch
         for manager in self.metric_managers.values():
             manager.reset_metrics(split_text)
 
-        with torch.no_grad():
+        with self._synchronize_eval_errors(split_text), torch.no_grad():
             # Create progress bar for testing (only on rank 0)
             show_progress = self.show_progress and self.accelerator.is_main_process()
             pbar = tqdm(
@@ -2202,6 +2368,7 @@ class EpochTrainer(ABC):
                 self.callbacks.on_batch_end(batch_idx, split_text, batch_data)
                 batch_size = self._get_batch_size(batch_data)
                 meters.update(step_metrics, batch_size)
+                local_samples += batch_size
                 pbar.set_postfix(meters.get_postfix(self.pbar_metrics[split_text]))
 
                 # DIAGNOSTIC: Early exit after 100 batches
@@ -2215,7 +2382,7 @@ class EpochTrainer(ABC):
         self.accelerator.wait_for_everyone(f"after {split_text} loop completion")
 
         # Compute epoch metrics using all metric managers
-        epoch_metrics: dict[str, float] = meters.get_averages()
+        epoch_metrics = self._collect_eval_meters(meters, local_samples, split_text)
         for manager_name, manager in self.metric_managers.items():
             manager_metrics = manager.compute(split_text)
             self.accelerator.wait_for_everyone(
@@ -2450,6 +2617,8 @@ class EpochTrainer(ABC):
         Returns:
             Dictionary of test metrics for this epoch
         """
+        if not self._eval_loader_available("test"):
+            return {}
         with self._get_eval_param_context():
             return self._test_epoch()
 
@@ -2460,6 +2629,8 @@ class EpochTrainer(ABC):
         Returns:
             Dictionary of validation metrics for this epoch
         """
+        if not self._eval_loader_available("validation"):
+            return {}
         with self._get_eval_param_context():
             return self._validation_epoch()
 

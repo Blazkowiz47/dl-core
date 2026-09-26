@@ -116,17 +116,6 @@ class IterationTrainer(EpochTrainer):
         self.accelerator.set_sampler_epoch(data_cycle)
         self.dataset_wrapper.set_epoch(data_cycle)
 
-    @staticmethod
-    def _loader_has_batches(loader: Any) -> bool:
-        """Return whether an optional sized or streaming loader can be evaluated."""
-
-        if loader is None:
-            return False
-        try:
-            return len(loader) > 0
-        except TypeError:
-            return True
-
     def _accumulation_pending(self) -> bool:
         """Return whether gradients are waiting for an optimizer boundary."""
 
@@ -383,8 +372,8 @@ class IterationTrainer(EpochTrainer):
                 )
                 self.set_metrics("general", general_logs)
 
-                if (validation_pending or is_final) and self._loader_has_batches(
-                    self.validation_loader
+                if (validation_pending or is_final) and self._eval_loader_available(
+                    "validation"
                 ):
                     self.callbacks.on_validation_start(self.current_iteration)
                     validation_metrics = self.validation_epoch()
@@ -394,8 +383,8 @@ class IterationTrainer(EpochTrainer):
                         validation_metrics,
                     )
 
-                if (test_pending or is_final) and self._loader_has_batches(
-                    self.test_loader
+                if (test_pending or is_final) and self._eval_loader_available(
+                    "test"
                 ):
                     self.callbacks.on_test_start(self.current_iteration)
                     test_metrics = self.test_epoch()

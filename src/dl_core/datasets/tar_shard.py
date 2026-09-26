@@ -159,6 +159,10 @@ class TarShardWrapper(BaseWrapper):
                     f"Sample {key!r} in {source} is missing extensions: "
                     f"{sorted(missing)}"
                 )
+            self.logger.warning(
+                f"Skipping sample {key!r} in {source}: missing extensions "
+                f"{sorted(missing)}"
+            )
             return None
 
         metadata = metadata_by_shard.get(source, {})
@@ -237,9 +241,7 @@ class TarShardWrapper(BaseWrapper):
                 detshuffle=bool(self.deterministic and shard_shuffle),
                 nodesplitter=wds.split_by_node,
                 workersplitter=wds.split_by_worker,
-                empty_check=bool(
-                    self._webdataset_value("empty_check", split, True)
-                ),
+                empty_check=bool(self._webdataset_value("empty_check", split, False)),
                 cache_dir=cache_dir,
                 cache_size=int(config.get("cache_size", -1)),
                 seed=self.seed,
@@ -285,6 +287,7 @@ class TarShardWrapper(BaseWrapper):
                 ),
             )
         dataset.is_distributed = True
+        dataset.is_resampled = resampled
         return dataset
 
     def _get_split(

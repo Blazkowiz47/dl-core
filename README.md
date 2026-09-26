@@ -541,6 +541,20 @@ Positive-weight sources are passed to WebDataset `RandomMix`. The weights are
 probabilistic rather than an exact within-batch composition and are most useful
 with a resampled iteration-based training stream.
 
+For finite iterable streams, `EpochTrainer` stops training at the shortest rank's
+last shared batch by default; longer ranks leave their remaining tail unused.
+`IterationTrainer` remains the choice for resampled or endless training streams.
+Validation and test instead process every valid shard sample, even when a rank
+has no batches. Use metric-manager `gather` mode for uneven evaluation; a
+rank-average metric is rejected when sample counts differ. Models and batch
+callbacks should not perform their own distributed collectives during
+evaluation.
+
+Missing grouped members raise by default. With `strict_pairs: false`, those
+samples are skipped with a warning, so realized sample counts may differ from
+shard inventories or project-specific quotas. Other transform errors still
+raise unless the project handles them explicitly.
+
 ## Releases
 
 - `Publish` is the production workflow for PyPI.
