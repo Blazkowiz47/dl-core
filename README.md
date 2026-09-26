@@ -12,7 +12,7 @@ own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
 Current public release: `deep-learning-core==0.1.9`.
-Current development version: `0.1.9`.
+Current development version: `0.1.10`.
 
 Compatible companion package floors:
 
@@ -21,12 +21,14 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.9?
+## What's New in 0.1.10?
 
-- custom sweep name templates may choose which fields define a run; final run
-  names must still be unique
-- `dl-sweep --overwrite` permits an intentional non-interactive replacement of
-  existing sweep data and generated run configs
+- finite iterable training stops at the shortest distributed rank's stream and
+  finalizes partial gradient-accumulation windows
+- validation and test process all valid samples across uneven ranks, including
+  ranks with no local batches
+- tar-shard streams allow empty rank/worker assignments by default and warn
+  when non-strict missing-member samples are skipped
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

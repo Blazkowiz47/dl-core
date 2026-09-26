@@ -3,6 +3,15 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.10
+
+- finite iterable training stops at the shortest distributed rank's stream and
+  finalizes partial gradient-accumulation windows
+- validation and test process all valid samples across uneven ranks, including
+  ranks with no local batches
+- tar-shard streams allow empty rank/worker assignments by default and warn
+  when non-strict missing-member samples are skipped
+
 ## 0.1.9
 
 - custom sweep name templates may choose their grid fields; final run names
