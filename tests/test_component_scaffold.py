@@ -427,8 +427,8 @@ def test_removed_base_trainer_scaffold_alias_is_rejected() -> None:
         component_scaffold.normalize_trainer_base("basetrainer")
 
 
-def test_cli_add_trainer_defaults_to_epoch_trainer(tmp_path: Path) -> None:
-    """Trainer scaffolds should default to the epoch-based trainer base."""
+def test_cli_add_trainer_defaults_to_iteration_trainer(tmp_path: Path) -> None:
+    """Trainer scaffolds should default to the iteration-based trainer base."""
     target_dir = create_experiment_scaffold("trainer-demo", root_dir=str(tmp_path))
 
     exit_code = cli_main(
@@ -445,8 +445,8 @@ def test_cli_add_trainer_defaults_to_epoch_trainer(tmp_path: Path) -> None:
     component_path = target_dir / "src" / "trainers" / "arcvein.py"
     component_text = component_path.read_text()
 
-    assert "from dl_core.core import EpochTrainer" in component_text
-    assert "class ArcVeinTrainer(EpochTrainer):" in component_text
+    assert "from dl_core.core import IterationTrainer" in component_text
+    assert "class ArcVeinTrainer(IterationTrainer):" in component_text
     assert "def setup_model(self) -> None:" in component_text
     assert "def train_step(" in component_text
     assert "def validation_step(" in component_text

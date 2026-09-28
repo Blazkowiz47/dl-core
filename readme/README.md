@@ -94,8 +94,13 @@ concrete single-run configs under `experiments/`, including debug runs.
 
 ```bash
 uv run python scripts/temporary/test_dataset.py
+uv run python scripts/temporary/preview_augmentations.py --split train
+uv run python scripts/temporary/preview_augmentations.py --split validation
 uv run python scripts/temporary/test_model.py
 ```
+
+The preview is a project-owned image starter; adapt its rendering to your
+wrapper. The generated trainer counts one iteration per training batch.
 
 ### Run a sweep
 

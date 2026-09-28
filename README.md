@@ -195,6 +195,7 @@ Then:
    - `src/datasets/my_exp.py`
    - `configs/base.yaml`
    - `scripts/temporary/test_dataset.py`
+   - `scripts/temporary/preview_augmentations.py`
    - `scripts/temporary/test_model.py`
    - `experiments/lr_sweep.yaml`
    - `AGENTS.md`
@@ -205,12 +206,19 @@ Then:
    `deterministic`). Keep concrete single-run configs in `experiments/`,
    including debug and baseline runs. Reuse `experiments/debug.yaml` while
    prototyping instead of creating a new YAML for every check.
-4. smoke-check the generated helpers:
+4. smoke-check the wrapper and, for image projects, inspect a few augmented
+   training and validation samples before training:
 
 ```bash
-uv run python scripts/temporary/test_dataset.py
-uv run python scripts/temporary/test_model.py
+cp configs/base.yaml experiments/debug.yaml
+uv run python scripts/temporary/test_dataset.py --config experiments/debug.yaml
+uv run python scripts/temporary/preview_augmentations.py --config experiments/debug.yaml --split train
+uv run python scripts/temporary/preview_augmentations.py --config experiments/debug.yaml --split validation
+uv run python scripts/temporary/test_model.py --config experiments/debug.yaml
 ```
+
+The generated trainer uses `IterationTrainer`: `iterations` counts consumed
+training batches per rank, even when gradient accumulation is enabled.
 
 5. start with:
 
@@ -218,7 +226,6 @@ uv run python scripts/temporary/test_model.py
 uv run dl-run --config configs/base.yaml --validate-only
 uv run dl-inspect-dataset --config configs/base.yaml
 uv run dl-smoke --config configs/base.yaml
-cp configs/base.yaml experiments/debug.yaml
 uv run dl-run --config experiments/debug.yaml --validate-only
 uv run dl-run --config experiments/debug.yaml
 ```
@@ -309,9 +316,9 @@ evaluation, export, or report generation.
 
 ## Trainer Lifecycles
 
-Use `EpochTrainer` when a complete pass over the training loader defines
-progress. Use `IterationTrainer` for streaming data or when training should stop
-after an exact number of batches:
+New projects and `dl-core add trainer` default to `IterationTrainer`, which
+stops after an exact number of batches. Use `EpochTrainer` explicitly when a
+complete pass over the training loader should define progress:
 
 ```yaml
 trainer:
@@ -380,7 +387,7 @@ Common local component scaffolds:
 ```bash
 uv run dl-core add model MyResNet
 uv run dl-core add trainer MyTrainer
-uv run dl-core add trainer StreamTrainer --base iterationtrainer
+uv run dl-core add trainer EpochTrainer --base epochtrainer
 uv run dl-core add trainer MyPolicy --base rltrainer
 uv run dl-core add callback MyMetrics
 uv run dl-core add metric_manager MyManager

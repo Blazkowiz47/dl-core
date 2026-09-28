@@ -150,7 +150,7 @@ def _update_base_config(repo_dir: Path, dataset_name: str) -> None:
     config["dataset"]["prefetch_factor"] = None
 
     trainer_name = next(iter(config["trainer"]))
-    config["trainer"][trainer_name]["epochs"] = 1
+    config["trainer"][trainer_name]["iterations"] = 3
 
     config_path.write_text(
         yaml.dump(config, sort_keys=False),
@@ -193,6 +193,25 @@ def test_scaffold_smoke_repo_runs_dl_run_and_dl_sweep() -> None:
             repo_dir / "experiments" / "debug.yaml",
         )
         _update_lr_sweep(repo_dir)
+
+        for helper in ("test_dataset.py", "preview_augmentations.py"):
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    f"scripts/temporary/{helper}",
+                    "--config",
+                    "experiments/debug.yaml",
+                ],
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            assert result.returncode == 0, result.stderr
+        assert (
+            repo_dir / "scripts" / "temporary" / "previews" / "train.png"
+        ).is_file()
 
         _run_entrypoint(
             "dl-run",

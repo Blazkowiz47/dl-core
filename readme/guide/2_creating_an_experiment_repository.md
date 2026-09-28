@@ -46,6 +46,7 @@ my-exp/
     temporary/
       README.md
       test_dataset.py
+      preview_augmentations.py
       test_model.py
   src/
     bootstrap.py
@@ -70,7 +71,11 @@ By default:
 
 - the dataset wrapper is named after the project package
 - the trainer wrapper is named after the project package
+- the trainer uses an iteration budget measured in training batches per rank
 - the project owns the generated `ResNetExample` architecture
+
+This default applies to new scaffolds. Refreshing `AGENTS.md` in an older
+project updates its guidance, not its trainer or configs.
 
 ## Migrating an Older ResNet Scaffold
 
@@ -85,6 +90,7 @@ Older generated projects may still import
 
 - `configs/base.yaml`
 - `scripts/temporary/test_dataset.py`
+- `scripts/temporary/preview_augmentations.py`
 - `scripts/temporary/test_model.py`
 - `configs/base_sweep.yaml`
 - `configs/presets.yaml`
@@ -98,12 +104,17 @@ model wrapper, use:
 
 ```bash
 uv run python scripts/temporary/test_dataset.py
+uv run python scripts/temporary/preview_augmentations.py --split train
+uv run python scripts/temporary/preview_augmentations.py --split validation
 uv run python scripts/temporary/test_model.py
 ```
 
-before committing to a full `dl-run`.
+before committing to a full `dl-run`. The preview saves post-transform images
+to an ignored local directory; adapt it for the project's image keys and
+normalization. `test_dataset.py` also supports iterable loaders without a
+length or random access.
 
-Use `configs/base.yaml` for reusable shared defaults. Before a real single run,
-copy or derive it into a named file under `experiments/`, for example
-`experiments/debug.yaml`, validate that concrete config, and run `dl-run`
-against the `experiments/` file.
+Use `configs/base.yaml` for reusable shared defaults. Copy it once to
+`experiments/debug.yaml` and keep editing that file while prototyping. Before
+a run worth keeping, promote the working config to a distinct named file under
+`experiments/`, validate it, then run `dl-run` against that file.

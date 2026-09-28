@@ -245,8 +245,8 @@ _DEFAULT_COMPONENT_BASE_SPECS = {
     "trainer": ComponentBaseSpec(
         canonical_name="trainer",
         import_path="dl_core.core",
-        base_class="EpochTrainer",
-        class_docstring="Local trainer scaffold based on EpochTrainer.",
+        base_class="IterationTrainer",
+        class_docstring="Local trainer scaffold based on IterationTrainer.",
     ),
 }
 
@@ -460,11 +460,11 @@ def normalize_dataset_base(dataset_base: str | None) -> str:
 def normalize_trainer_base(trainer_base: str | None) -> str:
     """Normalize a user-provided trainer base string."""
     if trainer_base is None:
-        return "epochtrainer"
+        return "iterationtrainer"
 
     key = _normalize_base_name(trainer_base)
     if key is None:
-        return "epochtrainer"
+        return "iterationtrainer"
 
     canonical_name = _TRAINER_BASE_ALIASES.get(key, key)
     if canonical_name not in _trainer_base_specs():

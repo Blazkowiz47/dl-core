@@ -10,7 +10,7 @@ fixed:
     log_level: INFO
   trainer:
     standard:
-      epochs: 1
+      iterations: 20
 
 default_grid: {}
 

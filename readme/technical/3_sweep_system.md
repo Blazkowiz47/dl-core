@@ -18,7 +18,7 @@ fixed:
     log_level: INFO
   trainer:
     my_exp:
-      epochs: 1
+      iterations: 20
 
 default_grid:
   optimizers.lr: [1e-4, 5e-4]

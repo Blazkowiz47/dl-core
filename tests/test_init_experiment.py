@@ -13,7 +13,7 @@ import torch
 import yaml
 
 from dl_core import load_local_components
-from dl_core.core import MODEL_REGISTRY
+from dl_core.core import IterationTrainer, MODEL_REGISTRY, TRAINER_REGISTRY
 from dl_core.init_extensions import InitExtension, ScaffoldContext
 from dl_core.init_experiment import create_experiment_scaffold, main as init_main
 
@@ -279,6 +279,9 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert (target_dir / "pyrightconfig.json").exists()
     assert (target_dir / "scripts" / "temporary" / "README.md").exists()
     assert (target_dir / "scripts" / "temporary" / "test_dataset.py").exists()
+    assert (
+        target_dir / "scripts" / "temporary" / "preview_augmentations.py"
+    ).exists()
     assert (target_dir / "scripts" / "temporary" / "test_model.py").exists()
     assert not (target_dir / "configs" / "sweeps").exists()
 
@@ -305,6 +308,8 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert config["dataset"]["name"] == component_name
     assert list(config["trainer"].keys()) == [component_name]
     assert "name" not in config["trainer"][component_name]
+    assert config["trainer"][component_name]["iterations"] == 100
+    assert "epochs" not in config["trainer"][component_name]
     assert config["criterions"]["crossentropy"] is None
     assert "name" not in config["metric_managers"]["standard"]
     assert "name" not in config["runtime"]
@@ -333,6 +338,7 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     base_sweep_text = (target_dir / "configs" / "base_sweep.yaml").read_text()
     assert list(sweep_config["fixed"]["trainer"].keys()) == [component_name]
     assert "name" not in sweep_config["fixed"]["trainer"][component_name]
+    assert sweep_config["fixed"]["trainer"][component_name]["iterations"] == 20
     assert sweep_config["default_grid"] == {}
     assert "# experiment_name: my_project" in base_sweep_text
     assert "Defaults to experiment.name or the" in base_sweep_text
@@ -352,50 +358,22 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert lr_sweep["tracking"]["run_name_template"] == "lr_{optimizers.lr}"
     assert "sweep=experiments/lr_sweep.yaml" in experiments_log
     assert "kind=new" in experiments_log
-    assert "uv run dl-run --config configs/base.yaml --validate-only" in agents_text
-    assert "uv run dl-run --config experiments/<run_name>.yaml" in agents_text
-    assert "uv run python scripts/temporary/test_dataset.py" in agents_text
-    assert "uv run python scripts/temporary/test_model.py" in agents_text
-    assert "uv run dl-sweep experiments/lr_sweep.yaml --dry-run" in agents_text
-    assert "Use `--preview` to inspect sweep changes without writing files." in (
-        agents_text
-    )
-    assert "use `--overwrite` only when replacing existing configs is intended." in (
-        agents_text
-    )
-    assert "uv run dl-analyze --sweep experiments/lr_sweep.yaml" in agents_text
-    assert "`experiments/experiments.log` automatically when it exists" in agents_text
     assert "# named-demo Experiment Repository Guidelines" in agents_text
-    assert "## Execution Safety" in agents_text
-    assert "## Config Rules" in agents_text
-    assert "## Component implementation" in agents_text
-    assert "## Code Hygiene" in agents_text
-    assert "## Dependency versions" in agents_text
-    assert "reuse `experiments/debug.yaml`" in agents_text
-    assert "edit that same file instead of creating a YAML for each check" in (
-        agents_text
-    )
+    assert "## Project flow" in agents_text
+    assert "## Configs and checks" in agents_text
+    assert "## Implementation" in agents_text
+    assert "## Safety and maintenance" in agents_text
+    assert "Reuse `experiments/debug.yaml`" in agents_text
+    assert "editing the same file instead of creating a YAML for every check" in agents_text
+    assert "`iterations` counts consumed" in agents_text
+    assert "preview_augmentations.py" in agents_text
     assert "--refresh-agents --root-dir ." in agents_text
-    assert "Do not extract one-off logic into a separate function" in agents_text
-    assert "unless it is reused more than twice" in agents_text
-    assert "Retrieve inputs from `batch_data` and perform input preparation." in (
-        agents_text
-    )
-    assert "Keep losses, metric updates, logging, optimizer operations" in agents_text
-    assert "Always show the latest stable PyTorch version" in agents_text
-    assert "official PyTorch releases page" in agents_text
-    assert "`CLAUDE.md` should only point at this file with `@AGENTS.md`" in (
-        agents_text
-    )
-    assert "## Sweep Safety Rules" in agents_text
-    assert "Never delete `experiments/<sweep_name>/sweep_tracking.json`." in agents_text
-    assert "Never run `rm -rf experiments/<sweep_name>` or any equivalent cleanup" in (
-        agents_text
-    )
-    assert "uv run dl-core add dataset ExtraDataset" in agents_text
-    assert "uv run dl-core add optimizer MyOptimizer" in agents_text
-    assert "uv run dl-core add scheduler MyScheduler" in agents_text
-    assert "uv run dl-core describe class dl_core.core.FrameWrapper" in agents_text
+    assert "Extract a helper only when reused more than twice" in agents_text
+    assert "Keep loss, metrics, logging, and optimizer work outside it" in agents_text
+    assert "latest stable PyTorch release" in agents_text
+    assert "`CLAUDE.md` as `@AGENTS.md`" in agents_text
+    assert "Treat `experiments/<sweep_name>/` as sweep state" in agents_text
+    assert "Do not start training, sweeps" in agents_text
     assert "<agent_spec>" not in agents_text
     assert claude_text == "@AGENTS.md\n"
     assert "`CLAUDE.md`: Claude-compatible pointer to `AGENTS.md`" in readme_text
@@ -403,14 +381,21 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert '"deep-learning-core>=0.1.10,<0.2"' in pyproject_text
     assert "   - `CLAUDE.md`" in readme_text
     assert "scripts/temporary/test_dataset.py" in readme_text
+    assert "scripts/temporary/preview_augmentations.py" in readme_text
     assert "scripts/temporary/test_model.py" in readme_text
-    assert "uv run python scripts/temporary/test_dataset.py" in helper_readme_text
-    assert "uv run python scripts/temporary/test_model.py" in helper_readme_text
+    assert "preview_augmentations.py" in helper_readme_text
+    assert "--config experiments/debug.yaml" in helper_readme_text
     assert ".env\n" in gitignore_text
     assert "!.env.example" in gitignore_text
     assert "mlruns/" in gitignore_text
     assert "wandb/" in gitignore_text
     assert "outputs/" in gitignore_text
+    assert "scripts/temporary/previews/" in gitignore_text
+
+    load_local_components(str(target_dir / "configs" / "base.yaml"))
+    trainer_class = TRAINER_REGISTRY.get_class(component_name)
+    assert issubclass(trainer_class, IterationTrainer)
+    assert trainer_class._perform_training is IterationTrainer._perform_training
 
 
 def test_scaffold_model_helper_executes_name_less_binary_model(
@@ -460,6 +445,78 @@ def test_scaffold_model_helper_executes_name_less_binary_model(
         outputs["probabilities"],
         torch.full((2, 1), 0.5),
     )
+
+
+def test_scaffold_dataset_helpers_accept_iterable_images(tmp_path: Path) -> None:
+    """Generated sample checks must not require indexing or a loader length."""
+    target_dir = create_experiment_scaffold("stream-preview", root_dir=str(tmp_path))
+    dataset_path = target_dir / "src" / "datasets" / "stream_preview.py"
+    dataset_path.write_text(
+        '''"""Tiny iterable image source for generated helper tests."""
+
+from __future__ import annotations
+
+import torch
+from torch.utils.data import DataLoader, IterableDataset
+
+from dl_core.core import register_dataset
+
+
+class _Samples(IterableDataset):
+    def __iter__(self):
+        for index in range(3):
+            yield {
+                "image": torch.full((3, 8, 8), index / 3),
+                "label": index % 2,
+                "path": f"sample-{index}",
+            }
+
+
+@register_dataset("stream_preview")
+class StreamPreviewDataset:
+    def __init__(self, config):
+        self.config = config
+
+    def get_split(self, split):
+        return DataLoader(_Samples(), batch_size=2)
+
+    def get_stats(self, split):
+        return []
+''',
+        encoding="utf-8",
+    )
+    config_path = target_dir / "configs" / "base.yaml"
+
+    dataset_result = subprocess.run(
+        [sys.executable, "scripts/temporary/test_dataset.py"],
+        cwd=target_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert dataset_result.returncode == 0, dataset_result.stderr
+    assert "Dataset length: unknown" in dataset_result.stdout
+    assert "Num batches: unknown" in dataset_result.stdout
+    assert "Sample summary:" in dataset_result.stdout
+
+    preview_result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/temporary/preview_augmentations.py",
+            "--config",
+            str(config_path),
+            "--count",
+            "3",
+        ],
+        cwd=target_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert preview_result.returncode == 0, preview_result.stderr
+    assert "Sample 2:" in preview_result.stdout
+    assert "Saved 3 train images" in preview_result.stdout
+    assert (target_dir / "scripts" / "temporary" / "previews" / "train.png").is_file()
 
 
 def test_scaffold_without_name_initializes_root_dir_in_place(tmp_path: Path) -> None:
@@ -610,7 +667,7 @@ def test_refresh_agents_previews_before_noninteractive_replace(
     result = init_main(["--root-dir", str(target_dir), "--refresh-agents", "--yes"])
 
     assert result == 0
-    assert "reuse `experiments/debug.yaml`" in agents_path.read_text()
+    assert "Reuse `experiments/debug.yaml`" in agents_path.read_text()
     assert (target_dir / "configs" / "base.yaml").read_text() == base_config
 
 
@@ -632,7 +689,7 @@ def test_refresh_agents_interactive_decline_and_noop(
     monkeypatch.setattr("builtins.input", lambda _: "yes")
     assert init_main(["--root-dir", str(target_dir), "--refresh-agents"]) == 0
     updated = agents_path.read_text()
-    assert "reuse `experiments/debug.yaml`" in updated
+    assert "Reuse `experiments/debug.yaml`" in updated
 
     assert init_main(["--root-dir", str(target_dir), "--refresh-agents"]) == 0
     assert "already up to date" in capsys.readouterr().out

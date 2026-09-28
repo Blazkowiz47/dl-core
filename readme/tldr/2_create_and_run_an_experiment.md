@@ -39,6 +39,7 @@ The scaffold gives you:
 - `experiments/lr_sweep.yaml`
 - `experiments/experiments.log`
 - `scripts/temporary/test_dataset.py`
+- `scripts/temporary/preview_augmentations.py`
 - `scripts/temporary/test_model.py`
 - `src/datasets/my_exp.py`
 - `src/trainers/my_exp.py`
@@ -52,15 +53,19 @@ The scaffold gives you:
 Start with the smoke helpers:
 
 ```bash
-uv run python scripts/temporary/test_dataset.py
-uv run python scripts/temporary/test_model.py
+cp configs/base.yaml experiments/debug.yaml
+uv run python scripts/temporary/test_dataset.py --config experiments/debug.yaml
+uv run python scripts/temporary/preview_augmentations.py --config experiments/debug.yaml --split train
+uv run python scripts/temporary/test_model.py --config experiments/debug.yaml
 ```
+
+The generated trainer counts `iterations` as training batches per rank. The
+image preview is an editable project-local helper, not a framework API.
 
 Then move on to the full commands:
 
 ```bash
 uv run dl-run --config configs/base.yaml --validate-only
-cp configs/base.yaml experiments/debug.yaml
 uv run dl-run --config experiments/debug.yaml --validate-only
 uv run dl-run --config experiments/debug.yaml
 uv run dl-sweep experiments/lr_sweep.yaml

@@ -202,11 +202,14 @@ Generated repos default to a project-named trainer wrapper:
 ```yaml
 trainer:
   my_exp:
-    epochs: 3
+    iterations: 100
 ```
 
-That wrapper extends `dl_core.trainers.standard_trainer.StandardTrainer`,
-which builds on the epoch-based `dl_core.core.EpochTrainer`.
+That wrapper reuses the config-backed component steps from `StandardTrainer`
+with the `IterationTrainer` lifecycle. One iteration consumes one training
+batch per rank. Gradient accumulation does not rescale the configured budget.
+`dl-core add trainer Name` also defaults to `IterationTrainer`; use
+`--base epochtrainer` to request an epoch-based scaffold.
 
 When a training step returns a tensor under `probabilities_tensor` or
 `probabilities`, the base trainer records class-neutral diagnostics:
@@ -239,8 +242,8 @@ final `latest.pth`, and otherwise returns `None`. Override `select_checkpoint()`
 for custom single- or multi-metric model selection, and override
 `post_training()` for completed-run evaluation or export work.
 
-For streaming or cyclic training, a local trainer can instead extend
-`dl_core.core.IterationTrainer` and replace `epochs` with an iteration budget:
+The generated trainer already uses the `IterationTrainer` lifecycle. The same
+iteration budget works for finite loaders and streaming or cyclic training:
 
 ```yaml
 trainer:
@@ -303,7 +306,7 @@ models:
 
 trainer:
   my_exp:
-    epochs: 3
+    iterations: 100
 
 criterions:
   crossentropy:

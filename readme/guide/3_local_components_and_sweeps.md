@@ -10,9 +10,11 @@ In a scaffolded project named `my-exp`:
 - trainer name: `my_exp`
 - model name: `resnet_example`
 
-The generated dataset is a visible `BaseWrapper` skeleton, the trainer extends
-the built-in `StandardTrainer` on top of `EpochTrainer`, and the project owns
-its torchvision `ResNetExample` architecture.
+The generated dataset is a visible `BaseWrapper` skeleton. The trainer reuses
+`StandardTrainer` component steps with `IterationTrainer`'s batch-counted
+lifecycle, and the project owns its torchvision `ResNetExample` architecture.
+`dl-core add trainer Name` also defaults to `IterationTrainer`; pass
+`--base epochtrainer` to scaffold an epoch-based trainer explicitly.
 
 ## How Registration Works
 

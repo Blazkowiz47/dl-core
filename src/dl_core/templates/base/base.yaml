@@ -61,7 +61,11 @@ optimizers:
 
 trainer:
   standard:
-    epochs: 3
+    iterations: 100  # One iteration consumes one training batch per rank.
+    log_frequency: 20
+    validation_frequency: 20
+    checkpoint_frequency: 20
+    test_frequency: 0  # Final evaluation only.
     log_weights: false
 
 criterions:
