@@ -371,7 +371,11 @@ def test_scaffold_uses_project_named_dataset_and_trainer(tmp_path: Path) -> None
     assert "## Component implementation" in agents_text
     assert "## Code Hygiene" in agents_text
     assert "## Dependency versions" in agents_text
-    assert "Even one-off single-run configs belong under `experiments/`." in agents_text
+    assert "reuse `experiments/debug.yaml`" in agents_text
+    assert "edit that same file instead of creating a YAML for each check" in (
+        agents_text
+    )
+    assert "--refresh-agents --root-dir ." in agents_text
     assert "Do not extract one-off logic into a separate function" in agents_text
     assert "unless it is reused more than twice" in agents_text
     assert "Retrieve inputs from `batch_data` and perform input preparation." in (
@@ -580,6 +584,81 @@ def test_scaffold_allows_existing_agents_and_pyright_files(tmp_path: Path) -> No
     )
     assert (created_dir / "pyrightconfig.json").read_text(encoding="utf-8") == "{}"
     assert (created_dir / "configs" / "base.yaml").exists()
+
+
+def test_refresh_agents_previews_before_noninteractive_replace(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target_dir = create_experiment_scaffold("refresh-demo", root_dir=str(tmp_path))
+    agents_path = target_dir / "AGENTS.md"
+    agents_path.write_text("# Custom guidance\n\n## Azure Notes\nKeep this.\n")
+    base_config = (target_dir / "configs" / "base.yaml").read_text()
+    monkeypatch.setattr("dl_core.init_experiment.discover_init_extensions", lambda: {})
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    result = init_main(["--root-dir", str(target_dir), "--refresh-agents"])
+
+    assert result == 1
+    preview = capsys.readouterr().out
+    assert "--- AGENTS.md (current)" in preview
+    assert "## Azure Notes" in preview
+    assert agents_path.read_text() == "# Custom guidance\n\n## Azure Notes\nKeep this.\n"
+    assert (target_dir / "configs" / "base.yaml").read_text() == base_config
+
+    result = init_main(["--root-dir", str(target_dir), "--refresh-agents", "--yes"])
+
+    assert result == 0
+    assert "reuse `experiments/debug.yaml`" in agents_path.read_text()
+    assert (target_dir / "configs" / "base.yaml").read_text() == base_config
+
+
+def test_refresh_agents_interactive_decline_and_noop(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target_dir = create_experiment_scaffold("refresh-demo", root_dir=str(tmp_path))
+    agents_path = target_dir / "AGENTS.md"
+    agents_path.write_text("# Custom guidance\n")
+    monkeypatch.setattr("dl_core.init_experiment.discover_init_extensions", lambda: {})
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+
+    assert init_main(["--root-dir", str(target_dir), "--refresh-agents"]) == 0
+    assert agents_path.read_text() == "# Custom guidance\n"
+
+    monkeypatch.setattr("builtins.input", lambda _: "yes")
+    assert init_main(["--root-dir", str(target_dir), "--refresh-agents"]) == 0
+    updated = agents_path.read_text()
+    assert "reuse `experiments/debug.yaml`" in updated
+
+    assert init_main(["--root-dir", str(target_dir), "--refresh-agents"]) == 0
+    assert "already up to date" in capsys.readouterr().out
+    assert agents_path.read_text() == updated
+
+
+def test_refresh_agents_only_creates_missing_guidance(tmp_path: Path) -> None:
+    target_dir = create_experiment_scaffold("existing-project", root_dir=str(tmp_path))
+    (target_dir / "AGENTS.md").unlink()
+    (target_dir / "notes.txt").write_text("keep\n")
+
+    assert init_main(["--root-dir", str(target_dir), "--refresh-agents"]) == 0
+    assert (target_dir / "AGENTS.md").is_file()
+    assert (target_dir / "notes.txt").read_text() == "keep\n"
+
+
+def test_refresh_agents_rejects_non_experiment_directory(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires an experiment project"):
+        init_main(["--root-dir", str(tmp_path), "--refresh-agents", "--yes"])
+
+
+def test_refresh_agents_rejects_new_project_name(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        init_main(
+            ["--root-dir", str(tmp_path), "--name", "demo", "--refresh-agents"]
+        )
 
 
 def test_scaffold_allows_existing_scripts_and_azure_config(tmp_path: Path) -> None:

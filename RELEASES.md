@@ -3,6 +3,13 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## Unreleased
+
+- generated experiment guidance reuses `experiments/debug.yaml` for prototype
+  checks instead of creating a new config for each attempt
+- `dl-init --refresh-agents` previews and explicitly replaces an existing
+  project's `AGENTS.md` without touching other scaffold files
+
 ## 0.1.10
 
 - finite iterable training stops at the shortest distributed rank's stream and

@@ -203,7 +203,8 @@ Then:
 3. adjust `configs/base.yaml` so it points at the dataset/model/trainer you want
    and set the shared reproducibility defaults you need (`seed` and
    `deterministic`). Keep concrete single-run configs in `experiments/`,
-   including debug and baseline runs.
+   including debug and baseline runs. Reuse `experiments/debug.yaml` while
+   prototyping instead of creating a new YAML for every check.
 4. smoke-check the generated helpers:
 
 ```bash
@@ -221,6 +222,13 @@ cp configs/base.yaml experiments/debug.yaml
 uv run dl-run --config experiments/debug.yaml --validate-only
 uv run dl-run --config experiments/debug.yaml
 ```
+
+Create `experiments/debug.yaml` once and edit it in place for dataset, model,
+or protocol checks. Save a named config when a run becomes a distinct experiment
+worth keeping; repeated real runs named `debug` can share an artifact location.
+To update an existing project's generated guidance, run
+`uv run dl-init --refresh-agents --root-dir .`, review the diff, and confirm.
+It replaces only `AGENTS.md`, so review any project-specific or extension notes.
 
 Once that works, move on to:
 

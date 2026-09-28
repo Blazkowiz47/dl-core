@@ -148,6 +148,16 @@ The core dataset bases are intended for different data shapes:
 
 ## Local Training
 
+For quick dataset, model, or protocol checks, keep one
+`experiments/debug.yaml`. Copy `configs/base.yaml` there once, then edit the
+same file rather than creating a new config for each attempt. Give a real run
+worth keeping its own named config and artifact identity.
+
+An existing project can preview refreshed generated guidance with
+`uv run dl-init --refresh-agents --root-dir .`. The command shows a diff and
+asks before replacing `AGENTS.md`; inspect custom and extension notes before
+confirming. It does not regenerate other scaffold files.
+
 ```bash
 uv run dl-run --config configs/base.yaml --validate-only
 cp configs/base.yaml experiments/debug.yaml
