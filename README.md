@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.9`.
-Current development version: `0.1.10`.
+Current public release: `deep-learning-core==0.1.11`.
+Current development version: `0.1.11`.
 
 Compatible companion package floors:
 
@@ -21,8 +21,14 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.10?
+## What's New in 0.1.11?
 
+- new projects and `dl-core add trainer` default to iteration-based training;
+  `iterations` counts batches per rank, not optimizer updates
+- generated project guidance uses one reusable `experiments/debug.yaml`, and
+  `dl-init --refresh-agents` previews guidance changes before replacing them
+- new projects get an editable, bounded image preview script; the
+  dataset smoke helper also supports iterable loaders
 - finite iterable training stops at the shortest distributed rank's stream and
   finalizes partial gradient-accumulation windows
 - validation and test process all valid samples across uneven ranks, including

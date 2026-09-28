@@ -3,8 +3,12 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
-## Unreleased
+## 0.1.11
 
+- new projects and `dl-core add trainer` default to `IterationTrainer`; an
+  explicit epoch trainer remains available
+- generated projects include a bounded image augmentation preview, and the
+  dataset smoke helper supports iterable loaders without random access
 - generated experiment guidance reuses `experiments/debug.yaml` for prototype
   checks instead of creating a new config for each attempt
 - `dl-init --refresh-agents` previews and explicitly replaces an existing
