@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable, Mapping
 from functools import partial
 from pathlib import Path
 from typing import Any
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import BatchSampler, DataLoader, Dataset
 
 from dl_core.core.base_dataset import BaseWrapper
 from dl_core.core.config_metadata import config_field
+from dl_core.datasets.indexed_tar import IndexedTarDataset, IndexedTarSampler
+from dl_core.datasets.shard_progress import ShardProgress
 
 
 class TarShardWrapper(BaseWrapper):
@@ -44,6 +47,17 @@ class TarShardWrapper(BaseWrapper):
             "dict",
             "WebDataset shard shuffle, sample shuffle, resampling, and cache options.",
         ),
+        config_field(
+            "indexed_tar",
+            "dict",
+            "Options for the opt-in build_indexed_dataset utility.",
+        ),
+        config_field(
+            "track_shard_progress",
+            "bool",
+            "Preserve shard IDs in transformed samples for completed-batch progress.",
+            default=False,
+        ),
     ]
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
@@ -55,6 +69,7 @@ class TarShardWrapper(BaseWrapper):
         self.strict_pairs = bool(self.config.get("strict_pairs", True))
         self.webdataset_config = self.config.get("webdataset", {})
         self._webdataset_shuffle: dict[str, bool] = {}
+        self._shard_progress: dict[str, ShardProgress] = {}
 
     @property
     def file_extensions(self) -> list[str]:
@@ -167,7 +182,7 @@ class TarShardWrapper(BaseWrapper):
 
         metadata = metadata_by_shard.get(source, {})
         logical_source = str(metadata.get("source_path", source))
-        return self.transform(
+        result = self.transform(
             {
                 **metadata,
                 "path": f"{logical_source}::{key}",
@@ -177,6 +192,110 @@ class TarShardWrapper(BaseWrapper):
             },
             split,
         )
+        if result is not None and self.config.get("track_shard_progress", False):
+            result = {
+                **result,
+                "shard_id": str(metadata.get("shard_id", logical_source)),
+            }
+        return result
+
+    def build_indexed_dataset(self, data: list[dict], split: str) -> IndexedTarDataset:
+        """Build indexed local tar samples when a concrete wrapper opts in.
+
+        Storage integrations must protect the local files for the reader's
+        lifetime. Indexed options are independent of WebDataset stream options.
+        """
+        options = self.config.get("indexed_tar", {})
+        if not isinstance(options, dict):
+            raise TypeError("dataset.indexed_tar must be a mapping")
+        shards = []
+        for source in data:
+            weight = float(source.get("weight", 1))
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError(
+                    "Indexed tar source weights must be finite and nonnegative"
+                )
+            if weight == 0:
+                continue
+            for configured in source.get("shards", []):
+                shard = (
+                    dict(configured)
+                    if isinstance(configured, dict)
+                    else {"path": str(configured)}
+                )
+                shards.append(
+                    {
+                        **shard,
+                        "source_name": source.get("name", split),
+                        "source_weight": weight,
+                    }
+                )
+        if not shards:
+            raise ValueError(
+                f"No positive-weight indexed tar sources found for {split}"
+            )
+        return IndexedTarDataset(
+            shards,
+            transform=partial(self.transform, split=split),
+            required_extensions=self.required_extensions,
+            strict_pairs=self.strict_pairs,
+            index_dir=options.get("index_dir", "~/.cache/dl-core/tar-indexes"),
+            max_open_shards=options.get("max_open_shards", 8),
+            track_shard_progress=bool(self.config.get("track_shard_progress", False)),
+        )
+
+    def build_batch_sampler(
+        self,
+        dataset: Dataset,
+        split: str,
+        *,
+        batch_size: int,
+        shuffle: bool,
+        drop_last: bool,
+    ) -> Any | None:
+        """Mix indexed sources with one shared DataLoader worker pool."""
+        if not isinstance(dataset, IndexedTarDataset):
+            return super().build_batch_sampler(
+                dataset,
+                split,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                drop_last=drop_last,
+            )
+        options = self.config.get("indexed_tar", {})
+        return BatchSampler(
+            IndexedTarSampler(
+                dataset,
+                shuffle=shuffle,
+                replacement=bool(options.get("replacement", False)),
+                num_samples=options.get("num_samples"),
+                generator=self._loader_generators[split],
+            ),
+            batch_size=batch_size,
+            drop_last=drop_last,
+        )
+
+    def collate_fn(self, batch: list[dict[str, Any] | None]) -> dict[str, Any]:
+        """Omit skipped indexed transforms; an entirely skipped batch is empty."""
+        return super().collate_fn([sample for sample in batch if sample is not None])
+
+    def reset_shard_progress(
+        self, totals: Mapping[str, int | None], split: str = "train"
+    ) -> None:
+        """Start a shard pass with eligible sample counts or finite budgets."""
+        self._shard_progress[split] = ShardProgress(totals)
+
+    def record_shard_consumption(
+        self, shard_ids: Iterable[str], split: str = "train"
+    ) -> None:
+        """Record shard IDs from a completed batch in the training process."""
+        self._shard_progress[split].record(shard_ids)
+
+    def get_shard_progress(
+        self, shard_id: str | None = None, split: str = "train"
+    ) -> dict[str, Any]:
+        """Return a shard's counts and fraction, or all planned shard progress."""
+        return self._shard_progress[split].get(shard_id)
 
     def build_dataset(self, data: list[dict], split: str) -> Dataset:
         """Build an optional-dependency WebDataset pipeline for one split."""

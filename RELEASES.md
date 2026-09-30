@@ -3,6 +3,15 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.12
+
+- `IndexedTarDataset` reads variable-size grouped members from plain tar files
+  through one DataLoader worker pool, with reusable offsets and bounded handles
+- `TarShardWrapper.build_indexed_dataset()` is an explicit utility for concrete
+  wrappers; weighted source sampling supports finite passes and repetition budgets
+- `ShardProgress` and wrapper helpers report completed-batch consumption per
+  shard, with stable IDs and explicit pass resets
+
 ## 0.1.11
 
 - new projects and `dl-core add trainer` default to `IterationTrainer`; an

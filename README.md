@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.11`.
-Current development version: `0.1.11`.
+Current public release: `deep-learning-core==0.1.12`.
+Current development version: `0.1.12`.
 
 Compatible companion package floors:
 
@@ -21,20 +21,13 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.11?
+## What's New in 0.1.12?
 
-- new projects and `dl-core add trainer` default to iteration-based training;
-  `iterations` counts batches per rank, not optimizer updates
-- generated project guidance uses one reusable `experiments/debug.yaml`, and
-  `dl-init --refresh-agents` previews guidance changes before replacing them
-- new projects get an editable, bounded image preview script; the
-  dataset smoke helper also supports iterable loaders
-- finite iterable training stops at the shortest distributed rank's stream and
-  finalizes partial gradient-accumulation windows
-- validation and test process all valid samples across uneven ranks, including
-  ranks with no local batches
-- tar-shard streams allow empty rank/worker assignments by default and warn
-  when non-strict missing-member samples are skipped
+- opt-in indexed plain tar reading lets the DataLoader worker pool read different
+  samples from the same shard, with reusable member-offset indexes
+- indexed source mixing supports finite passes or weighted sampling with a
+  finite repetition budget
+- optional per-shard progress counts samples from completed training batches
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -577,6 +570,74 @@ Missing grouped members raise by default. With `strict_pairs: false`, those
 samples are skipped with a warning, so realized sample counts may differ from
 shard inventories or project-specific quotas. Other transform errors still
 raise unless the project handles them explicitly.
+
+### Indexed plain tar utilities
+
+Concrete wrappers opt in by calling `build_indexed_dataset(data, split)` from
+their `build_dataset()` implementation. It returns an `IndexedTarDataset` that
+uses the existing `transform(file_dict, split)` contract. It supports plain
+`.tar` files; members can have different sizes. Data stays in the tar, and the
+reader seeks to indexed member offsets without extracting or decoding the
+whole shard into memory.
+
+```python
+from dl_core.datasets import TarShardWrapper
+
+
+class IndexedImages(TarShardWrapper):
+    def build_dataset(self, data: list[dict], split: str):
+        return self.build_indexed_dataset(data, split)
+
+    def transform(self, file_dict: dict, split: str) -> dict:
+        return {
+            "image_bytes": file_dict["members"]["jpg"],
+            "metadata_bytes": file_dict["members"]["json"],
+        }
+```
+
+`num_workers` is the total worker pool shared across selected shards. With
+four shards and eight workers, those eight workers can read samples from any
+of the four shards. Each process opens its own bounded set of file handles.
+Indexes are reused until the local tar's identity, size, or modification time
+changes. Indexed utilities use PyTorch and the Python standard library; they
+do not require the optional WebDataset package.
+
+```yaml
+dataset:
+  num_workers: 8
+  track_shard_progress: true
+  indexed_tar:
+    index_dir: /mnt/localssd/tar-indexes  # null disables persistent indexes
+    max_open_shards: 8                 # Per worker
+    replacement: false                # Visit each selected sample at most once
+```
+
+Finite indexed mixing visits all selected samples by default; source weights
+affect their ordering. Set `replacement: true` and `num_samples: 10000` for a
+bounded weighted repetition pass. Source probability is independent of how
+many samples that source contains. `shuffle: false` gives ordered finite
+reads. These options are independent of `webdataset` stream settings. The
+built-in indexed sampler targets one GPU; concrete wrappers can supply their
+own sampler through `build_batch_sampler()`.
+
+Shard records can supply `sample_keys` to select an eligible subset before
+sampling. Missing required members follow `strict_pairs`; a transform returning
+`None` is omitted from its batch. An entirely skipped batch is `{}` and the
+trainer should skip it. Use eligible counts when transforms can filter samples.
+
+When `track_shard_progress` is enabled, the wrapper preserves a stable
+`shard_id` in each transformed output. The trainer starts a pass with
+`reset_shard_progress(totals)`, then calls
+`record_shard_consumption(batch["shard_id"])` after completing each batch.
+`get_shard_progress()` returns per-shard `consumed`, `total`, and `fraction`.
+Unknown totals are `None`; finite budgets are required for repeated sampling.
+Counters live in the owning training process and reset explicitly for a new
+pass. Direct consumers can import `IndexedTarDataset`, `IndexedTarSampler`,
+and `ShardProgress` from `dl_core.datasets`.
+
+For storage integrations, hold reservations for the local files while their
+dataset and workers are in use. See
+[configuration and progress examples](readme/technical/1_configuration.md#indexed-plain-tar-reading).
 
 ## Releases
 

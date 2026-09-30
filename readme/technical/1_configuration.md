@@ -133,6 +133,66 @@ with `name`, `weight`, and `shards`. Shards may be strings or dictionaries with
 a `path` plus project metadata. Multiple positive-weight sources are mixed with
 WebDataset `RandomMix`; zero-weight sources are skipped.
 
+### Indexed plain tar reading
+
+`TarShardWrapper.build_indexed_dataset(data, split)` is an opt-in utility for
+concrete wrappers. It accepts the same weighted source structure as streaming,
+with local plain tar paths. The `members`, `key`, `path`, `shard_path`, and
+source metadata passed to transforms retain their meaning. A storage adapter
+must supply local paths and keep them reserved until the reader and workers
+have finished. The default `build_dataset()` remains a WebDataset stream.
+
+The index groups regular members by sample key and stores each extension's
+offset and size. Sparse members, duplicate extensions within a sample, and
+compressed tar files are rejected. Long member names are supported. Optional
+`sample_keys` in a shard record limits its eligible keys before sampling.
+
+`indexed_tar.index_dir` defaults to `~/.cache/dl-core/tar-indexes`; `null`
+disables disk indexes. Index publication is atomic, and file identity, size,
+and modification time determine reuse. `max_open_shards` defaults to eight
+handles per process; handles are opened lazily and omitted from pickled state.
+Call `dataset.close()` to close handles in the current process.
+
+The wrapper's indexed batch sampler mixes source weights independently of
+source size. A finite pass visits each selected sample once, with an optional
+`num_samples` cutoff. `replacement: true` requires a positive `num_samples`
+budget and allows repeated draws. These sampling options live in
+`dataset.indexed_tar`, separately from `webdataset` stream settings. The
+built-in sampler targets single-GPU use; custom samplers remain available
+through `build_batch_sampler()`.
+
+```python
+loader = wrapper.get_split("train")  # Concrete wrapper selected indexed reading
+totals = {shard: count for shard, count in loader.dataset.shard_totals.items() if count}
+wrapper.reset_shard_progress(totals)
+for batch in loader:
+    if not batch:
+        continue
+    train_step(batch)
+    wrapper.record_shard_consumption(batch["shard_id"])
+    progress = wrapper.get_shard_progress()
+```
+
+Enable `dataset.track_shard_progress` to retain `shard_id` after the transform.
+Azure adapters use container-relative `source_path` as the default ID; local
+shards use their resolved path. A shard record may supply an explicit
+`shard_id`. The progress utility also works with streaming when eligible counts
+or budgets are supplied externally. `get_shard_progress(shard_id)` returns
+`consumed`, `total`, and `fraction`; a `None` total yields a `None` fraction.
+Reported fractions cap at one, while consumed counts retain all recorded draws.
+
+Progress records completed training batches, so worker read-ahead does not
+advance it. For repeated draws, filtering, or `drop_last`, supply appropriate
+finite budgets or eligible counts instead of assuming the raw tar length.
+Reset totals explicitly at each pass; never call progress methods from workers.
+
+A bounded read/decode benchmark is available as
+`uv run python scripts/benchmark_indexed_tar.py /path/to/shard.tar --samples 256`.
+It uses one image-decoder thread per worker, warms the same selection for each
+configuration, and reports index construction, first-pass time, and steady-pass
+throughput for worker counts 0, 1, 2, 4, and 8. It reads the tar without changing
+it, stores indexes temporarily, and removes them when finished.
+
 For map-style datasets, automatic validation and test partitions are created
 from the raw training records before any configured sampler is applied. This
 keeps oversampled identities out of held-out splits. DataLoader workers receive
