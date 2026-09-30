@@ -4,16 +4,7 @@ This documentation is split into quick references, workflow guides, and
 technical notes. The goal is the same as in the original framework repo, but
 focused on the extracted package and the experiment-repo workflow around it.
 
-Current public release: `deep-learning-core==0.1.9`.
-Current development version: `0.1.9`.
-
-## What's New in 0.1.9?
-
-- custom sweep name templates may choose their fields while final names stay
-  unique
-- `--overwrite` makes intentional non-interactive fresh sweep replacement
-  possible
-
+See the [package README](../README.md) for the current release and its changes.
 Previous versions are recorded in the [release history](../RELEASES.md).
 
 ## Companion Packages
