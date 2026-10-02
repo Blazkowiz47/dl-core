@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.12`.
-Current development version: `0.1.12`.
+Current public release: `deep-learning-core==0.1.13`.
+Current development version: `0.1.13`.
 
 Compatible companion package floors:
 
@@ -21,13 +21,14 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.12?
+## What's New in 0.1.13?
 
-- opt-in indexed plain tar reading lets the DataLoader worker pool read different
-  samples from the same shard, with reusable member-offset indexes
-- indexed source mixing supports finite passes or weighted sampling with a
-  finite repetition budget
-- optional per-shard progress counts samples from completed training batches
+- reusable data-cycle callbacks let concrete wrappers refresh selections and
+  rebuild loaders between passes
+- distributed iteration training advances cycles after every rank finishes a
+  pass; shorter ranks replay their selection while gradients keep accumulating
+- checkpoints preserve the cycle, batch cursor, and wrapper selection state,
+  with validation when rebuilding the resumed selection
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
