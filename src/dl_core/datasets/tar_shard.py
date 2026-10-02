@@ -7,6 +7,7 @@ from collections.abc import Iterable, Mapping
 from functools import partial
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from torch.utils.data import BatchSampler, DataLoader, Dataset
 
@@ -146,6 +147,62 @@ class TarShardWrapper(BaseWrapper):
         """Return weighted shard sources for the WebDataset pipeline."""
 
         return self.get_shard_sources(split)
+
+    def refresh_dataset(self, split: str | None = None) -> None:
+        """Invalidate resolved sources so cycle-aware selectors run again."""
+        super().refresh_dataset(split)
+        self.clear_cache(split)
+        splits = [split] if split is not None else ["train", "validation", "test"]
+        for name in splits:
+            self._shard_progress.pop(name, None)
+
+    def get_data_cycle_state(self) -> dict[str, Any]:
+        """Describe the active train selection, preferring logical shard paths.
+
+        URL queries are omitted. Stateful selectors can add their candidate pool and
+        restore it in restore_data_cycle_state(). Sources must remain stable
+        across ranks; rank partitioning belongs in the reader or sampler.
+        """
+        sources = []
+        active_sources = self.sampled_files_list["train"] or self.files_list["train"]
+        for source in active_sources:
+            shards = []
+            for configured in source.get("shards", []):
+                shard = (
+                    configured if isinstance(configured, dict)
+                    else {"path": configured}
+                )
+                path = str(
+                    shard.get("source_path")
+                    or shard.get("blob_path")
+                    or shard.get("public_url")
+                    or shard["path"]
+                )
+                record = {
+                    "path": path,
+                    **{
+                        name: shard[name]
+                        for name in ("shard_id", "etag", "sha256", "samples")
+                        if name in shard
+                    },
+                }
+                for name in ("path", "shard_id"):
+                    if name not in record:
+                        continue
+                    parsed = urlsplit(str(record[name]))
+                    if parsed.scheme in {"http", "https"}:
+                        record[name] = urlunsplit(
+                            (parsed.scheme, parsed.netloc, parsed.path, "", "")
+                        )
+                shards.append(record)
+            sources.append(
+                {
+                    "name": source.get("name", "train"),
+                    "weight": source.get("weight", 1.0),
+                    "shards": shards,
+                }
+            )
+        return {"train_sources": sources}
 
     def _webdataset_value(self, name: str, split: str, default: Any) -> Any:
         value = self.webdataset_config.get(name, default)

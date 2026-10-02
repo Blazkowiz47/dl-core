@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from typing import Any, Iterator
 
 import torch
@@ -19,7 +20,8 @@ class IterationTrainer(EpochTrainer):
     """Train for a fixed number of batches instead of dataset epochs.
 
     One iteration consumes one batch on every distributed rank. Finite training
-    loaders are restarted locally when exhausted; infinite loaders continue
+    loaders share a data cycle across ranks. Shorter ranks replay their current
+    selection until every rank completes a pass; infinite loaders continue
     without a restart. Validation, testing, logging, and checkpoints run on
     iteration-based frequencies, with a final reporting window always emitted.
     """
@@ -108,6 +110,12 @@ class IterationTrainer(EpochTrainer):
         self.data_cycle = 0
         self.iteration_in_cycle = 0
         self._pending_checkpoint_filenames: list[str | None] = []
+        self._data_iterator: Iterator[Any] | None = None
+        self._cycle_pass_complete = False
+        self._cycle_has_batch = False
+        self._resuming_data_cycle = False
+        self._restored_dataset_cycle_state: dict[str, Any] | None = None
+        self._restored_cycle_world_size: int | None = None
 
     def _set_data_cycle(self, data_cycle: int) -> None:
         """Advance deterministic sampler and dataset state without an epoch hook."""
@@ -115,6 +123,170 @@ class IterationTrainer(EpochTrainer):
         self.data_cycle = data_cycle
         self.accelerator.set_sampler_epoch(data_cycle)
         self.dataset_wrapper.set_epoch(data_cycle)
+
+    @contextmanager
+    def _synchronize_cycle_errors(self, stage: str) -> Iterator[None]:
+        """Stop all ranks when cycle setup, replay, or resume fails."""
+        local_error: Exception | None = None
+        try:
+            yield
+        except Exception as error:
+            local_error = error
+        if dist.is_available() and dist.is_initialized():
+            failed = torch.tensor(
+                int(local_error is not None),
+                dtype=torch.int32,
+                device=self.accelerator.get_device(),
+            )
+            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
+            if failed.item() and local_error is None:
+                raise RuntimeError(f"Data cycle {stage} failed on another rank")
+        if local_error is not None:
+            raise local_error
+
+    def _close_data_iterator(self) -> None:
+        """Finish workers before a refresh can release their cached files."""
+        iterator = self._data_iterator
+        self._data_iterator = None
+        if iterator is None:
+            return
+        try:
+            shutdown = getattr(iterator, "_shutdown_workers", None)
+            if shutdown is not None:
+                shutdown()
+            else:
+                close = getattr(iterator, "close", None)
+                if close is not None:
+                    close()
+        finally:
+            loader = self.train_loader
+            if loader is not None and getattr(loader, "_iterator", None) is iterator:
+                loader._iterator = None
+
+    def _start_data_cycle(self, cycle: int, *, initial: bool = False) -> None:
+        """Set selection state, run callbacks, then create the prepared iterator."""
+        with self._synchronize_cycle_errors("selection setup"):
+            if initial and self._resuming_data_cycle:
+                world_size = (
+                    dist.get_world_size()
+                    if dist.is_available() and dist.is_initialized()
+                    else 1
+                )
+                if self._restored_cycle_world_size not in {None, world_size}:
+                    raise RuntimeError(
+                        "Checkpoint data cycle requires the same world size"
+                    )
+                if self._restored_dataset_cycle_state is not None:
+                    self.dataset_wrapper.restore_data_cycle_state(
+                        self._restored_dataset_cycle_state
+                    )
+            self._set_data_cycle(cycle)
+
+        self.callbacks.on_data_cycle_start(
+            cycle,
+            {
+                "iteration": self.current_iteration,
+                "iteration_in_cycle": self.iteration_in_cycle,
+                "initial": initial,
+                "resuming": initial and self._resuming_data_cycle,
+            },
+        )
+        try:
+            with self._synchronize_cycle_errors("loader setup"):
+                if self.train_loader is None:
+                    raise RuntimeError("IterationTrainer requires a train data loader")
+                if (
+                    initial
+                    and self._restored_dataset_cycle_state is not None
+                    and self.dataset_wrapper.get_data_cycle_state()
+                    != self._restored_dataset_cycle_state
+                ):
+                    raise RuntimeError(
+                        "Checkpoint data-cycle selection changed; restore the "
+                        "original shard inventory or candidate pool"
+                    )
+                self.accelerator.set_sampler_epoch(cycle)
+                self._cycle_pass_complete = False
+                self._cycle_has_batch = False
+                self._data_iterator = iter(self.train_loader)
+        except Exception:
+            self._close_data_iterator()
+            raise
+
+    def _read_training_batch(self) -> Any:
+        """Skip empty collated results without counting them as training batches."""
+        while True:
+            batch = next(self._data_iterator)
+            if batch is None or (isinstance(batch, dict) and not batch):
+                continue
+            self._cycle_has_batch = True
+            return batch
+
+    def _next_training_batch(self) -> Any:
+        """Coordinate exhaustion before any rank enters a model forward."""
+        while True:
+            load_error: Exception | None = None
+            exhausted = False
+            batch = None
+            try:
+                batch = self._read_training_batch()
+            except StopIteration:
+                exhausted = True
+                self._cycle_pass_complete = True
+                if not self._cycle_has_batch:
+                    load_error = RuntimeError(
+                        "IterationTrainer cannot cycle an empty train data loader"
+                    )
+            except Exception as error:
+                load_error = error
+
+            # MAX keeps the cycle open while any rank is still on its first pass.
+            status = [
+                not self._cycle_pass_complete, exhausted, load_error is not None,
+            ]
+            if dist.is_available() and dist.is_initialized():
+                status_tensor = torch.tensor(
+                    status,
+                    dtype=torch.int32,
+                    device=self.accelerator.get_device(),
+                )
+                dist.all_reduce(status_tensor, op=dist.ReduceOp.MAX)
+                status = status_tensor.tolist()
+            if status[2]:
+                if load_error is not None:
+                    raise load_error
+                raise RuntimeError("Training data stream failed on another rank")
+            if not status[0]:
+                # A replay batch fetched on a shorter rank belongs to the old
+                # selection. Discard it rather than training past this boundary.
+                batch = None
+                self.callbacks.on_data_cycle_end(
+                    self.data_cycle,
+                    {
+                        "iteration": self.current_iteration,
+                        "iteration_in_cycle": self.iteration_in_cycle,
+                        "completed": True,
+                        "reason": "exhausted",
+                    },
+                )
+                with self._synchronize_cycle_errors("worker shutdown"):
+                    self._close_data_iterator()
+                self.iteration_in_cycle = 0
+                self._start_data_cycle(self.data_cycle + 1)
+                continue
+            if status[1]:
+                # Every rank participates in the replay error check, including
+                # ranks that already fetched their next first-pass batch.
+                with self._synchronize_cycle_errors("replay"):
+                    if exhausted:
+                        self._data_iterator = iter(self.train_loader)
+                        try:
+                            batch = self._read_training_batch()
+                        except StopIteration as error:
+                            raise RuntimeError(
+                                "IterationTrainer cannot replay an empty train data loader"
+                            ) from error
+            return batch
 
     def _accumulation_pending(self) -> bool:
         """Return whether gradients are waiting for an optimizer boundary."""
@@ -192,23 +364,42 @@ class IterationTrainer(EpochTrainer):
             self.perform_baseline_evaluation()
             self.set_models_mode("train")
 
-        if self.train_loader is None:
-            raise RuntimeError("IterationTrainer requires a train data loader")
-
-        self._set_data_cycle(self.data_cycle)
-        data_loader = self.train_loader
-        if data_loader is None:
-            raise RuntimeError("IterationTrainer requires a train data loader")
-        data_iterator: Iterator[Any] = iter(data_loader)
-
-        for _ in range(self.iteration_in_cycle):
-            try:
-                next(data_iterator)
-            except StopIteration as exc:
-                raise RuntimeError(
-                    "Checkpoint loader position is incompatible with the current "
-                    "training loader"
-                ) from exc
+        self._start_data_cycle(self.data_cycle, initial=True)
+        try:
+            with self._synchronize_cycle_errors("resume"):
+                for _ in range(self.iteration_in_cycle):
+                    try:
+                        self._read_training_batch()
+                    except StopIteration:
+                        self._cycle_pass_complete = True
+                        self._data_iterator = iter(self.train_loader)
+                        try:
+                            self._read_training_batch()
+                        except StopIteration as error:
+                            raise RuntimeError(
+                                "Checkpoint loader position is incompatible with "
+                                "the current training loader"
+                            ) from error
+            if self.iteration_in_cycle:
+                first_pass_pending = not self._cycle_pass_complete
+                if dist.is_available() and dist.is_initialized():
+                    pending = torch.tensor(
+                        int(first_pass_pending),
+                        dtype=torch.int32,
+                        device=self.accelerator.get_device(),
+                    )
+                    dist.all_reduce(pending, op=dist.ReduceOp.MAX)
+                    first_pass_pending = bool(pending.item())
+                if not first_pass_pending:
+                    raise RuntimeError(
+                        "Checkpoint loader position is incompatible with the "
+                        "current training loader: cursor is past the shared cycle"
+                    )
+        except Exception:
+            self._close_data_iterator()
+            raise
+        self._resuming_data_cycle = False
+        self._restored_dataset_cycle_state = None
 
         for optimizer in self.optimizers.values():
             optimizer.zero_grad()
@@ -234,23 +425,7 @@ class IterationTrainer(EpochTrainer):
 
         try:
             while self.current_iteration < self.iterations:
-                try:
-                    batch_data = next(data_iterator)
-                except StopIteration:
-                    self._set_data_cycle(self.data_cycle + 1)
-                    self.iteration_in_cycle = 0
-                    data_loader = self.train_loader
-                    if data_loader is None:
-                        raise RuntimeError(
-                            "IterationTrainer lost its train data loader"
-                        )
-                    data_iterator = iter(data_loader)
-                    try:
-                        batch_data = next(data_iterator)
-                    except StopIteration as exc:
-                        raise RuntimeError(
-                            "IterationTrainer cannot cycle an empty train data loader"
-                        ) from exc
+                batch_data = self._next_training_batch()
 
                 batch_idx = self.current_iteration
                 start = time.time()
@@ -425,8 +600,18 @@ class IterationTrainer(EpochTrainer):
                             "data_cycle": self.data_cycle,
                         },
                     )
+            self.callbacks.on_data_cycle_end(
+                self.data_cycle,
+                {
+                    "iteration": self.current_iteration,
+                    "iteration_in_cycle": self.iteration_in_cycle,
+                    "completed": False,
+                    "reason": "training_end",
+                },
+            )
         finally:
             pbar.close()
+            self._close_data_iterator()
             for optimizer in self.optimizers.values():
                 optimizer.zero_grad()
             self._finalize_accumulation = False
@@ -445,6 +630,12 @@ class IterationTrainer(EpochTrainer):
                 "iteration": iteration,
                 "data_cycle": self.data_cycle,
                 "iteration_in_cycle": self.iteration_in_cycle,
+                "data_cycle_world_size": (
+                    dist.get_world_size()
+                    if dist.is_available() and dist.is_initialized()
+                    else 1
+                ),
+                "dataset_cycle_state": self.dataset_wrapper.get_data_cycle_state(),
             }
         )
         return payload
@@ -466,6 +657,11 @@ class IterationTrainer(EpochTrainer):
             checkpoint.get("data_cycle", checkpoint.get("epoch", 0))
         )
         self.iteration_in_cycle = int(checkpoint.get("iteration_in_cycle", 0))
+        if self.data_cycle < 0 or self.iteration_in_cycle < 0:
+            raise ValueError("Checkpoint data cycle and cursor must be nonnegative")
+        self._resuming_data_cycle = True
+        self._restored_dataset_cycle_state = checkpoint.get("dataset_cycle_state")
+        self._restored_cycle_world_size = checkpoint.get("data_cycle_world_size")
         self._set_data_cycle(self.data_cycle)
         for manager in self.metric_managers.values():
             manager.set_epoch(self.current_iteration)

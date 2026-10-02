@@ -310,6 +310,28 @@ class Callback(ABC):
 
         self.on_epoch_end(iteration, logs)
 
+    def on_data_cycle_start(
+        self,
+        cycle: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Run on every rank before the cycle's train iterator is created.
+
+        Callbacks run in config order. Prepare prefetched data before a
+        dataset_refresh callback; inspect the new loader after it.
+        """
+
+    def on_data_cycle_end(
+        self,
+        cycle: int,
+        logs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Run on every rank after exhaustion or the training budget ends.
+
+        logs['completed'] distinguishes exhaustion from a partial final cycle.
+        Accumulated gradients may still be pending at an exhaustion boundary.
+        """
+
     def on_batch_start(
         self,
         batch: int,
@@ -785,6 +807,30 @@ class CallbackList:
             synchronize=True,
         )
 
+    def on_data_cycle_start(
+        self, cycle: int, logs: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Start the same cycle on all ranks; propagate callback failures."""
+        self._dispatch_indexed_hook(
+            "on_data_cycle_start",
+            cycle,
+            logs,
+            synchronize=True,
+            fail_on_error=True,
+        )
+
+    def on_data_cycle_end(
+        self, cycle: int, logs: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """End the same cycle on all ranks; propagate callback failures."""
+        self._dispatch_indexed_hook(
+            "on_data_cycle_end",
+            cycle,
+            logs,
+            synchronize=True,
+            fail_on_error=True,
+        )
+
     def on_batch_start(
         self,
         batch: int,
@@ -876,15 +922,38 @@ class CallbackList:
         logs: Optional[Dict[str, Any]],
         *,
         synchronize: bool = False,
+        fail_on_error: bool = False,
     ) -> None:
+        if synchronize and fail_on_error:
+            self.trainer.accelerator.wait_for_everyone()
         for callback in self.callbacks:
             self._sync_callback_enabled(callback)
             if not callback.enabled:
                 continue
+            local_error: Exception | None = None
             try:
                 getattr(callback, hook_name)(index, logs)
             except Exception as error:
-                self._handle_callback_error(callback, hook_name, error)
+                if fail_on_error:
+                    local_error = error
+                else:
+                    self._handle_callback_error(callback, hook_name, error)
+            if fail_on_error:
+                failed = local_error is not None
+                if dist.is_available() and dist.is_initialized():
+                    failed_tensor = torch.tensor(
+                        int(failed),
+                        dtype=torch.int32,
+                        device=self.trainer.accelerator.get_device(),
+                    )
+                    dist.all_reduce(failed_tensor, op=dist.ReduceOp.MAX)
+                    failed = bool(failed_tensor.item())
+                if failed:
+                    detail = str(local_error) if local_error else "another rank failed"
+                    raise RuntimeError(
+                        f"Callback {callback.__class__.__name__}.{hook_name} "
+                        f"failed: {detail}"
+                    ) from local_error
             if synchronize:
                 self.trainer.accelerator.wait_for_everyone()
         if synchronize:

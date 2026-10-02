@@ -792,6 +792,21 @@ class BaseWrapper(ABC):
         else:
             self.sampled_files_list[split] = []
 
+    def get_data_cycle_state(self) -> dict[str, Any]:
+        """Return rank-independent selection state for iteration checkpoints.
+
+        Concrete wrappers may include a fixed candidate pool or inventory
+        identity. Keep credentials and process-local resources out of this state.
+        """
+        return {}
+
+    def restore_data_cycle_state(self, state: dict[str, Any]) -> None:
+        """Restore selection policy state before rebuilding a resumed loader.
+
+        Override alongside get_data_cycle_state() for stateful selection. The
+        trainer checks the rebuilt state against the checkpoint before training.
+        """
+
     # ============================================================================
     # OPTIONAL METHODS (Can be overridden by subclasses)
     # ============================================================================

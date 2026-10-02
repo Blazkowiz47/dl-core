@@ -99,6 +99,12 @@ class _DatasetStub:
 
         self.epochs.append(epoch)
 
+    def get_data_cycle_state(self) -> dict[str, Any]:
+        return {}
+
+    def restore_data_cycle_state(self, state: dict[str, Any]) -> None:
+        assert not state
+
 
 class _CallbacksStub:
     """Record the iteration callback sequence used by the trainer."""
@@ -107,9 +113,17 @@ class _CallbacksStub:
         self.batch_indices: list[int] = []
         self.iteration_ends: list[int] = []
         self.checkpoints: list[int] = []
+        self.cycle_starts: list[tuple[int, dict[str, Any]]] = []
+        self.cycle_ends: list[tuple[int, dict[str, Any]]] = []
 
     def on_training_start(self) -> None:
         """No-op lifecycle hook."""
+
+    def on_data_cycle_start(self, cycle: int, logs: dict[str, Any]) -> None:
+        self.cycle_starts.append((cycle, logs))
+
+    def on_data_cycle_end(self, cycle: int, logs: dict[str, Any]) -> None:
+        self.cycle_ends.append((cycle, logs))
 
     def on_train_start(self, iteration: int, logs: dict[str, Any]) -> None:
         """No-op reporting-window hook."""
@@ -268,7 +282,7 @@ def test_iteration_training_cycles_finite_loader_and_reports_final_window() -> N
     assert trainer.global_step == 5
     assert trainer.data_cycle == 2
     assert trainer.iteration_in_cycle == 1
-    assert trainer.accelerator.sampler_epochs == [0, 1, 2]
+    assert trainer.accelerator.sampler_epochs == [0, 0, 1, 1, 2, 2]
     assert trainer.dataset_wrapper.epochs == [0, 1, 2]
     assert trainer.callbacks.batch_indices == [0, 1, 2, 3, 4]
     assert trainer.callbacks.iteration_ends == [2, 4, 5]

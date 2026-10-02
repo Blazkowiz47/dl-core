@@ -339,9 +339,13 @@ class StreamTrainer(IterationTrainer):
 
 Every distributed rank consumes one local batch per iteration, so all ranks
 perform the same number of synchronized model updates. Finite loaders restart
-with a new deterministic data cycle; streaming loaders can remain open
-indefinitely. Checkpoints retain the completed iteration, data-cycle number,
-and position within the current finite-loader cycle.
+with a new deterministic data cycle after every rank has exhausted one pass.
+Shorter ranks replay their current selection until the shared boundary; these
+repeated batches count toward the iteration budget. A single GPU advances as
+soon as its loader exhausts. Infinite loaders remain in their current cycle.
+Cycle boundaries use actual yielded batches rather than estimated lengths.
+Checkpoints retain the completed iteration, cycle number, cursor including
+replays, world size, and wrapper selection state.
 With gradient accumulation, reporting and checkpoint saves wait for a completed
 optimizer step; a final partial window is stepped before the final report.
 
@@ -486,14 +490,45 @@ uv run dl-core add scheduler CosineWrapper --base cosine
 ```
 
 Built-in callbacks include `dataset_refresh`, which rebuilds selected dataset
-splits at epoch boundaries. Example:
+splits at epoch boundaries by default. With `IterationTrainer`, opt into
+rebuilding at data-cycle boundaries:
 
 ```yaml
 callbacks:
   dataset_refresh:
+    trigger: data_cycle
     refresh_frequency: 1
     splits: [train]
 ```
+
+Use `trigger: epoch` for the existing epoch behavior. `refresh_frequency`
+counts the selected boundary; a frequency of two retains a selection for two
+cycles. The initial or resumed cycle rebuilds its active selection even when
+its number is between scheduled refreshes. Other splits retain their loaders.
+
+`on_data_cycle_start(cycle, logs)` and `on_data_cycle_end(cycle, logs)` run on
+every rank. Start callbacks run after the wrapper's cycle/epoch is set and
+before the prepared loader's iterator is created. Callbacks run in config
+order: put prefetch preparation before `dataset_refresh`, and callbacks that
+inspect the rebuilt loader after it. End logs include `completed` and `reason`,
+distinguishing exhaustion from a partial cycle at the end of training. Cycle
+callback failures stop all ranks rather than disable a required refresh.
+
+`TarShardWrapper.refresh_dataset(split)` clears resolved and sampled source
+lists and shard progress for that split. Its next `get_split()` calls the
+concrete `build_shard_sources(split)` again. Quotas, frozen selections, and
+bounded pools remain the concrete wrapper's responsibility. Workers finish
+before retired datasets and their cache reservations are released. Refresh
+preserves optimizer state and accumulated gradients.
+
+Wrappers can override `get_data_cycle_state()` and
+`restore_data_cycle_state(state)` to persist a fixed candidate pool or inventory
+identity. State must be serializable, identical across ranks, and free of
+credentials or process-local resources. Tar wrappers record logical train
+shard identities and available ETags, hashes, and sample counts without signed
+URL queries. Resume checks the rebuilt state and requires the same world size;
+selection changes raise before training. Reproducing sample order also requires
+the same seeds, reader settings, and deterministic selection/transform behavior.
 
 When `dl-azure` is importable, the dataset scaffold also exposes Azure bases:
 
@@ -559,7 +594,10 @@ with a resampled iteration-based training stream.
 
 For finite iterable streams, `EpochTrainer` stops training at the shortest rank's
 last shared batch by default; longer ranks leave their remaining tail unused.
-`IterationTrainer` remains the choice for resampled or endless training streams.
+`IterationTrainer` covers longer ranks by replaying shorter ranks within the
+same cycle, and also supports resampled or endless training streams. A rank
+with no valid training batches fails consistently across ranks. Empty collated
+batches from skipped transforms do not advance the iteration or cycle cursor.
 Validation and test instead process every valid shard sample, even when a rank
 has no batches. Use metric-manager `gather` mode for uneven evaluation; a
 rank-average metric is rejected when sample counts differ. Models and batch

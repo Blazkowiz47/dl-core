@@ -322,6 +322,55 @@ without requiring a length. WebDataset-backed loaders split shards between
 ranks and workers before reading samples; a resampled training stream keeps
 every rank available for the configured iteration budget.
 
+Finite iteration loaders share a cycle across ranks. Once a shorter rank
+exhausts, it replays its existing selection until every rank completes a pass.
+All ranks then advance together before the next forward pass. Replays count
+toward `iterations`; estimated loader lengths do not define the boundary. A
+rank with no valid training batches fails rather than replaying indefinitely.
+Empty collated results are skipped before counting a batch.
+
+To rebuild a selection at each cycle, use the existing refresh callback:
+
+```yaml
+callbacks:
+  dataset_refresh:
+    trigger: data_cycle
+    refresh_frequency: 1
+    splits: [train]
+```
+
+`trigger` defaults to `epoch`. For `data_cycle`, use a trainer that emits cycle
+events, such as `IterationTrainer`. `refresh_frequency` counts cycles and can
+retain a selection across several passes. On resume, the callback rebuilds the
+last scheduled selection before restoring the cursor, including any replay.
+Validation and test remain unchanged unless included in `splits`.
+
+`TarShardWrapper.refresh_dataset(split)` invalidates resolved sources, sampled
+sources, and shard progress; it leaves downloaded files to the storage adapter.
+A concrete wrapper's `build_shard_sources(split)` uses `current_epoch` as the
+iteration data-cycle number to choose its shards. A frozen selector returns
+the same IDs; a bounded selector rotates only within its own fixed pool.
+Both streaming and indexed readers use this selection contract.
+
+Cycle callbacks run on every rank in config order. Use
+`on_data_cycle_start(cycle, logs)` to prepare data before `dataset_refresh` or
+inspect its rebuilt loader after it. The new prepared sampler is seeded with
+the cycle before iteration begins. Workers finish before their retired dataset
+can release cached files. `on_data_cycle_end(cycle, logs)` reports
+`completed: true` on exhaustion and `completed: false` when training ends
+within a cycle. A cycle can end during gradient accumulation; refresh does
+not zero gradients or reset the optimizer. Checkpoint/reporting work still
+waits for the existing optimizer boundary.
+
+Iteration checkpoints include the world size and wrapper state returned by
+`get_data_cycle_state()`. Implement `restore_data_cycle_state(state)` for a
+stateful candidate pool, alongside deterministic shard selection. The state
+must be serializable, shared across ranks, and contain no credentials or open
+resources. Tar wrappers provide an unsigned logical source snapshot by default;
+they validate it on resume rather than restoring a project-specific pool.
+Changed sources or world size raise before training. Exact sample order also
+depends on unchanged seeds, reader settings, and deterministic transforms.
+
 With gradient accumulation, iteration checkpoints are deferred until the
 current accumulation window has produced an optimizer step. This prevents a
 resume point from silently dropping gradients held only in memory.
