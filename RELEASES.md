@@ -3,6 +3,15 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.13
+
+- reusable data-cycle callbacks let concrete wrappers refresh selections and
+  rebuild loaders between passes
+- distributed iteration training advances cycles after every rank finishes a
+  pass; shorter ranks replay their selection while gradients keep accumulating
+- checkpoints preserve the cycle, batch cursor, and wrapper selection state,
+  with validation when rebuilding the resumed selection
+
 ## 0.1.12
 
 - `IndexedTarDataset` reads variable-size grouped members from plain tar files

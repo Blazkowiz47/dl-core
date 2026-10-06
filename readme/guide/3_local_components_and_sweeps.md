@@ -172,6 +172,27 @@ uv run dl-run --config experiments/debug.yaml
 uv run dl-sweep experiments/lr_sweep.yaml
 ```
 
+For built-in local execution, Ctrl-C opens a menu of running jobs. Enter `2,3`
+to stop those displayed rows, press Enter to continue, or press Ctrl-C again
+to stop the whole sweep. Confirmed stops have status `stopped`, separately from
+failures.
+
+Local resume modes reuse the original run selection:
+
+```bash
+uv run dl-sweep experiments/lr_sweep.yaml --resume          # pending
+uv run dl-sweep experiments/lr_sweep.yaml --resume-failed   # failed
+uv run dl-sweep experiments/lr_sweep.yaml --resume-stopped  # stopped
+uv run dl-sweep experiments/lr_sweep.yaml --resume-all      # all three
+```
+
+Choose one resume flag and omit `--overwrite`. Completed, running, and unknown
+rows are excluded from automatic retries. Azure retains its existing resume
+behavior. Custom `LocalExecutor.execute_run()` hooks retain their own dispatch
+without this menu; customize `build_command()` to keep selective stopping. See
+the [sweep reference](../technical/3_sweep_system.md) for signal handling,
+cleanup, and exit codes.
+
 Generated sweep configs are saved under:
 
 ```text

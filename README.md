@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.13`.
-Current development version: `0.1.13`.
+Current public release: `deep-learning-core==0.1.14`.
+Current development version: `0.1.14`.
 
 Compatible companion package floors:
 
@@ -21,14 +21,17 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.13?
+## What's New in 0.1.14?
 
-- reusable data-cycle callbacks let concrete wrappers refresh selections and
-  rebuild loaders between passes
-- distributed iteration training advances cycles after every rank finishes a
-  pass; shorter ranks replay their selection while gradients keep accumulating
-- checkpoints preserve the cycle, batch cursor, and wrapper selection state,
-  with validation when rebuilding the resumed selection
+- local sweeps show a run-selection menu on the first Ctrl-C; a second Ctrl-C
+  stops all owned runs and descendants, with confirmed stops saved as `stopped`
+- local `--resume` runs pending jobs only; `--resume-failed`, `--resume-stopped`,
+  and `--resume-all` select the other retry modes while Azure keeps its existing
+  resume behavior
+- menu input stays responsive when Ctrl-C flushes terminal input, and mixed
+  executor grids require an explicit local override before dispatch
+- custom `execute_run()` hooks keep their existing dispatch; `build_command()`
+  customization retains supervision and the selective menu
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -724,6 +727,7 @@ dataset and workers are in use. See
 
 ## Releases
 
+- `Publish TestPyPI` publishes to TestPyPI for release verification.
 - `Publish` is the production workflow for PyPI.
 - Trusted publishing is configured through GitHub Actions environments rather
   than long-lived API tokens.
