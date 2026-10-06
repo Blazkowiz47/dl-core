@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -252,13 +253,14 @@ def test_filtered_sweep_resumes_only_original_selection(
     monkeypatch.setattr(
         "sys.argv", ["dl-sweep", str(sweep_path), "--resume", "--only", "run_001"]
     )
-    assert runner.main() == 1
+    assert runner.main() == 0
     assert attempts == [2]
 
     if resume_status == "pending":
         tracker.update_run_status(2, "pending")
 
-    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    resume_flag = "--resume-failed" if resume_status == "failed" else "--resume"
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), resume_flag])
     assert runner.main() == 0
     assert attempts == [2, 2]
     assert tracker.get_sweep_data()["runs"]["2"]["status"] == "completed"
@@ -314,7 +316,7 @@ def test_resume_matches_selected_run_by_name_after_grid_reorder(
     assert tracker.get_sweep_data()["selected_run_names"] == {"1": "lr_0.2_seed_7"}
 
     sweep_spec["grid"]["optimizers.lr"] = [0.2, 0.1]
-    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume-failed"])
     assert runner.main() == 0
     assert attempts == [(1, 0.2), (1, 0.2)]
     assert tracker.get_sweep_data()["runs"]["1"]["status"] == "completed"
@@ -602,7 +604,7 @@ def test_resume_keeps_legacy_float_run_filename(
         tracker.update_run_status(1, "completed")
         return {"completed": 1, "failed": 0, "running": 0, "unknown": 0}
 
-    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume-failed"])
     monkeypatch.setattr(runner, "setup_logging", lambda level: None)
     monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
     monkeypatch.setattr(runner, "load_local_components", lambda path: None)
@@ -964,11 +966,7 @@ def test_local_executor_tracks_legacy_resume_artifacts(
         {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
         "demo-exp", "sweep-1",
     )
-    executor.build_command = lambda *args: ["unused"]
-    monkeypatch.setattr(
-        "dl_core.executors.local.subprocess.run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0),
-    )
+    executor.build_command = lambda *args: [sys.executable, "-c", "pass"]
 
     result = executor.execute_run(0, config_path)
 
@@ -999,11 +997,7 @@ def test_local_executor_tracks_old_yml_sweep_artifacts(
         {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
         "demo", "sweep-1",
     )
-    executor.build_command = lambda *args: ["unused"]
-    monkeypatch.setattr(
-        "dl_core.executors.local.subprocess.run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0),
-    )
+    executor.build_command = lambda *args: [sys.executable, "-c", "pass"]
 
     result = executor.execute_run(0, config_path)
 
@@ -1083,10 +1077,12 @@ def test_sweep_cli_exit_codes_reflect_failed_and_unknown_runs(
     assert "1 failed" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("executor_name", ["local", "azure"])
 def test_resume_does_not_call_unknown_runs_completed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    executor_name: str,
 ) -> None:
     """An unknown run needs reconciliation, not a success message."""
     sweep_path = tmp_path / "sweep.yaml"
@@ -1103,19 +1099,21 @@ def test_resume_does_not_call_unknown_runs_completed(
     monkeypatch.setattr(runner, "load_user_sweep", lambda path: {"base_config": str(config_path)})
     monkeypatch.setattr(runner, "ensure_tracking_experiment_name", lambda *args, **kwargs: "demo")
     monkeypatch.setattr(
-        runner, "generate_all_run_configs", lambda *args: (None, [{}])
+        runner, "generate_all_run_configs",
+        lambda *args: (None, [{"executor": {"name": executor_name}}])
     )
 
-    assert runner.main() == 3
+    assert runner.main() == (0 if executor_name == "local" else 3)
     output = capsys.readouterr().out
     assert "1 unknown" in output
     assert "All runs are completed" not in output
 
 
-def test_resume_exit_code_counts_other_unknown_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("executor_name", ["local", "azure"])
+def test_resume_exit_code_scopes_unknown_history_to_executor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executor_name: str,
 ) -> None:
-    """A successful retry cannot hide another run's unknown tracker status."""
+    """Local command outcomes exclude history; Azure retains its old behavior."""
     sweep_path = tmp_path / "sweep.yaml"
     sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
     config_path = tmp_path / "run.yaml"
@@ -1124,7 +1122,7 @@ def test_resume_exit_code_counts_other_unknown_runs(
     tracker.initialize_sweep(total_runs=2, user="tester")
     tracker.update_run_status(0, "failed")
     tracker.update_run_status(1, "unknown")
-    run_config = {"executor": {"name": "local"}, "runtime": {"name": "demo"}}
+    run_config = {"executor": {"name": executor_name}, "runtime": {"name": "demo"}}
 
     class Builder:
         def prepare_configs(self, configs: list[dict[str, Any]]) -> list[Any]:
@@ -1139,7 +1137,8 @@ def test_resume_exit_code_counts_other_unknown_runs(
         tracker.update_run_status(0, "completed")
         return {"completed": 1, "failed": 0, "running": 0, "unknown": 0, "total": 1}
 
-    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), "--resume"])
+    resume_flag = "--resume-failed" if executor_name == "local" else "--resume"
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(sweep_path), resume_flag])
     monkeypatch.setattr(runner, "setup_logging", lambda level: None)
     monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
     monkeypatch.setattr(runner, "load_local_components", lambda path: None)
@@ -1154,4 +1153,4 @@ def test_resume_exit_code_counts_other_unknown_runs(
         lambda *args, **kwargs: SimpleNamespace(run_sweep=run_sweep),
     )
 
-    assert runner.main() == 3
+    assert runner.main() == (0 if executor_name == "local" else 3)

@@ -517,6 +517,11 @@ Typical first use:
             print(f"\n✗ Run '{run_name}' failed")
             return 1
 
+    except KeyboardInterrupt:
+        if args.mode != "local":
+            raise
+        print(f"\nRun '{run_name}' stopped")
+        return 130
     except Exception as e:
         print(f"\n✗ Execution failed: {e}")
         return 1

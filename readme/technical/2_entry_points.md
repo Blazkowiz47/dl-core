@@ -154,6 +154,9 @@ Useful flags:
 - `--skip`
 - `--dry-run`
 - `--resume`
+- `--resume-failed` (local)
+- `--resume-stopped` (local)
+- `--resume-all` (local)
 - `--overwrite`
 - `--max-workers`
 - `--compute`
@@ -175,12 +178,32 @@ Notes:
   runner uses one worker
 - `--dry-run` still writes generated run YAML and goes through normal executor
   wiring, but does not execute the runs or replace the tracker
-- `dl-sweep` exits with code 1 if any run failed, code 3 if no run failed but
-  any status is unknown, and code 0 for completed or still-running jobs
-- `--resume` retries failed and pending runs; running and unknown jobs must be
-  reconciled with their execution backend before they can be retried
+- for local sweeps, `--resume` selects pending runs, `--resume-failed` selects
+  failed runs, `--resume-stopped` selects stopped runs, and `--resume-all` selects
+  all three statuses. The modes are mutually exclusive and reject `--overwrite`
+- local exit codes depend on runs claimed by this invocation: 0 for completion
+  or an empty selection, 1 for a failure, 3 for an unconfirmed result, and 130
+  for stop-all. Excluded historical failures or unknown rows remain visible in
+  the sweep history without determining this command's exit code
+- other executors retain failed-and-pending `--resume` and their existing exit
+  rules; the three additional resume flags require a local executor
+- running and unknown jobs remain ineligible for automatic retries and need
+  reconciliation with their execution backend
 - `--resume` matches selected runs by their names even if grid order changes;
   it stops if a selected name is no longer generated or the grid size changes
+
+In an interactive local sweep, Ctrl-C opens a numbered menu of owned active runs.
+Enter `2,3` to stop those displayed rows, Enter to continue, or `all` to stop the
+whole command. A second Ctrl-C also stops all owned runs, including during
+selective shutdown. Enter resets the sequence so a later Ctrl-C opens a new menu.
+Invalid input performs no stops, and the menu's row numbers remain fixed if runs
+finish while you choose. Already completed results are preserved.
+
+New launches pause while the menu is open; existing jobs keep running. Confirmed
+user stops persist as `stopped`, separately from `failed`. Unstarted jobs stay
+pending after stop-all. Without a terminal, Ctrl-C stops everything directly;
+EOF at the menu also stops everything. `dl-run` retains direct first-Ctrl-C cleanup
+for its single local run and exits with code 130.
 
 ## `dl-sync`
 

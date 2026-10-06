@@ -174,6 +174,9 @@ def main():
             "  dl-sweep experiments/lr_sweep.yaml --only '*seed_2025*'\n"
             "  dl-sweep experiments/lr_sweep.yaml --dry-run\n"
             "  dl-sweep experiments/lr_sweep.yaml --resume\n"
+            "  dl-sweep experiments/lr_sweep.yaml --resume-failed\n"
+            "  dl-sweep experiments/lr_sweep.yaml --resume-stopped\n"
+            "  dl-sweep experiments/lr_sweep.yaml --resume-all\n"
             "  dl-sweep --sweep experiments/lr_sweep.yaml  # compatibility alias\n\n"
             "The sweep file normally lives under experiments/ and points at\n"
             "configs/base.yaml via base_config.\n\n"
@@ -256,11 +259,23 @@ def main():
         help="Logging level (default: INFO)",
     )
 
-    parser.add_argument(
+    resume_flags = parser.add_mutually_exclusive_group()
+    resume_flags.add_argument(
         "--resume",
-        action="store_true",
-        help="Resume sweep: only run failed and pending runs (skip completed)",
+        dest="resume_statuses",
+        action="store_const",
+        const=("pending",),
+        help="Resume pending local runs (other executors retain failed + pending)",
     )
+    for flag, statuses, help_text in (
+        ("--resume-failed", ("failed",), "Resume failed local runs only"),
+        ("--resume-stopped", ("stopped",), "Resume stopped local runs only"),
+        ("--resume-all", ("pending", "failed", "stopped"), "Resume pending, failed and stopped local runs"),
+    ):
+        resume_flags.add_argument(
+            flag, dest="resume_statuses", action="store_const", const=statuses,
+            help=help_text,
+        )
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -268,8 +283,9 @@ def main():
     )
 
     args = parser.parse_args()
-    if args.resume and args.overwrite:
-        parser.error("--overwrite cannot be used with --resume")
+    is_resume = args.resume_statuses is not None
+    if is_resume and args.overwrite:
+        parser.error("--overwrite cannot be used with a resume flag")
     if args.sweep_path and args.sweep_flag and args.sweep_path != args.sweep_flag:
         parser.error("Pass the sweep file either positionally or with --sweep.")
     sweep_arg = args.sweep_flag or args.sweep_path
@@ -313,9 +329,22 @@ def main():
     builder, all_configs = generate_all_run_configs(sweep_config, base_config)
     total_runs = len(all_configs)
 
-    # Handle resume mode: filter to only failed and pending runs
+    # Resume policy depends on the expanded executor, including CLI overrides.
+    executor_name = args.executor or (
+        (all_configs[0].get("executor") or {}).get("name") if all_configs else None
+    )
+    local_execution = executor_name == "local"
+    if is_resume and not local_execution and args.resume_statuses != ("pending",):
+        parser.error("--resume-failed, --resume-stopped and --resume-all require a local executor")
+    resume_statuses = (
+        args.resume_statuses if local_execution else ("failed", "pending")
+    )
+    if is_resume and local_execution:
+        sweep_config["_resume_statuses"] = resume_statuses
+
+    # All resume flags preserve existing tracking and the original selection.
     resume_tracking_context = None
-    if args.resume:
+    if is_resume:
         # Create temporary tracker to check for existing sweep
         temp_tracker = SweepTracker(sweep_path, experiment_name, "temp")
 
@@ -405,7 +434,17 @@ def main():
             for index in temp_tracker.get_pending_runs(expected_total_runs=total_runs)
             if index in selected_set
         ]
-        resume_runs = sorted(failed_runs + pending_runs)
+        stopped_runs = [
+            int(index) for index, run in sweep_data.get("runs", {}).items()
+            if int(index) in selected_set and run.get("status") == "stopped"
+        ]
+        runs_by_status = {
+            "pending": pending_runs, "failed": failed_runs, "stopped": stopped_runs,
+        }
+        resume_runs = sorted(
+            index for status in resume_statuses for index in runs_by_status[status]
+        )
+        resume_label = ", ".join(resume_statuses) if local_execution else "failed or pending"
 
         if not resume_runs:
             statuses = [
@@ -423,13 +462,16 @@ def main():
                     and run.get("status") in {"running", "unknown"}
                 ]
                 print(
-                    "No failed or pending runs to resume. "
+                    f"No {resume_label} runs to resume. "
                     f"{running} running and {unknown} unknown run(s) remain; "
                     f"check runs {unresolved_indices} in {temp_tracker.json_path} "
                     "and reconcile them before retrying."
                 )
-                return 3 if unknown else 0
-            print("No failed or pending runs to resume. All runs are completed!")
+                return 3 if unknown and not local_execution else 0
+            print(
+                f"No {resume_label} runs to resume."
+                + (" All runs are completed!" if not local_execution else "")
+            )
             return 0
 
         # A run may have moved within the grid, but its tracker row stays put.
@@ -451,8 +493,9 @@ def main():
             prepared_configs = None
 
         print(f"\n🔄 Resuming Sweep: {sweep_path.name}")
-        print(f"   Failed runs: {len(failed_runs)} {failed_runs}")
-        print(f"   Pending runs: {len(pending_runs)} {pending_runs}")
+        for status in resume_statuses:
+            indices = runs_by_status[status]
+            print(f"   {status.capitalize()} runs: {len(indices)} {indices}")
         print(f"   Total to run: {len(resume_runs)}")
     else:
         print(f"\n🚀 Sweep: {sweep_path.name}")
@@ -460,7 +503,7 @@ def main():
 
     # Determine sweep identifier for this execution (used for fallbacks)
     sweep_id = f"sweep_{int(time.time())}"
-    if not args.resume or prepared_configs is None:
+    if not is_resume or prepared_configs is None:
         try:
             prepared_configs = builder.prepare_configs(all_configs)
         except ValueError as error:
@@ -473,7 +516,7 @@ def main():
     )
     if not prepared_configs:
         print("No sweep runs matched the requested filters.")
-        return 1 if args.resume else 0
+        return 0 if local_execution or not is_resume else 1
 
     if args.only or args.skip:
         print(f"   Filtered runs: {len(prepared_configs)}/{len(all_configs)}")
@@ -490,7 +533,7 @@ def main():
             print(f"   Exported preview: {export_path}")
         return 0
 
-    if not args.resume:
+    if not is_resume:
         tracker_path = SweepTracker(sweep_path, experiment_name, sweep_id).json_path
         if tracker_path.exists() and not args.overwrite:
             if not sys.stdin.isatty():
@@ -586,7 +629,7 @@ def main():
         compute_target=compute_target,
         environment_name=environment_name,
         tracking_context=resume_tracking_context,
-        resume=args.resume,
+        resume=is_resume,
     )
 
     # Run sweep using executor - now passing only config paths
@@ -597,11 +640,12 @@ def main():
         failed = progress.get("failed", 0)
         running = progress.get("running", 0)
         unknown = progress.get("unknown", 0)
+        stopped_text = f", {progress.get('stopped', 0)} stopped" if local_execution else ""
         print(
             f"\nSweep finished: {progress['completed']} completed, {failed} failed, "
-            f"{running} running, {unknown} unknown{skipped_text}"
+            f"{running} running, {unknown} unknown{stopped_text}{skipped_text}"
         )
-        if args.resume and not args.dry_run:
+        if is_resume and not args.dry_run:
             sweep_data = temp_tracker.get_sweep_data()
             if not sweep_data:
                 raise RuntimeError(
@@ -612,14 +656,32 @@ def main():
                 for index, run in sweep_data.get("runs", {}).items()
                 if int(index) in selected_set
             ]
-            failed = statuses.count("failed")
-            unknown = statuses.count("unknown")
+            if local_execution:
+                counts = {status: statuses.count(status) for status in (
+                    "pending", "running", "completed", "failed", "stopped", "unknown"
+                )}
+                print("Sweep history: " + ", ".join(
+                    f"{count} {status}" for status, count in counts.items()
+                ))
+            else:
+                failed = statuses.count("failed")
+                unknown = statuses.count("unknown")
         if failed:
             return 1
         if unknown:
             return 3
         return 0
 
+    except KeyboardInterrupt:
+        if not local_execution:
+            raise
+        progress = executor.get_progress()
+        print(
+            f"\nLocal sweep stopped: {progress['completed']} completed, "
+            f"{progress['failed']} failed, {progress.get('stopped', 0)} stopped, "
+            f"{progress.get('unknown', 0)} unknown"
+        )
+        return 130
     except Exception as e:
         print(f"\n✗ Sweep failed: {e}")
         return 1

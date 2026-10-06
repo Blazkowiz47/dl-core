@@ -261,6 +261,40 @@ before writing. Use `--overwrite` for an intentional non-interactive replacement
 `--resume` keeps the existing tracker. `--dry-run` still writes generated YAML,
 while `--preview` does not.
 
+Local sweeps support four mutually exclusive resume modes:
+
+| Flag | Runs to execute |
+| --- | --- |
+| `--resume` | Pending runs |
+| `--resume-failed` | Failed runs |
+| `--resume-stopped` | Stopped runs |
+| `--resume-all` | Pending, failed, and stopped runs |
+
+All four modes keep the original selection and run names and reject
+`--overwrite`. Completed, running, and unknown runs are excluded. Historical
+failures or unknown rows remain visible in the sweep history and do not change
+the exit code of a successful local resume. An empty selection reports, for
+example, `No pending runs to resume.` and exits successfully. Azure retains its
+existing `--resume` behavior; the three additional modes require a local executor.
+
+During a local sweep, press Ctrl-C to show the running jobs. Enter comma-separated
+row numbers such as `2,3` to stop those jobs, or press Enter to continue. Rows keep
+their displayed numbers while the menu is open; invalid input stops nothing.
+Running jobs continue while you choose, and new launches pause. Press Ctrl-C again
+or enter `all` to stop the whole local sweep. Confirmed stops are recorded as
+`stopped`, separately from `failed`; jobs that never started remain `pending`.
+
+Selected jobs receive a graceful interrupt, followed by termination and a forced
+stop if they do not exit within the grace periods. Process cleanup includes
+descendants such as distributed workers. Console output is suppressed while
+prompting, while each run's output is retained in `final/logs/sweep.log` under its
+artifact directory. EOF or Ctrl-C in noninteractive execution stops all owned
+runs. `dl-run` stops its single local job directly on the first Ctrl-C.
+
+Local sweep exit codes describe this command's claimed runs: `0` for completion
+or no eligible runs, `1` for a failure, `3` for an unconfirmed result, and `130`
+when the whole command is stopped. Selective stopping alone is not a failure.
+
 `dl-inspect-dataset` preserves the configured split behavior, but forces
 single-process loading so you can quickly verify split sizes and inspect one
 collated batch without starting a trainer.

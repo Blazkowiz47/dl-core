@@ -167,7 +167,7 @@ class SweepTracker:
 
         Args:
             run_index: Index of run in sweep
-            status: One of: pending, running, completed, failed, unknown
+            status: One of: pending, running, completed, failed, stopped, unknown
             tracking_run_id: External tracker run ID, if available
             tracking_run_name: External tracker run name, if available
             tracking_run_ref: Backend-specific tracker reference

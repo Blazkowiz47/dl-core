@@ -78,6 +78,58 @@ should use the concrete run directories tracked in `sweep_tracking.json`.
 
 That local artifact contract is what powers `dl-analyze`.
 
+## Local Execution and Stopping
+
+The local executor owns each worker's `Popen` handle in the sweep parent, for
+both sequential and parallel execution. Each run starts in an isolated session
+with stdin disconnected. This keeps the terminal's first Ctrl-C from reaching
+training workers before the user selects runs to stop.
+
+The supervisor polls process output and terminal input every 50 ms. Signal
+handlers only record requests; menu input never uses blocking `input()`. During
+the menu, output continues to drain into each run's `final/logs/sweep.log`, while
+console output and new launches pause. Displayed row numbers are a fixed
+snapshot of the owned active runs and are independent of tracker indices.
+
+Ctrl-C opens the menu, comma-separated row numbers select runs, Enter continues,
+and another Ctrl-C or `all` stops every owned run. Invalid selections have no
+effect. EOF and noninteractive Ctrl-C use stop-all. The selection sequence resets
+after Enter or after selected runs finish shutting down.
+
+A stop request keeps the tracker row claimed as `running` until termination is
+confirmed. The supervisor signals the run's process group and known descendants,
+including descendants that created separate sessions. It first sends SIGINT,
+then SIGTERM after 10 seconds, and SIGKILL after another 3 seconds. If termination
+is still unconfirmed after 2 more seconds, the result is `unknown` and remains
+ineligible for automatic retry. Confirmed user stops become `stopped`; completed
+results stay completed and unstarted jobs remain pending.
+
+Process handles, pipes, signal handlers and local tracker lifecycle are cleaned
+up on normal completion, launch errors, output errors, and interrupts. The same
+process ownership applies to `dl-run`, whose first Ctrl-C stops its single run
+directly.
+
+## Local Resume Modes
+
+| Flag | Claimable statuses |
+| --- | --- |
+| `--resume` | `pending` |
+| `--resume-failed` | `failed` |
+| `--resume-stopped` | `stopped` |
+| `--resume-all` | `pending`, `failed`, `stopped` |
+
+These modes reuse the tracker, original run selection, run names, and tracking
+context. They are mutually exclusive and cannot be combined with `--overwrite`.
+The effective executor is resolved before filtering so nonlocal executors keep
+their existing resume behavior. The selected statuses are checked again under
+the tracker lock immediately before a run is claimed, preventing overlapping
+commands from launching the same run.
+
+Only runs claimed by the current invocation contribute to the local command's
+outcome. Historical statuses are reported separately. Completion and empty
+selections return 0, current failures return 1, current unknown results return 3,
+and stop-all returns 130. Selective stops are reported separately from failures.
+
 ## Tracking Metadata
 
 Sweep templates support a `tracking` block used for:

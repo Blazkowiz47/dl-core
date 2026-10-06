@@ -24,6 +24,8 @@ class BaseExecutor(ABC):
     while sharing config generation logic.
     """
 
+    _finalize_on_exit: bool = False
+
     def __init__(
         self,
         sweep_config: Dict[str, Any],
@@ -57,6 +59,8 @@ class BaseExecutor(ABC):
         self.resume = resume
         self.completed_runs = []
         self.failed_runs = []
+        self.stopped_runs: List[int] = []
+        self.claimed_runs: List[int] = []
         self.skipped_runs = []
         self.submitted_runs = []
         self.unknown_runs = []  # Jobs with indeterminate status due to connection issues
@@ -203,6 +207,9 @@ class BaseExecutor(ABC):
                             self.logger.warning(
                                 f"Run {run_index + 1}/{total_runs} status unknown"
                             )
+                        elif status == "stopped":
+                            self.stopped_runs.append(run_index)
+                            self.logger.info(f"Run {run_index + 1}/{total_runs} stopped")
                         else:
                             self.failed_runs.append(run_index)
                             status = "failed"
@@ -296,12 +303,20 @@ class BaseExecutor(ABC):
             already claimed or finished the run.
         """
         if self.tracker is None or self.dry_run:
+            if not self.dry_run:
+                self.claimed_runs.append(run_index)
             return True
 
-        return self.tracker.try_claim_run(
+        claimed = self.tracker.try_claim_run(
             run_index,
             config_path=str(config_path.resolve()),
+            claimable_statuses=tuple(
+                self.sweep_config.get("_resume_statuses", ("pending", "failed"))
+            ),
         )
+        if claimed:
+            self.claimed_runs.append(run_index)
+        return claimed
 
     def _update_tracker(
         self,
@@ -351,7 +366,7 @@ class BaseExecutor(ABC):
 
     def get_progress(self) -> Dict[str, int]:
         """Get sweep progress."""
-        return {
+        progress = {
             "completed": len(self.completed_runs),
             "failed": len(self.failed_runs),
             "skipped": len(self.skipped_runs),
@@ -362,11 +377,17 @@ class BaseExecutor(ABC):
                 + len(self.failed_runs)
                 + len(self.submitted_runs)
                 + len(self.unknown_runs)
+                + len(self.stopped_runs)
             ),
         }
+        if self.stopped_runs:
+            progress["stopped"] = len(self.stopped_runs)
+        return progress
 
     def _classify_run_result(self, result: Dict[str, Any]) -> str:
         """Map one execution result to a sweep-tracker status."""
+        if result.get("stopped", False):
+            return "stopped"
         return "completed" if result.get("success", False) else "failed"
 
     def _after_run_execution(
@@ -376,6 +397,62 @@ class BaseExecutor(ABC):
         pass
 
     # High-level execution methods
+
+    def _execute_runs(
+        self, run_descriptors: List[Tuple[int, Path]], max_workers: int
+    ) -> None:
+        """Dispatch runs; local executors override this with process supervision."""
+        if max_workers > 1:
+            self.execute_runs_parallel(run_descriptors, max_workers)
+            return
+
+        for run_index, config_path in run_descriptors:
+            if not self._claim_run_for_execution(run_index, config_path):
+                self.skipped_runs.append(run_index)
+                self.logger.info(f"Run {run_index + 1}/{len(run_descriptors)} skipped")
+                continue
+            try:
+                result = self.execute_run(run_index, config_path)
+            except KeyboardInterrupt:
+                status = self._classify_run_result({"unknown": True})
+                self._update_tracker(
+                    run_index, status, config_path,
+                    error_message="Interrupted before the run completed",
+                )
+                if status == "unknown":
+                    self.unknown_runs.append(run_index)
+                else:
+                    self.failed_runs.append(run_index)
+                raise
+            except Exception as error:
+                self.failed_runs.append(run_index)
+                self._update_tracker(
+                    run_index, "failed", config_path, error_message=str(error)
+                )
+                self.logger.error(
+                    f"Run {run_index + 1}/{len(run_descriptors)} failed with exception: {error}"
+                )
+                continue
+            status = self._classify_run_result(result)
+            if status == "completed":
+                self.completed_runs.append(run_index)
+            elif status == "running":
+                self.submitted_runs.append(run_index)
+            elif status == "unknown":
+                self.unknown_runs.append(run_index)
+            elif status == "stopped":
+                self.stopped_runs.append(run_index)
+            else:
+                self.failed_runs.append(run_index)
+                status = "failed"
+            try:
+                self._update_tracker(run_index, status, config_path, result=result)
+            except Exception:
+                self.logger.exception(
+                    f"Could not record run {run_index} with tracking ID "
+                    f"{result.get('tracking_run_id')}; aborting without retry"
+                )
+                raise
 
     def run_sweep(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int = 1
@@ -412,6 +489,8 @@ class BaseExecutor(ABC):
             if max_workers > 1:
                 self.logger.info(f"[DRY RUN] Max workers: {max_workers}")
 
+        executor_finalized = False
+        tracker_finalized = False
         try:
             # Setup executor
             self.setup(total_runs)
@@ -456,75 +535,15 @@ class BaseExecutor(ABC):
                     selected_run_names=self.sweep_config.get("_selected_run_names"),
                 )
 
-            # Execute runs (parallel or sequential)
-            if max_workers > 1:
-                self.execute_runs_parallel(run_descriptors, max_workers)
-            else:
-                # Sequential execution
-                for run_index, config_path in run_descriptors:
-                    if not self._claim_run_for_execution(run_index, config_path):
-                        self.skipped_runs.append(run_index)
-                        self.logger.info(
-                            f"Run {run_index + 1}/{total_runs} skipped"
-                        )
-                        continue
-
-                    try:
-                        result = self.execute_run(run_index, config_path)
-                    except KeyboardInterrupt:
-                        status = self._classify_run_result({"unknown": True})
-                        self._update_tracker(
-                            run_index,
-                            status,
-                            config_path,
-                            error_message="Interrupted before the run completed",
-                        )
-                        if status == "unknown":
-                            self.unknown_runs.append(run_index)
-                        else:
-                            self.failed_runs.append(run_index)
-                        raise
-                    except Exception as error:
-                        self.failed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "failed",
-                            config_path,
-                            error_message=str(error),
-                        )
-                        self.logger.error(
-                            f"Run {run_index + 1}/{total_runs} failed with exception: {error}"
-                        )
-                        continue
-                    status = self._classify_run_result(result)
-                    if status == "completed":
-                        self.completed_runs.append(run_index)
-                    elif status == "running":
-                        self.submitted_runs.append(run_index)
-                    elif status == "unknown":
-                        self.unknown_runs.append(run_index)
-                    else:
-                        self.failed_runs.append(run_index)
-                        status = "failed"
-                    try:
-                        self._update_tracker(
-                            run_index,
-                            status,
-                            config_path,
-                            result=result,
-                        )
-                    except Exception:
-                        self.logger.exception(
-                            f"Could not record run {run_index} with tracking ID "
-                            f"{result.get('tracking_run_id')}; aborting without retry"
-                        )
-                        raise
+            self._execute_runs(run_descriptors, max_workers)
 
             self._after_run_execution(run_descriptors)
 
             # Teardown
+            executor_finalized = True
             self.teardown()
             if not self.dry_run:
+                tracker_finalized = True
                 self.run_tracker.teardown_sweep()
 
             # Return progress
@@ -533,12 +552,22 @@ class BaseExecutor(ABC):
         except Exception as e:
             self.logger.error(f"Sweep execution failed: {e}")
             traceback.print_exc()
-            if not self.dry_run:
+            if not self.dry_run and not tracker_finalized:
+                tracker_finalized = True
                 self.run_tracker.teardown_sweep()
             raise
         finally:
-            if self.tracker is not None:
-                self.tracker.cleanup_lock_file()
+            try:
+                if self._finalize_on_exit:
+                    try:
+                        if not executor_finalized:
+                            self.teardown()
+                    finally:
+                        if not self.dry_run and not tracker_finalized:
+                            self.run_tracker.teardown_sweep()
+            finally:
+                if self.tracker is not None:
+                    self.tracker.cleanup_lock_file()
 
     def run(self, config_path: str, run_name: Optional[str] = None) -> bool:
         """
@@ -560,6 +589,7 @@ class BaseExecutor(ABC):
             executor = LocalExecutor({}, "experiment", "run_001", dry_run=False)
             success = executor.run("path/to/config.yaml", run_name="test_run")
         """
+        executor_finalized = False
         try:
             # Load config from file
             config_file = Path(config_path)
@@ -589,6 +619,7 @@ class BaseExecutor(ABC):
             success = result.get("success", False)
 
             # Teardown
+            executor_finalized = True
             self.teardown()
 
             if success:
@@ -608,6 +639,9 @@ class BaseExecutor(ABC):
             self.logger.error(f"Single run execution failed: {e}")
             traceback.print_exc()
             return False
+        finally:
+            if self._finalize_on_exit and not executor_finalized:
+                self.teardown()
 
     # Common helper methods for config management
 

@@ -1,10 +1,9 @@
 """Simple local executor."""
 
 import json
-import subprocess
 import yaml
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dl_core.core import BaseExecutor, config_field, register_executor
 from dl_core.utils.artifact_manager import (
@@ -15,6 +14,7 @@ from dl_core.utils.config_names import (
     resolve_config_experiment_name,
     resolve_config_run_name,
 )
+from .local_supervisor import LocalSupervisor
 
 
 @register_executor("local")
@@ -23,9 +23,11 @@ class LocalExecutor(BaseExecutor):
     Simple local executor.
 
     - No external tracking backend integration
-    - Supports parallel execution with ProcessPoolExecutor (via base class)
+    - Owns sequential and parallel subprocesses in the sweep parent
     - Logs to stdout/files only
     """
+
+    _finalize_on_exit = True
 
     CONFIG_FIELDS = [
         config_field(
@@ -44,7 +46,7 @@ class LocalExecutor(BaseExecutor):
         dry_run: bool = False,
         tracking_context: Optional[str] = None,
         resume: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ):
         """Initialize local executor.
 
@@ -53,8 +55,8 @@ class LocalExecutor(BaseExecutor):
             experiment_name: Name of experiment
             sweep_id: Unique sweep identifier
             dry_run: If True, print commands without executing
-            tracking_context: Not used by LocalExecutor
-            resume: Not used by LocalExecutor (for compatibility)
+            tracking_context: Existing tracker context when resuming
+            resume: Reuse the existing sweep tracker instead of initializing it
             max_workers: Maximum number of parallel workers (default: 1, sequential)
         """
         super().__init__(
@@ -77,22 +79,10 @@ class LocalExecutor(BaseExecutor):
             f"Mode: Simple local execution ({mode}, max_workers={self.max_workers})"
         )
 
-    def execute_run(
-        self,
-        run_index: int,
-        config_path: Path,
-    ) -> Dict[str, Any]:
-        """
-        Execute run as subprocess.
-
-        Args:
-            run_index: Run index
-            config_path: Path to the saved config file
-
-        Returns:
-            Dictionary with execution results:
-            - "success" (bool): True if run succeeded, False otherwise
-        """
+    def _prepare_run(
+        self, run_index: int, config_path: Path
+    ) -> Tuple[List[str], Dict[str, Any]]:
+        """Prepare a worker command and its local artifact metadata."""
         # Read config from path at the start as suggested
         with open(config_path, "r") as f:
             run_config = yaml.safe_load(f)
@@ -145,43 +135,8 @@ class LocalExecutor(BaseExecutor):
 
         if self.dry_run:
             self.logger.info(f"[DRY RUN] Would execute run {run_index + 1}")
-            return {
-                "success": True,
-                "tracking_run_name": run_name,
-                "artifact_dir": str(artifact_dir),
-                "metrics_summary_path": str(
-                    artifact_dir / "final" / "metrics" / "summary.json"
-                ),
-                "metrics_history_path": str(
-                    artifact_dir / "final" / "metrics" / "history.json"
-                ),
-            }
-
-        result = subprocess.run(cmd, check=False)
-
-        success = result.returncode == 0
-        if success:
-            self.logger.info(f"Run {run_index + 1} completed successfully")
-        else:
-            self.logger.error(
-                f"Run {run_index + 1} failed with code {result.returncode}"
-            )
-
-        tracking_session = self._load_tracking_session(artifact_dir)
-
-        return {
-            "success": success,
-            "tracking_run_id": (
-                tracking_session.get("run_id")
-                if isinstance(tracking_session, dict)
-                else None
-            ),
-            "tracking_run_name": (
-                tracking_session.get("run_name")
-                if isinstance(tracking_session, dict)
-                else run_name
-            ),
-            "tracking_run_ref": tracking_session,
+        return cmd, {
+            "tracking_run_name": run_name,
             "artifact_dir": str(artifact_dir),
             "metrics_summary_path": str(
                 artifact_dir / "final" / "metrics" / "summary.json"
@@ -190,6 +145,74 @@ class LocalExecutor(BaseExecutor):
                 artifact_dir / "final" / "metrics" / "history.json"
             ),
         }
+
+    def _finish_run(
+        self, metadata: Dict[str, Any], returncode: Optional[int], *,
+        stopped: bool = False, unknown: bool = False,
+    ) -> Dict[str, Any]:
+        """Attach tracking references after a supervised run exits."""
+        tracking_session = self._load_tracking_session(Path(metadata["artifact_dir"]))
+        return {
+            **metadata,
+            "success": returncode == 0 and not stopped and not unknown,
+            "stopped": stopped and not unknown,
+            "unknown": unknown,
+            "tracking_run_id": (
+                tracking_session.get("run_id")
+                if isinstance(tracking_session, dict)
+                else None
+            ),
+            "tracking_run_name": (
+                tracking_session.get("run_name")
+                if isinstance(tracking_session, dict)
+                else metadata["tracking_run_name"]
+            ),
+            "tracking_run_ref": tracking_session,
+        }
+
+    def execute_run(self, run_index: int, config_path: Path) -> Dict[str, Any]:
+        """Execute one owned subprocess with direct Ctrl-C cleanup."""
+        supervisor = LocalSupervisor(
+            self, menu_enabled=False, claim_runs=False, record_results=False,
+        )
+        return supervisor.run([(run_index, config_path)], max_workers=1)[run_index]
+
+    def _execute_runs(
+        self, run_descriptors: List[Tuple[int, Path]], max_workers: int
+    ) -> None:
+        """Supervise local sweeps at every worker count in the owning parent."""
+        LocalSupervisor(self, menu_enabled=True).run(run_descriptors, max_workers)
+
+    def execute_runs_parallel(
+        self, run_descriptors: List[Tuple[int, Path]], max_workers: int
+    ) -> None:
+        """Execute parallel local runs with the same parent supervisor."""
+        self._execute_runs(run_descriptors, max_workers)
+
+    def _classify_run_result(self, result: Dict[str, Any]) -> str:
+        """Keep unconfirmed local shutdowns out of automatic retries."""
+        if result.get("unknown"):
+            return "unknown"
+        return super()._classify_run_result(result)
+
+    def _record_run_result(
+        self, run_index: int, config_path: Path, result: Dict[str, Any]
+    ) -> None:
+        """Persist one claimed run's result and count it for this invocation."""
+        status = self._classify_run_result(result)
+        counters = {
+            "completed": self.completed_runs, "failed": self.failed_runs,
+            "stopped": self.stopped_runs, "unknown": self.unknown_runs,
+        }
+        counters[status].append(run_index)
+        self._update_tracker(
+            run_index, status, config_path, result=result,
+            error_message=result.get("error_message"),
+        )
+
+    def get_progress(self) -> Dict[str, int]:
+        """Return current-command counts, including intentionally stopped runs."""
+        return {**super().get_progress(), "stopped": len(self.stopped_runs)}
 
     def _load_tracking_session(self, artifact_dir: Path) -> Dict[str, Any] | None:
         """
@@ -235,7 +258,8 @@ class LocalExecutor(BaseExecutor):
 
     def teardown(self) -> None:
         """Print final stats."""
-        total = len(self.completed_runs) + len(self.failed_runs)
+        total = self.get_progress()["total"]
         self.logger.info(
-            f"Sweep complete: {len(self.completed_runs)}/{total} succeeded"
+            f"Local execution finished: {len(self.completed_runs)}/{total} succeeded, "
+            f"{len(self.stopped_runs)} stopped"
         )
