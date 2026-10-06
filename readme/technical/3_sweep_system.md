@@ -80,16 +80,19 @@ That local artifact contract is what powers `dl-analyze`.
 
 ## Local Execution and Stopping
 
-The local executor owns each worker's `Popen` handle in the sweep parent, for
-both sequential and parallel execution. Each run starts in an isolated session
-with stdin disconnected. This keeps the terminal's first Ctrl-C from reaching
-training workers before the user selects runs to stop.
+The standard local execution hook owns each worker's `Popen` handle in the sweep
+parent, for both sequential and parallel execution. Each run starts in an isolated
+session with stdin disconnected. This keeps the terminal's first Ctrl-C from
+reaching training workers before the user selects runs to stop.
 
 The supervisor polls process output and terminal input every 50 ms. Signal
-handlers only record requests; menu input never uses blocking `input()`. During
-the menu, output continues to drain into each run's `final/logs/sweep.log`, while
-console output and new launches pause. Displayed row numbers are a fixed
-snapshot of the owned active runs and are independent of tracker indices.
+handlers only record requests. Menu reads use nonblocking stdin, with its original
+mode restored before other I/O, so Ctrl-C flushing input after `select()` cannot
+leave a read waiting. Stop-all remains set across counter resets and takes
+precedence over Enter. During the menu, output continues to drain into each run's
+`final/logs/sweep.log`, while console output and new launches pause. Displayed row
+numbers are a fixed snapshot of the owned active runs and are independent of
+tracker indices.
 
 Ctrl-C opens the menu, comma-separated row numbers select runs, Enter continues,
 and another Ctrl-C or `all` stops every owned run. Invalid selections have no
@@ -109,6 +112,12 @@ up on normal completion, launch errors, output errors, and interrupts. The same
 process ownership applies to `dl-run`, whose first Ctrl-C stops its single run
 directly.
 
+Subclasses that customize `build_command()` keep this supervision. Existing
+`execute_run()` overrides, including wrappers calling `super()`, retain the
+shared sequential or process-pool dispatch so their hooks and returned results
+are honored. The selective menu is unavailable on that path; the custom hook
+controls its execution and cleanup.
+
 ## Local Resume Modes
 
 | Flag | Claimable statuses |
@@ -121,9 +130,11 @@ directly.
 These modes reuse the tracker, original run selection, run names, and tracking
 context. They are mutually exclusive and cannot be combined with `--overwrite`.
 The effective executor is resolved before filtering so nonlocal executors keep
-their existing resume behavior. The selected statuses are checked again under
-the tracker lock immediately before a run is claimed, preventing overlapping
-commands from launching the same run.
+their existing resume behavior. Its name is reused during dispatch. Mixed executor
+names in the expanded grid are rejected before filtering unless `--executor local`
+explicitly selects local execution for all runs. The selected statuses are checked
+again under the tracker lock immediately before a run is claimed, preventing
+overlapping commands from launching the same run.
 
 Only runs claimed by the current invocation contribute to the local command's
 outcome. Historical statuses are reported separately. Completion and empty

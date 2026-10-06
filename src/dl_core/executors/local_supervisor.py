@@ -145,11 +145,14 @@ class LocalSupervisor:
     def _on_signal(self, signum: int, _frame: Any) -> None:
         if signum == signal.SIGINT:
             self.interrupt_count += 1
+            if self.interrupt_count >= 2:
+                # A concurrent Enter/selection reset must not erase stop-all.
+                self.stop_all = True
         else:
             self.terminate_requested = True
 
     def _handle_requests(self) -> None:
-        if self.terminate_requested or self.interrupt_count >= 2 or (
+        if self.stop_all or self.terminate_requested or self.interrupt_count >= 2 or (
             self.interrupt_count and self.stdin_fd is None
         ):
             self.stop_all = True
@@ -179,10 +182,22 @@ class LocalSupervisor:
         print("Runs to stop [e.g. 2,3; all; Enter to continue]: ", end="", flush=True)
 
     def _read_menu(self) -> None:
-        # A timeout-based loop handles flags-only signals even when reads retry.
         if self.stdin_fd is None or not select.select([self.stdin_fd], [], [], 0)[0]:
             return
-        data = os.read(self.stdin_fd, 4096)
+        # Ctrl-C can flush input after select. Never block on that stale readiness.
+        blocking = os.get_blocking(self.stdin_fd)
+        try:
+            os.set_blocking(self.stdin_fd, False)
+            try:
+                data = os.read(self.stdin_fd, 4096)
+            except BlockingIOError:
+                data = None
+        finally:
+            # stdin and stdout can share flags on a TTY; restore before printing.
+            os.set_blocking(self.stdin_fd, blocking)
+        self._handle_requests()
+        if self.stop_all or not self.menu_open or data is None:
+            return
         if not data:
             self.interrupt_count = 2
             self._handle_requests()
@@ -193,6 +208,9 @@ class LocalSupervisor:
         line, self.menu_input = self.menu_input.split(b"\n", 1)
         selection = line.decode("utf-8", errors="replace").strip().lower()
         if not selection:
+            self._handle_requests()
+            if self.stop_all:
+                return
             self.menu_open = False
             self.interrupt_count = 0
             print("Continuing local sweep.", flush=True)

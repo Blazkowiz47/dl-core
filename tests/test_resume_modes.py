@@ -168,6 +168,40 @@ def test_cli_local_override_selects_local_policy_before_filtering(
     assert case.attempts == [2]
 
 
+@pytest.mark.parametrize("first_executor", ["local", "azure"])
+@pytest.mark.parametrize("flags", [("--resume",), ("--resume-stopped",), ("--resume-all",), ("--overwrite",)])
+def test_mixed_executor_grid_is_rejected_before_tracking_or_dispatch(
+    resume_case: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], first_executor: str, flags: tuple[str, ...],
+) -> None:
+    """Filtering must never change which backend receives the resume policy."""
+    case = resume_case
+    for config in case.configs:
+        config["executor"]["name"] = "azure" if first_executor == "local" else "local"
+    case.configs[0]["executor"]["name"] = first_executor
+    original = case.tracker.json_path.read_bytes()
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(case.path), *flags])
+    with pytest.raises(SystemExit) as error:
+        runner.main()
+    assert error.value.code == 2
+    assert "mixed executor names" in capsys.readouterr().err
+    assert case.instances == case.attempts == []
+    assert case.tracker.json_path.read_bytes() == original
+
+
+def test_explicit_local_override_unifies_a_mixed_grid(
+    resume_case: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit backend selection is reused even after status filtering."""
+    case = resume_case
+    case.configs[2]["executor"]["name"] = "azure"
+    monkeypatch.setattr("sys.argv", ["dl-sweep", str(case.path), "--executor", "local", "--resume-stopped"])
+    assert runner.main() == 0
+    assert case.attempts == [2]
+    assert case.instances[0].executor_config["name"] == "local"
+    assert case.instances[0].sweep_config["_resume_statuses"] == ("stopped",)
+
+
 @pytest.mark.parametrize("flag", FLAGS[1:])
 def test_nonlocal_executor_rejects_local_only_resume_flags(
     resume_case: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, flag: str,

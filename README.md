@@ -276,10 +276,14 @@ failures or unknown rows remain visible in the sweep history and do not change
 the exit code of a successful local resume. An empty selection reports, for
 example, `No pending runs to resume.` and exits successfully. Azure retains its
 existing `--resume` behavior; the three additional modes require a local executor.
+Sweep grids must use one executor name. Mixed names are rejected before filtering
+or launching runs; `--executor local` explicitly selects local execution for the
+whole grid.
 
-During a local sweep, press Ctrl-C to show the running jobs. Enter comma-separated
-row numbers such as `2,3` to stop those jobs, or press Enter to continue. Rows keep
-their displayed numbers while the menu is open; invalid input stops nothing.
+During a built-in local sweep, press Ctrl-C to show the running jobs. Enter
+comma-separated row numbers such as `2,3` to stop those jobs, or press Enter to
+continue. Rows keep their displayed numbers while the menu is open; invalid input
+stops nothing.
 Running jobs continue while you choose, and new launches pause. Press Ctrl-C again
 or enter `all` to stop the whole local sweep. Confirmed stops are recorded as
 `stopped`, separately from `failed`; jobs that never started remain `pending`.
@@ -290,6 +294,12 @@ descendants such as distributed workers. Console output is suppressed while
 prompting, while each run's output is retained in `final/logs/sweep.log` under its
 artifact directory. EOF or Ctrl-C in noninteractive execution stops all owned
 runs. `dl-run` stops its single local job directly on the first Ctrl-C.
+
+To customize local commands with selective stopping, override
+`LocalExecutor.build_command()`. Existing `execute_run()` overrides keep the
+shared sequential or process-pool dispatch and their returned results. That
+dispatch path does not provide the selective menu; custom hooks control their
+execution and cleanup.
 
 Local sweep exit codes describe this command's claimed runs: `0` for completion
 or no eligible runs, `1` for a failure, `3` for an unconfirmed result, and `130`

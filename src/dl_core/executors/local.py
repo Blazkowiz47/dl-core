@@ -171,22 +171,38 @@ class LocalExecutor(BaseExecutor):
         }
 
     def execute_run(self, run_index: int, config_path: Path) -> Dict[str, Any]:
-        """Execute one owned subprocess with direct Ctrl-C cleanup."""
+        """Execute one owned subprocess with direct Ctrl-C cleanup.
+
+        Custom overrides retain the shared sweep dispatch. Override build_command
+        to customize subprocess commands while keeping the selective stop menu.
+        """
         supervisor = LocalSupervisor(
             self, menu_enabled=False, claim_runs=False, record_results=False,
         )
         return supervisor.run([(run_index, config_path)], max_workers=1)[run_index]
 
+    # Preserve hook identity even when callers replace execute_run on the class.
+    _standard_execute_run = execute_run
+
     def _execute_runs(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int
     ) -> None:
-        """Supervise local sweeps at every worker count in the owning parent."""
+        """Supervise standard subprocesses and preserve custom execution hooks."""
+        if getattr(self.execute_run, "__func__", None) is not LocalExecutor._standard_execute_run:
+            self.logger.info(
+                "Custom execute_run override: using shared dispatch without the selective stop menu"
+            )
+            super()._execute_runs(run_descriptors, max_workers)
+            return
         LocalSupervisor(self, menu_enabled=True).run(run_descriptors, max_workers)
 
     def execute_runs_parallel(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int
     ) -> None:
-        """Execute parallel local runs with the same parent supervisor."""
+        """Execute parallel subprocesses or dispatch a custom execute_run hook."""
+        if getattr(self.execute_run, "__func__", None) is not LocalExecutor._standard_execute_run:
+            super().execute_runs_parallel(run_descriptors, max_workers)
+            return
         self._execute_runs(run_descriptors, max_workers)
 
     def _classify_run_result(self, result: Dict[str, Any]) -> str:

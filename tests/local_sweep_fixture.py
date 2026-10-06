@@ -64,6 +64,7 @@ def run_cli(directory: Path, mode: str, count: int, workers: int) -> int:
     import yaml
 
     from dl_core.executors.local import LocalExecutor
+    from dl_core.executors import local_supervisor
     from dl_core.executors.local_supervisor import LocalSupervisor
     from dl_core.sweep import runner
     from dl_core import single_run
@@ -86,6 +87,21 @@ def run_cli(directory: Path, mode: str, count: int, workers: int) -> int:
         return original_read(supervisor, run)
 
     LocalSupervisor._read_output = read_output
+    original_select = local_supervisor.select.select
+
+    def select_menu(*args: Any) -> Any:
+        ready = original_select(*args)
+        if ready[0] and (directory / "pause-menu-read").exists():
+            (directory / "menu-read-ready").touch()
+            deadline = time.monotonic() + 5
+            while not (directory / "continue-menu-read").exists():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Menu read was not released")
+                time.sleep(0.005)
+            (directory / "pause-menu-read").unlink()
+        return ready
+
+    local_supervisor.select.select = select_menu
     original_handlers = {signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)}
 
     def make_executor(name: str, *args: object, **kwargs: object) -> FixtureExecutor:

@@ -213,6 +213,25 @@ def test_second_ctrl_c_during_selective_shutdown_stops_everything(terminal_sweep
     assert all(not process_alive(pid) for job in sweep.jobs() for pid in job.values())
 
 
+def test_ctrl_c_flush_between_select_and_read_does_not_block(terminal_sweep: TerminalSweep) -> None:
+    """A real terminal interrupt may flush the line that made select readable."""
+    sweep = terminal_sweep
+    sweep.send("\x03")
+    sweep.wait_for(lambda: "Runs to stop" in sweep.output)
+    (sweep.directory / "pause-menu-read").touch()
+    sweep.send("\n")
+    sweep.wait_for(lambda: (sweep.directory / "menu-read-ready").exists())
+    # The terminal driver flushes that Enter before the supervisor calls read.
+    sweep.send("\x03")
+    (sweep.directory / "continue-menu-read").touch()
+    sweep.wait_for(lambda: sweep.exit_code is not None)
+    assert sweep.exit_code == 130
+    assert "Continuing local sweep." not in sweep.output
+    assert sweep.statuses() == {"0": "stopped", "1": "stopped", "2": "stopped", "3": "pending"}
+    assert all(not process_alive(pid) for job in sweep.jobs() for pid in job.values())
+    assert all(json.loads((sweep.directory / "handlers-restored.json").read_text()).values())
+
+
 def test_sequence_resets_after_selected_jobs_finish(terminal_sweep: TerminalSweep) -> None:
     """After selective cleanup, the next Ctrl-C opens another menu."""
     sweep = terminal_sweep

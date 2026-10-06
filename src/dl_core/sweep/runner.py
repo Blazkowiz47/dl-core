@@ -333,6 +333,14 @@ def main():
     executor_name = args.executor or (
         (all_configs[0].get("executor") or {}).get("name") if all_configs else None
     )
+    if not args.executor and any(
+        (config.get("executor") or {}).get("name") != executor_name
+        for config in all_configs
+    ):
+        parser.error(
+            "Sweep contains mixed executor names; use --executor local to "
+            "select one executor for all runs."
+        )
     local_execution = executor_name == "local"
     if is_resume and not local_execution and args.resume_statuses != ("pending",):
         parser.error("--resume-failed, --resume-stopped and --resume-all require a local executor")
@@ -575,7 +583,7 @@ def main():
         for run_index, _, config_path in saved_config_descriptors
     ]
 
-    # Determine executor from first generated run config
+    # Use selected-run options with the executor name resolved before filtering.
     if not all_configs:
         print("Error: No run configs generated")
         return 1
@@ -586,14 +594,14 @@ def main():
         print("Ensure your sweep config includes executor configuration")
         return 1
 
-    # Apply CLI overrides (CLI takes precedence)
-    executor_name = args.executor or run_executor_config.get("name")
     if not executor_name:
         print(
             "Error: Executor name not specified (use --executor or include in sweep config)"
         )
         return 1
 
+    # Apply CLI overrides (CLI takes precedence).
+    run_executor_config["name"] = executor_name
     if args.compute is not None:
         run_executor_config["compute_target"] = args.compute
     if args.environment is not None:
