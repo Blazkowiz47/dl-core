@@ -3,6 +3,18 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.14
+
+- local sweeps show a run-selection menu on the first Ctrl-C; a second Ctrl-C
+  stops all owned runs and descendants, with confirmed stops saved as `stopped`
+- local `--resume` runs pending jobs only; `--resume-failed`, `--resume-stopped`,
+  and `--resume-all` select the other retry modes while Azure keeps its existing
+  resume behavior
+- menu input stays responsive when Ctrl-C flushes terminal input, and mixed
+  executor grids require an explicit local override before dispatch
+- custom `execute_run()` hooks keep their existing dispatch; `build_command()`
+  customization retains supervision and the selective menu
+
 ## 0.1.13
 
 - reusable data-cycle callbacks let concrete wrappers refresh selections and

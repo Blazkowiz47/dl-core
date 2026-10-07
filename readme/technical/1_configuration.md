@@ -153,6 +153,43 @@ and modification time determine reuse. `max_open_shards` defaults to eight
 handles per process; handles are opened lazily and omitted from pickled state.
 Call `dataset.close()` to close handles in the current process.
 
+`dataset.indexed_tar.index_workers` defaults to four and must be a positive
+integer. It controls startup indexing separately from DataLoader `num_workers`
+and consumer-specific preparation pools. Cache hits load in the parent without
+starting workers. Misses use a spawned process pool, with at most twice the
+worker count queued; results are merged in input order so source weights,
+sample eligibility, and deterministic sampling remain unchanged. With one
+worker, a background thread scans sequentially while the parent stays responsive.
+Standalone scripts must guard their main entry point when using process workers.
+
+Pool size is reduced using `LOCAL_WORLD_SIZE`. OS file locks under
+`index_dir/.locks` enforce the configured simultaneous-build limit across
+processes and prevent duplicate builds of the same shard. All ranks sharing
+that directory should use the same `index_workers` setting. Different index
+directories have independent budgets. With `index_dir: null`, per-user locks
+in the system temporary directory coordinate builds without persisting indexes.
+Lock files remain in place; the OS releases ownership when a process exits.
+On errors or Ctrl-C, queued jobs are cancelled, active workers are asked to
+stop, and the pool is joined. Complete published indexes remain reusable.
+
+The wrapper logs start, progress approximately every five seconds, and
+completion at INFO level, labeled with the split. Progress includes ready/total
+shards, cached/built counts, and elapsed time even while waiting for locks or
+slow scans. This startup progress is separate from completed-batch consumption
+tracking. Direct `IndexedTarDataset` users may supply `logger` and `index_label`;
+`index_stats` records `shards`, `cached`, `built`, per-rank `workers`, and wall-clock
+`seconds` for index loading/building and result assembly. Version-1 cache files
+are compatible with earlier releases and remain independent of `sample_keys`.
+
+```yaml
+dataset:
+  num_workers: 8
+  indexed_tar:
+    index_workers: 4  # 1 for sequential startup scans
+    index_dir: ~/.cache/dl-core/tar-indexes
+    max_open_shards: 8
+```
+
 The wrapper's indexed batch sampler mixes source weights independently of
 source size. A finite pass visits each selected sample once, with an optional
 `num_samples` cutoff. `replacement: true` requires a positive `num_samples`
@@ -188,6 +225,15 @@ Reset totals explicitly at each pass; never call progress methods from workers.
 
 A bounded read/decode benchmark is available as
 `uv run python scripts/benchmark_indexed_tar.py /path/to/shard.tar --samples 256`.
+Supply multiple tar paths to measure parallel construction. It compares cold
+and warm index loads with `--index-workers 1 4` by default. Use `--index-only`
+to skip decoding and DataLoader benchmarks, for example:
+
+```bash
+uv run python scripts/benchmark_indexed_tar.py /path/to/shards/*.tar \
+  --index-workers 1 4 --index-only
+```
+
 It uses one image-decoder thread per worker, warms the same selection for each
 configuration, and reports index construction, first-pass time, and steady-pass
 throughput for worker counts 0, 1, 2, 4, and 8. It reads the tar without changing

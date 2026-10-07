@@ -297,8 +297,11 @@ class TarShardWrapper(BaseWrapper):
             required_extensions=self.required_extensions,
             strict_pairs=self.strict_pairs,
             index_dir=options.get("index_dir", "~/.cache/dl-core/tar-indexes"),
+            index_workers=options.get("index_workers", 4),
             max_open_shards=options.get("max_open_shards", 8),
             track_shard_progress=bool(self.config.get("track_shard_progress", False)),
+            logger=self.logger,
+            index_label=split,
         )
 
     def build_batch_sampler(

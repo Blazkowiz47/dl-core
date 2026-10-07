@@ -1,9 +1,10 @@
-"""Measure indexed image/JSON parsing on a fixed selection of a local tar."""
+"""Measure index construction and image/JSON reading across local plain tars."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import tempfile
 import time
 from pathlib import Path
@@ -40,30 +41,51 @@ def configure_worker(worker_id: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tar", type=Path)
+    parser.add_argument("tar", type=Path, nargs="+")
     parser.add_argument("--samples", type=int, default=256)
     parser.add_argument("--workers", type=int, nargs="+", default=[0, 1, 2, 4, 8])
+    parser.add_argument("--index-workers", type=int, nargs="+", default=[1, 4])
+    parser.add_argument("--index-only", action="store_true")
     args = parser.parse_args()
     if args.samples < 1 or any(workers < 0 for workers in args.workers):
         parser.error("samples must be positive and worker counts nonnegative")
+    if any(workers < 1 for workers in args.index_workers):
+        parser.error("index worker counts must be positive")
+    logging.basicConfig(level=logging.INFO)
     cv2.setNumThreads(1)
     with tempfile.TemporaryDirectory(prefix="indexed-tar-benchmark-") as temporary:
-        started = time.perf_counter()
-        dataset = IndexedTarDataset(
-            [args.tar],
-            transform=parse_sample,
-            required_extensions=["json"],
-            index_dir=temporary,
-        )
+        for position, workers in enumerate(args.index_workers):
+            root = Path(temporary) / str(position)
+            for cache in ("cold", "warm"):
+                dataset = IndexedTarDataset(
+                    args.tar,
+                    transform=parse_sample,
+                    required_extensions=["json"],
+                    index_dir=root,
+                    index_workers=workers,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "stage": "index",
+                            "cache": cache,
+                            "index_workers": workers,
+                            **dataset.index_stats,
+                        }
+                    ),
+                    flush=True,
+                )
+                dataset.close()
+        if args.index_only:
+            return
         count = min(args.samples, len(dataset))
         if not count:
             raise ValueError("Tar has no eligible samples")
         print(
             json.dumps(
                 {
-                    "tar": str(args.tar),
+                    "tars": [str(path) for path in args.tar],
                     "indexed_samples": len(dataset),
-                    "index_build_seconds": round(time.perf_counter() - started, 3),
                     "benchmark_samples": count,
                 }
             ),

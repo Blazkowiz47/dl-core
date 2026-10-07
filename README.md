@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.14`.
-Current development version: `0.1.14`.
+Current public release: `deep-learning-core==0.1.15`.
+Current development version: `0.1.15`.
 
 Compatible companion package floors:
 
@@ -21,17 +21,16 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.14?
+## What's New in 0.1.15?
 
-- local sweeps show a run-selection menu on the first Ctrl-C; a second Ctrl-C
-  stops all owned runs and descendants, with confirmed stops saved as `stopped`
-- local `--resume` runs pending jobs only; `--resume-failed`, `--resume-stopped`,
-  and `--resume-all` select the other retry modes while Azure keeps its existing
-  resume behavior
-- menu input stays responsive when Ctrl-C flushes terminal input, and mixed
-  executor grids require an explicit local override before dispatch
-- custom `execute_run()` hooks keep their existing dispatch; `build_command()`
-  customization retains supervision and the selective menu
+- plain-tar index cache misses build in parallel, with four indexing workers
+  by default and a separate `dataset.indexed_tar.index_workers` setting
+- shared build slots and per-shard locks coordinate local ranks, while atomic
+  publication preserves valid indexes and original sample ordering
+- startup logs report cached/built shard counts and elapsed time, including
+  while waiting for slow builds or locks and when indexing sequentially
+- the indexed-tar benchmark compares cold and warm index construction with
+  configurable indexing worker counts
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -694,9 +693,27 @@ dataset:
   track_shard_progress: true
   indexed_tar:
     index_dir: /mnt/localssd/tar-indexes  # null disables persistent indexes
+    index_workers: 4                   # Startup indexing; 1 runs sequentially
     max_open_shards: 8                 # Per worker
     replacement: false                # Visit each selected sample at most once
 ```
+
+`index_workers` controls index construction before the DataLoader starts.
+It is independent of `num_workers` and any consumer's `preparation_workers`.
+Valid indexes are reused without starting a pool; cache misses use spawned
+processes when more than one worker is available. `LOCAL_WORLD_SIZE` reduces
+the pool per local rank, and file locks cap simultaneous builds across processes
+sharing `index_dir`. Use the same directory and worker limit on each rank;
+independent directories have independent limits. One worker scans sequentially
+in a background thread so the parent can report progress and handle Ctrl-C.
+Standalone Python scripts using multiple indexing workers need the usual
+`if __name__ == "__main__":` entry-point guard.
+
+At INFO level, indexing logs start, progress at roughly five-second intervals,
+and completion with shard counts, cache hits, builds, and elapsed time. Direct
+`IndexedTarDataset` users can pass `index_workers`, `logger`, and `index_label`;
+`dataset.index_stats` exposes `shards`, `cached`, `built`, `workers` (per rank),
+and `seconds`. Existing version-1 index caches remain compatible.
 
 Finite indexed mixing visits all selected samples by default; source weights
 affect their ordering. Set `replacement: true` and `num_samples: 10000` for a

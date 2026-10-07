@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
+import logging
 import math
 import os
 import random
-import re
-import tarfile
-import tempfile
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any, BinaryIO
 
 import torch
 from torch.utils.data import Dataset, Sampler
+
+from dl_core.datasets._tar_index import iter_tar_indexes
 
 
 class IndexedTarDataset(Dataset):
@@ -25,6 +24,7 @@ class IndexedTarDataset(Dataset):
     Shard records accept path, shard_id, source_name, source_weight, and arbitrary
     metadata. Optional sample_keys selects an eligible subset of a shard. Each
     process opens its own bounded set of file handles. Call close() when finished.
+    index_workers bounds startup builds separately from DataLoader workers.
     """
 
     def __init__(
@@ -35,8 +35,11 @@ class IndexedTarDataset(Dataset):
         required_extensions: Iterable[str] = (),
         strict_pairs: bool = True,
         index_dir: str | Path | None = None,
+        index_workers: int = 4,
         max_open_shards: int = 8,
         track_shard_progress: bool = False,
+        logger: logging.Logger | None = None,
+        index_label: str = "dataset",
     ) -> None:
         if (
             isinstance(max_open_shards, bool)
@@ -44,6 +47,12 @@ class IndexedTarDataset(Dataset):
             or max_open_shards < 1
         ):
             raise ValueError("max_open_shards must be a positive integer")
+        if (
+            isinstance(index_workers, bool)
+            or not isinstance(index_workers, int)
+            or index_workers < 1
+        ):
+            raise ValueError("index_workers must be a positive integer")
         self.transform = transform
         self.max_open_shards = max_open_shards
         self.track_shard_progress = track_shard_progress
@@ -55,6 +64,7 @@ class IndexedTarDataset(Dataset):
         self._fingerprints: list[list[int]] = []
         self._handles: OrderedDict[int, BinaryIO] = OrderedDict()
         self._pid = os.getpid()
+        self.index_stats: dict[str, Any] = {}
         required = {
             str(extension).lower().lstrip(".") for extension in required_extensions
         }
@@ -62,6 +72,7 @@ class IndexedTarDataset(Dataset):
         if index_root is not None:
             index_root.mkdir(parents=True, exist_ok=True)
 
+        normalized = []
         for configured in shards:
             shard = (
                 dict(configured)
@@ -79,100 +90,55 @@ class IndexedTarDataset(Dataset):
                 raise ValueError(f"Conflicting indexed source weights for {source}")
             self.source_weights[source] = weight
             self.source_indices.setdefault(source, [])
-            stat = path.stat()
-            fingerprint = [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns]
-            index_path = (
-                index_root / f"{hashlib.sha256(str(path).encode()).hexdigest()}.json"
-                if index_root
-                else None
-            )
-            samples = None
-            if index_path is not None and index_path.is_file():
-                try:
-                    saved = json.loads(index_path.read_text(encoding="utf-8"))
-                    if saved["version"] == 1 and saved["fingerprint"] == fingerprint:
-                        samples = saved["samples"]
-                except (OSError, ValueError, KeyError, TypeError):
-                    pass
-            if samples is None:
-                grouped: dict[str, dict[str, list[int]]] = {}
-                # r: rejects compression; offsets refer directly to this file.
-                with tarfile.open(path, "r:") as archive:
-                    for member in archive:
-                        if not member.isfile():
-                            continue
-                        if member.sparse is not None:
-                            raise ValueError(
-                                "Indexed tar does not support sparse members"
-                            )
-                        match = re.match(r"^((?:.*/|)[^.]+)[.]([^/]*)$", member.name)
-                        if match is None:
-                            continue
-                        key, extension = match.group(1), match.group(2).lower()
-                        members = grouped.setdefault(key, {})
-                        if extension in members:
-                            raise ValueError(
-                                f"Duplicate tar member extension {extension!r} for sample {key!r}"
-                            )
-                        members[extension] = [member.offset_data, member.size]
-                after = path.stat()
-                if [
-                    after.st_dev,
-                    after.st_ino,
-                    after.st_size,
-                    after.st_mtime_ns,
-                ] != fingerprint:
-                    raise RuntimeError(f"Tar changed while building its index: {path}")
-                samples = list(grouped.items())
-                if index_path is not None:
-                    temporary: Path | None = None
-                    try:
-                        with tempfile.NamedTemporaryFile(
-                            mode="w",
-                            encoding="utf-8",
-                            dir=index_root,
-                            suffix=".tmp",
-                            delete=False,
-                        ) as handle:
-                            temporary = Path(handle.name)
-                            json.dump(
-                                {
-                                    "version": 1,
-                                    "fingerprint": fingerprint,
-                                    "samples": samples,
-                                },
-                                handle,
-                                separators=(",", ":"),
-                            )
-                        os.replace(temporary, index_path)
-                    finally:
-                        if temporary is not None:
-                            temporary.unlink(missing_ok=True)
-
             shard_id = str(
                 shard.get(
                     "shard_id", shard.get("source_path", shard.get("public_url", path))
                 )
             )
             shard.update(path=str(path), shard_id=shard_id)
-            shard_index = len(self.shards)
-            self.shards.append(shard)
-            self._fingerprints.append(fingerprint)
-            self.shard_totals.setdefault(shard_id, 0)
-            selected = set(shard["sample_keys"]) if "sample_keys" in shard else None
-            for key, members in samples:
-                if selected is not None and key not in selected:
-                    continue
-                missing = required - set(members)
-                if missing:
-                    if strict_pairs:
-                        raise ValueError(
-                            f"Sample {key!r} in {path} is missing extensions: {sorted(missing)}"
-                        )
-                    continue
-                self.source_indices[source].append(len(self._samples))
-                self._samples.append((shard_index, key, members))
-                self.shard_totals[shard_id] += 1
+            normalized.append(shard)
+
+        indexes = iter_tar_indexes(
+            [Path(shard["path"]) for shard in normalized],
+            index_root,
+            index_workers,
+            logger if logger is not None else logging.getLogger(__name__),
+            index_label,
+            self.index_stats,
+        )
+        # Closing the iterator also cancels and joins workers on pair-validation
+        # errors or interrupts raised while merging results in the parent.
+        with closing(indexes):
+            for shard_index, index in enumerate(indexes):
+                shard = normalized[shard_index]
+                path = Path(shard["path"])
+                current = path.stat()
+                if [
+                    current.st_dev,
+                    current.st_ino,
+                    current.st_size,
+                    current.st_mtime_ns,
+                ] != index.fingerprint:
+                    raise RuntimeError(f"Tar changed during indexing: {path}")
+                source = str(shard.get("source_name", "default"))
+                shard_id = shard["shard_id"]
+                self.shards.append(shard)
+                self._fingerprints.append(index.fingerprint)
+                self.shard_totals.setdefault(shard_id, 0)
+                selected = set(shard["sample_keys"]) if "sample_keys" in shard else None
+                for key, members in index.samples:
+                    if selected is not None and key not in selected:
+                        continue
+                    missing = required - set(members)
+                    if missing:
+                        if strict_pairs:
+                            raise ValueError(
+                                f"Sample {key!r} in {path} is missing extensions: {sorted(missing)}"
+                            )
+                        continue
+                    self.source_indices[source].append(len(self._samples))
+                    self._samples.append((shard_index, key, members))
+                    self.shard_totals[shard_id] += 1
 
     def __len__(self) -> int:
         return len(self._samples)
