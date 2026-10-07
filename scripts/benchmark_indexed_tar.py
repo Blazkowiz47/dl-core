@@ -28,7 +28,7 @@ def parse_sample(sample: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Could not decode {sample['key']}")
     metadata = json.loads(members["json"])
     return {
-        "key": sample["key"],
+        "key": sample["path"],
         "pixels": int(image.shape[0] * image.shape[1]),
         "metadata_fields": len(metadata),
     }

@@ -3,6 +3,13 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes that were previously shown there.
 
+## 0.1.15 (TestPyPI candidate)
+
+- added bounded parallel index construction, shared build slots, per-shard
+  locks, and startup progress logging while preserving version-1 index caches
+- extended the benchmark to compare cold/warm indexing across multiple tars;
+  0.1.16 corrects its sample-identity check when keys repeat across shards
+
 ## 0.1.14
 
 - local sweeps show a run-selection menu on the first Ctrl-C; a second Ctrl-C

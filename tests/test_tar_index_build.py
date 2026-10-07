@@ -8,12 +8,16 @@ import logging
 import multiprocessing as mp
 import os
 import signal
+import subprocess
+import sys
 import tarfile
 import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+import cv2
+import numpy as np
 
 from dl_core.datasets import IndexedTarDataset, TarShardWrapper
 from dl_core.datasets import _tar_index
@@ -269,6 +273,46 @@ def test_parallel_scan_error_reaps_workers_and_leaves_no_partial_indexes(
     dataset = IndexedTarDataset([valid], index_dir=root, index_workers=1)
     assert len(dataset) == 3
     dataset.close()
+
+
+def test_benchmark_accepts_repeated_sample_keys_in_distinct_shards(
+    tmp_path: Path,
+) -> None:
+    paths = [tmp_path / f"shard-{i}.tar" for i in range(2)]
+    _, image = cv2.imencode(".png", np.zeros((2, 2, 3), dtype=np.uint8))
+    for path in paths:
+        with tarfile.open(path, "w") as archive:
+            for extension, payload in (
+                ("png", image.tobytes()),
+                ("json", b'{"valid": true}'),
+            ):
+                member = tarfile.TarInfo(f"shared.{extension}")
+                member.size = len(payload)
+                archive.addfile(member, io.BytesIO(payload))
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/benchmark_indexed_tar.py"),
+            *(str(path) for path in paths),
+            "--index-workers",
+            "1",
+            "--workers",
+            "0",
+            "--samples",
+            "2",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    records = [json.loads(line) for line in result.stdout.splitlines()]
+    assert records[0]["built"] == 2
+    assert records[1]["cached"] == 2
+    assert records[2]["benchmark_samples"] == 2
+    assert records[3]["samples_per_second"] > 0
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Uses POSIX terminal SIGINT delivery")

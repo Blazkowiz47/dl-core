@@ -11,8 +11,8 @@ Trainers own reusable optimization and rollout loops; experiment repositories
 own and register neural model architectures. `deep-learning-core` deliberately
 does not ship built-in neural networks.
 
-Current public release: `deep-learning-core==0.1.15`.
-Current development version: `0.1.15`.
+Current public release: `deep-learning-core==0.1.16`.
+Current development version: `0.1.16`.
 
 Compatible companion package floors:
 
@@ -21,7 +21,7 @@ Compatible companion package floors:
 - `deep-learning-robotics>=0.0.6,<0.1`
 - `deep-learning-wandb>=0.0.16,<0.1`
 
-## What's New in 0.1.15?
+## What's New in 0.1.16?
 
 - plain-tar index cache misses build in parallel, with four indexing workers
   by default and a separate `dataset.indexed_tar.index_workers` setting
@@ -30,7 +30,8 @@ Compatible companion package floors:
 - startup logs report cached/built shard counts and elapsed time, including
   while waiting for slow builds or locks and when indexing sequentially
 - the indexed-tar benchmark compares cold and warm index construction with
-  configurable indexing worker counts
+  configurable indexing worker counts and distinguishes samples whose keys
+  repeat across different shards
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
